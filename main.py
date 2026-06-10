@@ -884,7 +884,7 @@ def show_separator():
 def show_model_narration(round_num, content):
     """
     Tampilkan narasi/pikiran model sebelum memanggil tools.
-    Ini adalah teks yang model tulis SEBELUM/SAMBIL memanggil tool_calls.
+    Hanya dipanggil jika model mengirim content + tool_calls sekaligus.
     Contoh: "Di folder ini ada file ini, oke saya akan ubah..."
     """
     if not content or not content.strip():
@@ -1707,8 +1707,9 @@ def process_response(messages: list, data: dict) -> tuple:
       1. Model selesai (tidak ada tool_calls)
       2. User mengetik 'q' untuk interupsi (setelah round saat ini selesai)
 
-    PENTING: Jika model mengirim content + tool_calls sekaligus,
-    content (narasi/pikiran model) akan ditampilkan dulu sebelum tools dieksekusi.
+    PENTING: Narasi model (content) HANYA ditampilkan jika model juga
+    memanggil tool_calls. Jika model langsung jawab tanpa tools,
+    narasi tidak ditampilkan (langsung return jawaban).
 
     Returns: (teks_akhir, messages_updated, was_interrupted)
     """
@@ -1746,12 +1747,13 @@ def process_response(messages: list, data: dict) -> tuple:
             message = choice["message"]
             messages.append(message)
 
-            # Tampilkan narasi jika ada
+            tool_calls = message.get("tool_calls")
             model_content = message.get("content")
-            if model_content and model_content.strip():
+
+            # Hanya tampilnarasi jika ada tool_calls
+            if tool_calls and model_content and model_content.strip():
                 show_model_narration(round_num, model_content)
 
-            tool_calls = message.get("tool_calls")
             if not tool_calls:
                 return message.get("content", ""), messages, True
             else:
@@ -1800,16 +1802,15 @@ def process_response(messages: list, data: dict) -> tuple:
 
         messages.append(message)
 
-        # ── Tampilkan narasi/pikiran model jika ada ─────────────
-        # Model bisa mengirim content + tool_calls sekaligus.
-        # Content berisi narasi seperti "Di folder ini ada file ini, oke saya akan ubah..."
+        tool_calls = message.get("tool_calls")
         model_content = message.get("content")
-        if model_content and model_content.strip():
+
+        # ── Tampilkan narasi HANYA jika model memanggil tools ────
+        # Jika tidak ada tool_calls, narasi tidak ditampilkan
+        if tool_calls and model_content and model_content.strip():
             show_model_narration(round_num, model_content)
 
-        tool_calls = message.get("tool_calls")
-
-        # Tidak ada tool call → model sudah selesai
+        # Tidak ada tool call → model sudah selesai, return langsung
         if not tool_calls:
             return message.get("content", ""), messages, was_interrupted
 
