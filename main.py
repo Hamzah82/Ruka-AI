@@ -3,6 +3,15 @@ Ruka AI - OpenRouter Chat Client dengan Tool Use (File, Folder & Terminal Comman
 AI Kura-Kura yang dapat membaca, menulis, menghapus, menyalin, memindahkan file,
 mengelola folder, serta menjalankan perintah terminal (bash) di local device.
 Output AI diformat dari markdown ke styled terminal text.
+
+Session Management:
+  python main.py              → session baru dengan nama timestamp
+  python main.py <namaSesi>   → load atau buat sesi dengan nama tertentu
+  /sessions                  → tampilkan daftar semua sesi
+  /new                       → mulai sesi baru
+  /history                   → tampilkan riwayat chat sesi saat ini
+  /delete-session <nama>     → hapus sesi tertentu
+  /rename-session <lama> <baru> → rename sesi
 """
 
 import os
@@ -16,6 +25,7 @@ import subprocess
 import threading
 import queue
 import requests
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,6 +39,9 @@ API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Direktori kerja = folder tempat script ini berada
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Folder untuk menyimpan sesi
+SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
 
 # Timeout default untuk eksekusi perintah (detik)
 DEFAULT_CMD_TIMEOUT = 60
@@ -541,6 +554,186 @@ def format_reply(text: str) -> str:
 
 
 # ============================================================
+# SESSION MANAGEMENT
+# ============================================================
+
+def _ensure_sessions_dir():
+    """Pastikan folder sessions/ ada."""
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+
+
+def _session_path(name: str) -> str:
+    """Dapatkan path file session berdasarkan nama."""
+    # Sanitize nama session — hanya alphanumeric, dash, underscore
+    safe_name = re.sub(r'[^\w\-]', '_', name).strip('_')
+    if not safe_name:
+        safe_name = "untitled"
+    return os.path.join(SESSIONS_DIR, f"{safe_name}.json")
+
+
+def _generate_session_name() -> str:
+    """Generate nama session otomatis berdasarkan timestamp."""
+    return datetime.now().strftime("session_%Y%m%d_%H%M%S")
+
+
+def save_session(name: str, messages: list) -> str:
+    """
+    Simpan session ke file JSON.
+    Returns: pesan status.
+    """
+    _ensure_sessions_dir()
+    path = _session_path(name)
+
+    session_data = {
+        "name": name,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+        "message_count": len(messages),
+        "messages": messages,
+    }
+
+    # Jika file sudah ada, pertahankan created_at
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                old = json.load(f)
+            session_data["created_at"] = old.get("created_at", session_data["created_at"])
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(session_data, f, ensure_ascii=False, indent=2)
+        return f"Session '{name}' berhasil disimpan ({len(messages)} messages)."
+    except Exception as e:
+        return f"Error menyimpan session: {e}"
+
+
+def load_session(name: str) -> tuple:
+    """
+    Load session dari file JSON.
+    Returns: (messages, metadata_dict) atau (None, None) jika gagal.
+    """
+    path = _session_path(name)
+
+    if not os.path.exists(path):
+        return None, None
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        messages = data.get("messages", [])
+        metadata = {
+            "name": data.get("name", name),
+            "created_at": data.get("created_at", "unknown"),
+            "updated_at": data.get("updated_at", "unknown"),
+            "message_count": data.get("message_count", len(messages)),
+        }
+        return messages, metadata
+    except json.JSONDecodeError:
+        return None, None
+    except Exception:
+        return None, None
+
+
+def list_sessions() -> list:
+    """
+    Dapatkan daftar semua session yang tersimpan.
+    Returns: list of dicts dengan info session.
+    """
+    _ensure_sessions_dir()
+    sessions = []
+
+    try:
+        files = sorted(os.listdir(SESSIONS_DIR))
+    except OSError:
+        return sessions
+
+    for f in files:
+        if not f.endswith(".json"):
+            continue
+        path = os.path.join(SESSIONS_DIR, f)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            name = data.get("name", f[:-5])
+            created = data.get("created_at", "unknown")
+            updated = data.get("updated_at", "unknown")
+            msg_count = data.get("message_count", 0)
+            file_size = os.path.getsize(path)
+
+            # Format tanggal agar readable
+            try:
+                created_dt = datetime.fromisoformat(created)
+                created_fmt = created_dt.strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                created_fmt = str(created)[:16]
+
+            try:
+                updated_dt = datetime.fromisoformat(updated)
+                updated_fmt = updated_dt.strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                updated_fmt = str(updated)[:16]
+
+            sessions.append({
+                "name": name,
+                "created": created_fmt,
+                "updated": updated_fmt,
+                "messages": msg_count,
+                "size": file_size,
+            })
+        except (json.JSONDecodeError, IOError):
+            # File corrupt, tetap tampilkan
+            sessions.append({
+                "name": f[:-5],
+                "created": "?",
+                "updated": "?",
+                "messages": 0,
+                "size": os.path.getsize(path),
+            })
+
+    return sessions
+
+
+def delete_session(name: str) -> str:
+    """Hapus file session."""
+    path = _session_path(name)
+    if not os.path.exists(path):
+        return f"Session '{name}' tidak ditemukan."
+    try:
+        os.remove(path)
+        return f"Session '{name}' berhasil dihapus."
+    except Exception as e:
+        return f"Error menghapus session: {e}"
+
+
+def rename_session(old_name: str, new_name: str) -> str:
+    """Rename file session."""
+    old_path = _session_path(old_name)
+    new_path = _session_path(new_name)
+
+    if not os.path.exists(old_path):
+        return f"Session '{old_name}' tidak ditemukan."
+    if os.path.exists(new_path):
+        return f"Session '{new_name}' sudah ada. Pilih nama lain."
+
+    try:
+        # Load, update metadata, save ke file baru, hapus file lama
+        with open(old_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["name"] = new_name
+        data["updated_at"] = datetime.now().isoformat()
+
+        with open(new_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        os.remove(old_path)
+        return f"Session '{old_name}' berhasil di-rename menjadi '{new_name}'."
+    except Exception as e:
+        return f"Error rename session: {e}"
+
+
+# ============================================================
 # UI FUNCTIONS - RUKA AI (KURA-KURA)
 # ============================================================
 
@@ -560,7 +753,17 @@ def ruka_print():
 {Style.DIM}         OpenRouter File & Terminal Agent{Style.RESET}""")
 
 
-def show_banner():
+def show_banner(session_name: str = None, session_meta: dict = None):
+    session_info = ""
+    if session_name:
+        msg_count = session_meta.get("message_count", 0) if session_meta else 0
+        created = session_meta.get("created_at", "?") if session_meta else "?"
+        try:
+            created = datetime.fromisoformat(created).strftime("%Y-%m-%d %H:%M")
+        except (ValueError, TypeError):
+            pass
+        session_info = f"\n║   📌  Session   : {Style.TEAL}{session_name}{Style.WHITE} ({msg_count} pesan, dibuat {created}){Style.WHITE}"
+
     print(f"""{Style.BOLD}
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
@@ -575,6 +778,9 @@ def show_banner():
 ║   💻              Eksekusi Perintah Terminal (Bash)          ║
 ║   🔄  Round      : Unlimited (ketik 'q' untuk interupsi)     ║
 ║   🚪  Ketik      : 'exit' untuk keluar                       ║
+║   💾  Session    : 'python main.py <nama>' untuk load/buat   ║
+║                    '/sessions' lihat daftar, '/new' baru     ║
+║                    '/history' riwayat, '/delete-session' hapus║{session_info}
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝{Style.RESET}""")
 
@@ -597,7 +803,78 @@ def show_examples():
   │  {Style.WHITE}• Tampilkan proses yang berjalan dengan 'ps aux'{Style.DIM}         │
   │  {Style.WHITE}• Cek koneksi jaringan dengan 'ping google.com -c 3'{Style.DIM}     │
   │                                                            │
+  │  {Style.YELLOW}📌 Perintah session:{Style.DIM}                                      │
+  │  {Style.WHITE}• /sessions — lihat semua sesi{Style.DIM}                           │
+  │  {Style.WHITE}• /new — mulai sesi baru{Style.DIM}                                │
+  │  {Style.WHITE}• /history — riwayat chat sesi ini{Style.DIM}                       │
+  │  {Style.WHITE}• /delete-session <nama> — hapus sesi{Style.DIM}                   │
+  │  {Style.WHITE}• /rename-session <lama> <baru> — rename sesi{Style.DIM}            │
+  │                                                            │
   └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+
+
+def show_session_list():
+    """Tampilkan daftar semua session yang tersimpan."""
+    sessions = list_sessions()
+
+    if not sessions:
+        print(f"""
+  {Style.YELLOW}┌──────────────────────────────────────────────────────────┐
+  │  📌 Belum ada session tersimpan.                           │
+  │      Ketik 'python main.py <nama>' untuk memulai.          │
+  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+        return
+
+    print(f"""
+  {Style.CYAN}{Style.BOLD}┌──────────────────────────────────────────────────────────┐
+  │  📌  DAFTAR SESSION ({len(sessions)} sesi)                             │
+  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+
+    for i, s in enumerate(sessions, 1):
+        size_str = _format_size(s["size"])
+        print(f"  {Style.YELLOW}{Style.BOLD}{i:3d}.{Style.RESET}  {Style.WHITE}{s['name']}{Style.RESET}")
+        print(f"       {Style.DIM}Pesan: {s['messages']}  |  Dibuat: {s['created']}  |  Diupdate: {s['updated']}  |  Ukuran: {size_str}{Style.RESET}")
+
+    print(f"\n  {Style.DIM}Ketik 'python main.py <nama>' untuk melanjutkan sesi.{Style.RESET}")
+
+
+def show_session_history(messages: list, session_name: str):
+    """Tampilkan riwayat chat sesi saat ini."""
+    # Filter hanya role user dan assistant (skip system & tool)
+    chat_messages = [m for m in messages if m.get("role") in ("user", "assistant")]
+
+    if not chat_messages:
+        print(f"\n  {Style.YELLOW}📌 Belum ada riwayat chat di sesi ini.{Style.RESET}")
+        return
+
+    print(f"""
+  {Style.CYAN}{Style.BOLD}┌──────────────────────────────────────────────────────────┐
+  │  📌  RIOWAYAT CHAT — {Style.WHITE}{session_name}{Style.RESET}{Style.CYAN}{Style.BOLD}                    │
+  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+
+    for i, msg in enumerate(chat_messages, 1):
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+
+        # Skip system messages
+        if role == "system":
+            continue
+
+        # Truncate content jika terlalu panjang
+        if content and len(content) > 200:
+            content = content[:200] + "..."
+        if not content:
+            content = "(tool call)"
+
+        if role == "user":
+            print(f"  {Style.TEAL}{Style.BOLD}👤  Kamu:{Style.RESET} {content}")
+        elif role == "assistant":
+            print(f"  {Style.GREEN}{Style.BOLD}🐢  Ruka:{Style.RESET} {content}")
+
+        if i < len(chat_messages):
+            print(f"  {Style.DIM}  {'─' * 50}{Style.RESET}")
+
+    print()
 
 
 def show_separator():
@@ -631,13 +908,17 @@ def show_interrupted_reply_header():
     print(f"\n  {Style.YELLOW}{Style.BOLD}🐢  Ruka AI (terinterupsi):{Style.RESET}")
 
 
-def show_exit():
+def show_exit(session_name: str = None):
+    save_msg = ""
+    if session_name:
+        save_msg = f"\n║   💾  Session '{session_name}' tersimpan otomatis.          ║"
+
     print(f"""
 {Style.GREEN}{Style.BOLD}╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
 ║        👋  Sampai jumpa! Terima kasih sudah menggunakan  👋  ║
 ║                    {Style.WHITE}🐢 Ruka AI 🐢{Style.GREEN}                       ║
-║              {Style.DIM}Kura-Kura File & Terminal Agent{Style.GREEN}              ║
+║              {Style.DIM}Kura-Kura File & Terminal Agent{Style.GREEN}              ║{save_msg}
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝{Style.RESET}""")
 
@@ -681,8 +962,9 @@ def show_reply_header():
     print(f"\n  {Style.GREEN}{Style.BOLD}🐢  Ruka AI:{Style.RESET}")
 
 
-def show_user_prompt():
-    return _get_input(f"\n  {Style.TEAL}{Style.BOLD}👤  Kamu:{Style.RESET} ").strip()
+def show_user_prompt(session_name: str = None):
+    label = f"[{session_name}] " if session_name else ""
+    return _get_input(f"\n  {Style.TEAL}{Style.BOLD}👤  {label}Kamu:{Style.RESET} ").strip()
 
 
 # ============================================================
@@ -1545,58 +1827,154 @@ def process_response(messages: list, data: dict) -> tuple:
 
 
 # ============================================================
+# SYSTEM PROMPT
+# ============================================================
+
+def get_system_prompt(session_name: str = None) -> str:
+    session_info = ""
+    if session_name:
+        session_info = (
+            f"\n\n📌 SESSION INFO:\n"
+            f"Nama session: {session_name}\n"
+            f"Session tersimpan otomatis di folder 'sessions/'.\n"
+            f"User bisa melihat daftar sesi dengan '/sessions', mulai sesi baru dengan '/new', "
+            f"melihat riwayat dengan '/history', hapus sesi dengan '/delete-session <nama>', "
+            f"dan rename sesi dengan '/rename-session <lama> <baru>'."
+        )
+
+    return (
+        "Kamu adalah Ruka AI, agent kura-kura (turtle) yang dapat mengelola file dan folder "
+        "di direktori kerja pengguna, serta menjalankan perintah terminal (bash). "
+        "Kamu memiliki kemampuan: membaca file, menulis file, menghapus file, "
+        "menyalin file, memindahkan/rename file, membuat folder, menghapus folder, "
+        "melihat info file/folder, melihat struktur direktori, dan "
+        "menjalankan perintah terminal (bash/shell) di local device pengguna. "
+        "Kamu BOLEH memanggil tools secara berantai dalam satu respons — "
+        "misalnya: list_files dulu untuk tahu file apa yang ada, "
+        "lalu read_file untuk membaca isinya, lalu write_file untuk mengedit, "
+        "atau exec_command untuk menjalankan perintah sistem. "
+        "Lakukan semua langkah yang diperlukan tanpa menunggu konfirmasi user "
+        "kecuali diminta. Selalu konfirmasi hasil akhirnya. "
+        "Jawab dalam Bahasa Indonesia.\n\n"
+        "PENTING: Jangan menggunakan tabel markdown (| col | col |) karena tidak "
+        "terformat dengan baik di terminal. Sebagai gantinya, gunakan format daftar "
+        "dengan bullet point untuk menampilkan data terstruktur.\n\n"
+        "Kamu adalah kura-kura yang bijaksana, sabar, dan teliti. "
+        "Gunakan emoji 🐢 untuk menandai dirimu."
+        + session_info
+    )
+
+
+# ============================================================
 # SESI CHAT INTERAKTIF
 # ============================================================
 
-def chat_session():
+def chat_session(session_name: str = None):
+    # ── Load atau buat session ──────────────────────────────────
+    messages = []
+    session_meta = None
+    is_new_session = True
+
+    if session_name:
+        # Coba load session yang sudah ada
+        loaded_messages, session_meta = load_session(session_name)
+        if loaded_messages is not None:
+            messages = loaded_messages
+            is_new_session = False
+            print(f"\n  {Style.GREEN}📌  Session '{session_name}' dimuat ({len(messages)} pesan).{Style.RESET}")
+        else:
+            # Session belum ada — buat baru dengan nama ini
+            session_meta = None
+            is_new_session = True
+            print(f"\n  {Style.YELLOW}📌  Session '{session_name}' belum ada. Membuat session baru...{Style.RESET}")
+    else:
+        # Tidak ada nama — generate otomatis
+        session_name = _generate_session_name()
+        is_new_session = True
+        print(f"\n  {Style.YELLOW}📌  Membuat session baru: '{session_name}'{Style.RESET}")
+
+    # ── Inisialisasi messages dengan system prompt ─────────────
+    if not messages:
+        messages = [
+            {
+                "role": "system",
+                "content": get_system_prompt(session_name)
+            }
+        ]
+
+    # ── Tampilan awal ──────────────────────────────────────────
     ruka_print()
-    show_banner()
+    show_banner(session_name if not is_new_session or session_name else None, session_meta)
     show_examples()
 
     # Mulai input reader thread sekali di awal
     _start_input_reader()
 
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "Kamu adalah Ruka AI, agent kura-kura (turtle) yang dapat mengelola file dan folder "
-                "di direktori kerja pengguna, serta menjalankan perintah terminal (bash). "
-                "Kamu memiliki kemampuan: membaca file, menulis file, menghapus file, "
-                "menyalin file, memindahkan/rename file, membuat folder, menghapus folder, "
-                "melihat info file/folder, melihat struktur direktori, dan "
-                "menjalankan perintah terminal (bash/shell) di local device pengguna. "
-                "Kamu BOLEH memanggil tools secara berantai dalam satu respons — "
-                "misalnya: list_files dulu untuk tahu file apa yang ada, "
-                "lalu read_file untuk membaca isinya, lalu write_file untuk mengedit, "
-                "atau exec_command untuk menjalankan perintah sistem. "
-                "Lakukan semua langkah yang diperlukan tanpa menunggu konfirmasi user "
-                "kecuali diminta. Selalu konfirmasi hasil akhirnya. "
-                "Jawab dalam Bahasa Indonesia.\n\n"
-                "PENTING: Jangan menggunakan tabel markdown (| col | col |) karena tidak "
-                "terformat dengan baik di terminal. Sebagai gantinya, gunakan format daftar "
-                "dengan bullet point untuk menampilkan data terstruktur.\n\n"
-                "Kamu adalah kura-kura yang bijaksana, sabar, dan teliti. "
-                "Gunakan emoji 🐢 untuk menandai dirimu."
-            )
-        }
-    ]
-
+    # ── Loop utama ─────────────────────────────────────────────
     while True:
         _reset_interrupt()
 
         try:
-            user_input = show_user_prompt()
+            user_input = show_user_prompt(session_name)
         except (EOFError, KeyboardInterrupt):
-            show_exit()
+            save_session(session_name, messages)
+            show_exit(session_name)
             break
 
         if not user_input:
             continue
+
+        # ── Perintah khusus session ─────────────────────────────
         if user_input.lower() in ("exit", "quit", "keluar"):
-            show_exit()
+            save_session(session_name, messages)
+            show_exit(session_name)
             break
 
+        if user_input.lower() == "/sessions":
+            show_session_list()
+            continue
+
+        if user_input.lower() == "/new":
+            # Simpan session saat ini, lalu buat baru
+            save_session(session_name, messages)
+            session_name = _generate_session_name()
+            messages = [
+                {
+                    "role": "system",
+                    "content": get_system_prompt(session_name)
+                }
+            ]
+            print(f"\n  {Style.GREEN}📌  Session baru dimulai: '{session_name}'{Style.RESET}")
+            continue
+
+        if user_input.lower() == "/history":
+            show_session_history(messages, session_name)
+            continue
+
+        if user_input.lower().startswith("/delete-session"):
+            parts = user_input.split(maxsplit=1)
+            if len(parts) < 2:
+                print(f"\n  {Style.YELLOW}⚠️  Gunakan: /delete-session <nama>{Style.RESET}")
+            else:
+                target_name = parts[1].strip()
+                result = delete_session(target_name)
+                print(f"\n  {Style.GREEN if 'berhasil' in result.lower() else Style.RED}{result}{Style.RESET}")
+            continue
+
+        if user_input.lower().startswith("/rename-session"):
+            parts = user_input.split(maxsplit=2)
+            if len(parts) < 3:
+                print(f"\n  {Style.YELLOW}⚠️  Gunakan: /rename-session <lama> <baru>{Style.RESET}")
+            else:
+                old_name = parts[1].strip()
+                new_name = parts[2].strip()
+                result = rename_session(old_name, new_name)
+                if old_name == session_name:
+                    session_name = new_name
+                print(f"\n  {Style.GREEN if 'berhasil' in result.lower() else Style.RED}{result}{Style.RESET}")
+            continue
+
+        # ── Normal chat flow ────────────────────────────────────
         show_separator()
         messages.append({"role": "user", "content": user_input})
 
@@ -1616,8 +1994,13 @@ def chat_session():
             if was_interrupted:
                 print(f"\n  {Style.YELLOW}⏸️  Sesi agent diinterupsi. Kembali ke prompt utama.{Style.RESET}")
 
+            # Auto-save setelah setiap exchange
+            save_session(session_name, messages)
+
         except Exception as e:
             show_error(str(e)[:80])
+            # Tetap save meski error
+            save_session(session_name, messages)
 
 
 # ============================================================
@@ -1625,27 +2008,49 @@ def chat_session():
 # ============================================================
 
 if __name__ == "__main__":
+    # Pastikan folder sessions ada
+    _ensure_sessions_dir()
+
     if len(sys.argv) > 1:
-        # Single prompt mode
-        prompt = " ".join(sys.argv[1:])
-        print(f"Prompt: {prompt}\n")
-        msgs = [
-            {
-                "role": "system",
-                "content": (
-                    "Kamu adalah Ruka AI, agent kura-kura yang dapat mengelola file, folder, dan menjalankan perintah terminal. "
-                    "Jawab dalam Bahasa Indonesia. "
-                    "Jangan menggunakan tabel markdown, gunakan bullet point sebagai gantinya."
-                )
-            },
-            {"role": "user", "content": prompt}
-        ]
-        try:
-            data = chat(msgs)
-            reply, _, _ = process_response(msgs, data)
-            formatted_reply = format_reply(reply)
-            print(f"Jawaban:\n{formatted_reply}")
-        except Exception as e:
-            print(f"Error: {e}")
+        arg = sys.argv[1]
+
+        # Cek apakah argumen adalah perintah session
+        if arg == "list-sessions":
+            # Mode: tampilkan daftar session
+            show_session_list()
+        elif arg == "delete-session" and len(sys.argv) > 2:
+            # Mode: hapus session dari CLI
+            target = sys.argv[2]
+            result = delete_session(target)
+            print(result)
+        elif arg == "rename-session" and len(sys.argv) > 3:
+            # Mode: rename session dari CLI
+            old_name = sys.argv[2]
+            new_name = sys.argv[3]
+            result = rename_session(old_name, new_name)
+            print(result)
+        elif not arg.startswith("/"):
+            # Mode: session dengan nama tertentu
+            session_name = arg
+            chat_session(session_name)
+        else:
+            # Single prompt mode (backward compatibility)
+            prompt = " ".join(sys.argv[1:])
+            print(f"Prompt: {prompt}\n")
+            msgs = [
+                {
+                    "role": "system",
+                    "content": get_system_prompt()
+                },
+                {"role": "user", "content": prompt}
+            ]
+            try:
+                data = chat(msgs)
+                reply, _, _ = process_response(msgs, data)
+                formatted_reply = format_reply(reply)
+                print(f"Jawaban:\n{formatted_reply}")
+            except Exception as e:
+                print(f"Error: {e}")
     else:
+        # Mode interaktif tanpa nama session → auto-generate
         chat_session()
