@@ -881,6 +881,26 @@ def show_separator():
     print(f"\n  {Style.DIM}{'─' * 58}{Style.RESET}")
 
 
+def show_model_narration(round_num, content):
+    """
+    Tampilkan narasi/pikiran model sebelum memanggil tools.
+    Ini adalah teks yang model tulis SEBELUM/SAMBIL memanggil tool_calls.
+    Contoh: "Di folder ini ada file ini, oke saya akan ubah..."
+    """
+    if not content or not content.strip():
+        return
+    
+    # Format content
+    formatted = format_reply(content)
+    
+    print(f"""
+  {Style.TEAL}┌─ 🐢  [Round {round_num}] Ruka AI:{Style.RESET} ──────────────────────────────────────┐
+  {Style.TEAL}│{Style.RESET}
+  {Style.TEAL}│{Style.RESET}  {Style.WHITE}{formatted}{Style.RESET}
+  {Style.TEAL}│{Style.RESET}
+  {Style.TEAL}└──────────────────────────────────────────────────────────┘{Style.RESET}""")
+
+
 def show_tool_call(round_num, tool_name, args_preview, result_preview):
     print(f"""
   {Style.MAGENTA}┌─ ⚙️  Round {round_num} ─────────────────────────────────────────┐
@@ -1687,6 +1707,9 @@ def process_response(messages: list, data: dict) -> tuple:
       1. Model selesai (tidak ada tool_calls)
       2. User mengetik 'q' untuk interupsi (setelah round saat ini selesai)
 
+    PENTING: Jika model mengirim content + tool_calls sekaligus,
+    content (narasi/pikiran model) akan ditampilkan dulu sebelum tools dieksekusi.
+
     Returns: (teks_akhir, messages_updated, was_interrupted)
     """
     round_num = 0
@@ -1722,6 +1745,11 @@ def process_response(messages: list, data: dict) -> tuple:
             choice = data["choices"][0]
             message = choice["message"]
             messages.append(message)
+
+            # Tampilkan narasi jika ada
+            model_content = message.get("content")
+            if model_content and model_content.strip():
+                show_model_narration(round_num, model_content)
 
             tool_calls = message.get("tool_calls")
             if not tool_calls:
@@ -1771,6 +1799,13 @@ def process_response(messages: list, data: dict) -> tuple:
         message = choice["message"]
 
         messages.append(message)
+
+        # ── Tampilkan narasi/pikiran model jika ada ─────────────
+        # Model bisa mengirim content + tool_calls sekaligus.
+        # Content berisi narasi seperti "Di folder ini ada file ini, oke saya akan ubah..."
+        model_content = message.get("content")
+        if model_content and model_content.strip():
+            show_model_narration(round_num, model_content)
 
         tool_calls = message.get("tool_calls")
 
