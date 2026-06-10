@@ -23,19 +23,17 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 
 ## 🛠️ Kemampuan Tools
 
-| # | Tool | Deskripsi |
-|---|------|-----------|
-| 1 | `read_file` | Membaca isi file teks dari direktori kerja |
-| 2 | `write_file` | Menulis atau membuat file teks baru |
-| 3 | `list_files` | Menampilkan daftar semua file di direktori kerja |
-| 4 | `delete_file` | Menghapus file dari direktori kerja |
-| 5 | `copy_file` | Menyalin file dari sumber ke tujuan |
-| 6 | `move_file` | Memindahkan atau me-rename file/folder |
-| 7 | `get_file_info` | Menampilkan info detail file/folder (ukuran, tanggal, izin) |
-| 8 | `create_folder` | Membuat folder baru |
-| 9 | `delete_folder` | Menghapus folder (opsional rekursif) |
-| 10 | `list_all` | Menampilkan struktur direktori lengkap dalam format tree |
-| 11 | `exec_command` | Menjalankan perintah terminal (bash/shell) |
+- `read_file` — Membaca isi file teks dari direktori kerja
+- `write_file` — Menulis atau membuat file teks baru
+- `list_files` — Menampilkan daftar semua file di direktori kerja
+- `delete_file` — Menghapus file dari direktori kerja
+- `copy_file` — Menyalin file dari sumber ke tujuan
+- `move_file` — Memindahkan atau me-rename file/folder
+- `get_file_info` — Menampilkan info detail file/folder (ukuran, tanggal, izin)
+- `create_folder` — Membuat folder baru
+- `delete_folder` — Menghapus folder (opsional rekursif)
+- `list_all` — Menampilkan struktur direktori lengkap dalam format tree
+- `exec_command` — Menjalankan perintah terminal (bash/shell)
 
 ---
 
@@ -58,6 +56,14 @@ cd Ruka-AI
 
 **2. Install dependensi:**
 
+Gunakan `requirements.txt` untuk install semua dependensi sekaligus:
+
+```bash
+pip install -r requirements.txt
+```
+
+Atau install manual satu per satu:
+
 ```bash
 pip install requests python-dotenv
 ```
@@ -69,6 +75,14 @@ Buat file `.env` di root project:
 ```env
 OPENROUTER_API_KEY=sk-or-v1-your-api-key-here
 ```
+
+Atau salin dari template yang sudah disediakan:
+
+```bash
+cp .env.example .env
+```
+
+Lalu edit `.env` dan masukkan API key kamu.
 
 **4. Jalankan:**
 
@@ -190,22 +204,18 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 
 ### Perintah Session dalam Chat
 
-| Perintah | Deskripsi |
-|----------|-----------|
-| `/sessions` | Tampilkan daftar semua session tersimpan |
-| `/new` | Mulai session baru (session lama auto-save) |
-| `/history` | Tampilkan riwayat chat sesi saat ini |
-| `/delete-session <nama>` | Hapus session tertentu |
-| `/rename-session <lama> <baru>` | Rename session |
+- `/sessions` — Tampilkan daftar semua session tersimpan
+- `/new` — Mulai session baru (session lama auto-save)
+- `/history` — Tampilkan riwayat chat sesi saat ini
+- `/delete-session <nama>` — Hapus session tertentu
+- `/rename-session <lama> <baru>` — Rename session
 
 ### Perintah Session dari CLI
 
-| Perintah | Deskripsi |
-|----------|-----------|
-| `python main.py <nama>` | Load atau buat session dengan nama tertentu |
-| `python main.py list-sessions` | Lihat daftar semua session |
-| `python main.py delete-session <nama>` | Hapus session dari CLI |
-| `python main.py rename-session <lama> <baru>` | Rename session dari CLI |
+- `python main.py <nama>` — Load atau buat session dengan nama tertentu
+- `python main.py list-sessions` — Lihat daftar semua session
+- `python main.py delete-session <nama>` — Hapus session dari CLI
+- `python main.py rename-session <lama> <baru>` — Rename session dari CLI
 
 ### Auto-Save
 
@@ -228,14 +238,17 @@ Ruka AI dilengkapi dengan beberapa lapisan keamanan:
 
 ```
 Ruka-AI/
-├── main.py          # Source code utama — seluruh logic agent
-├── .env             # Konfigurasi API key (tidak di-push ke git)
-├── .gitignore       # Daftar file/folder yang diabaikan git
-├── sessions/        # Folder penyimpanan session (tidak di-push ke git)
+├── main.py           # Source code utama — seluruh logic agent
+├── requirements.txt  # Dependensi Python yang dibutuhkan
+├── .env.example      # Template konfigurasi API key
+├── .env              # Konfigurasi API key (tidak di-push ke git)
+├── .gitignore        # Daftar file/folder yang diabaikan git
+├── LICENSE           # Lisensi MIT
+├── sessions/         # Folder penyimpanan session (tidak di-push ke git)
 │   ├── session_20250701_143022.json
 │   ├── kerja-proyek.json
 │   └── ...
-└── README.md        # Dokumentasi project ini
+└── README.md         # Dokumentasi project ini
 ```
 
 ---
@@ -244,27 +257,25 @@ Ruka-AI/
 
 Variabel konfigurasi yang dapat diubah di `main.py`:
 
-| Variabel | Default | Deskripsi |
-|----------|---------|-----------|
-| `MODEL` | `openrouter/owl-alpha` | Model AI yang digunakan via OpenRouter |
-| `DEFAULT_CMD_TIMEOUT` | `60` | Timeout default untuk eksekusi perintah (detik) |
-| `MAX_RETRIES` | `5` | Jumlah maksimum retry jika request gagal |
-| `RETRY_BASE_DELAY` | `2` | Delay dasar untuk exponential backoff (detik) |
-| `BASE_DIR` | Direktori script | Direktori kerja tempat file dikelola |
-| `SESSIONS_DIR` | `sessions/` | Folder penyimpanan session |
+- `MODEL` — Default: `openrouter/owl-alpha` — Model AI yang digunakan via OpenRouter
+- `DEFAULT_CMD_TIMEOUT` — Default: `60` — Timeout default untuk eksekusi perintah (detik)
+- `MAX_RETRIES` — Default: `5` — Jumlah maksimum retry jika request gagal
+- `RETRY_BASE_DELAY` — Default: `2` — Delay dasar untuk exponential backoff (detik)
+- `BASE_DIR` — Default: Direktori script — Direktori kerja tempat file dikelola
+- `SESSIONS_DIR` — Default: `sessions/` — Folder penyimpanan session
 
 ---
 
 ## 📦 Dependensi
 
-- **requests** — HTTP client untuk berkomunikasi dengan OpenRouter API
-- **python-dotenv** — Memuat variabel environment dari file `.env`
+- **requests** (>=2.28.0) — HTTP client untuk berkomunikasi dengan OpenRouter API
+- **python-dotenv** (>=1.0.0) — Memuat variabel environment dari file `.env`
 
 ---
 
 ## 📄 Lisensi
 
-Project ini bersifat open source. Silakan gunakan, modifikasi, dan distribusikan sesuai kebutuhan.
+Project ini dilisensikan di bawah **MIT License**. Silakan gunakan, modifikasi, dan distribusikan sesuai kebutuhan.
 
 ---
 
