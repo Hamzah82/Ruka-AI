@@ -11,6 +11,7 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Manajemen File Lengkap** — Baca, tulis, hapus, salin, dan pindahkan file
 - **Manajemen Folder** — Buat, hapus folder (termasuk rekursif), dan tampilkan struktur direktori dalam format tree
 - **Eksekusi Terminal** — Jalankan perintah bash/shell langsung dari percakapan
+- **Session Management** — Simpan, muat, hapus, dan rename sesi percakapan dengan mudah
 - **Multi-Step Agentic Loop** — AI dapat memanggil tool secara berantai dalam satu sesi (misalnya: list file → baca → edit → simpan)
 - **Interupsi Real-Time** — Tekan `q` kapan saja untuk menghentikan proses yang sedang berjalan
 - **Markdown to Terminal Formatter** — Output AI diformat dari markdown ke styled terminal text yang cantik
@@ -79,13 +80,69 @@ python main.py
 
 ## 💡 Contoh Penggunaan
 
-### Mode Interaktif (Chat Session)
+### Mode Interaktif (Session Baru Otomatis)
 
 ```bash
 python main.py
 ```
 
-Kemudian ketik perintah dalam bahasa natural:
+Session baru akan dibuat secara otomatis dengan nama berbasis timestamp (contoh: `session_20250701_143022`).
+
+### Mode Interaktif (Session dengan Nama)
+
+```bash
+python main.py kerja-proyek
+```
+
+Jika session `kerja-proyek` sudah ada, percakapan sebelumnya akan dimulai. Jika belum, session baru akan dibuat.
+
+### Melihat Daftar Session
+
+```bash
+python main.py list-sessions
+```
+
+Atau saat dalam sesi chat, ketik:
+
+```
+👤  Kamu: /sessions
+```
+
+### Mulai Session Baru
+
+```
+👤  Kamu: /new
+```
+
+Session saat ini akan otomatis tersimpan, lalu session baru dimulai.
+
+### Melihat Riwayat Chat
+
+```
+👤  Kamu: /history
+```
+
+### Menghapus Session
+
+```bash
+# Dari CLI:
+python main.py delete-session kerja-proyek
+
+# Dari dalam chat:
+👤  Kamu: /delete-session kerja-proyek
+```
+
+### Rename Session
+
+```bash
+# Dari CLI:
+python main.py rename-session nama-lama nama-baru
+
+# Dari dalam chat:
+👤  Kamu: /rename-session nama-lama nama-baru
+```
+
+### Contoh Percakapan
 
 ```
 👤  Kamu: Tampilkan daftar file dan folder
@@ -97,6 +154,10 @@ Kemudian ketik perintah dalam bahasa natural:
 👤  Kamu: Jalankan perintah 'ls -la' di terminal
 👤  Kamu: Cek penggunaan disk dengan 'df -h'
 👤  Kamu: Tampilkan struktur direktori saat ini
+👤  Kamu: /history
+👤  Kamu: /sessions
+👤  Kamu: /new
+👤  Kamu: exit
 ```
 
 ### Mode Single Prompt
@@ -119,6 +180,39 @@ q
 
 ---
 
+## 💾 Session Management
+
+Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/` dalam format JSON. Setiap session berisi:
+
+- **Nama session** — Identifier unik untuk sesi
+- **Riwayat pesan** — Seluruh percakapan (system, user, assistant, tool)
+- **Metadata** — Tanggal dibuat, tanggal diupdate, jumlah pesan
+
+### Perintah Session dalam Chat
+
+| Perintah | Deskripsi |
+|----------|-----------|
+| `/sessions` | Tampilkan daftar semua session tersimpan |
+| `/new` | Mulai session baru (session lama auto-save) |
+| `/history` | Tampilkan riwayat chat sesi saat ini |
+| `/delete-session <nama>` | Hapus session tertentu |
+| `/rename-session <lama> <baru>` | Rename session |
+
+### Perintah Session dari CLI
+
+| Perintah | Deskripsi |
+|----------|-----------|
+| `python main.py <nama>` | Load atau buat session dengan nama tertentu |
+| `python main.py list-sessions` | Lihat daftar semua session |
+| `python main.py delete-session <nama>` | Hapus session dari CLI |
+| `python main.py rename-session <lama> <baru>` | Rename session dari CLI |
+
+### Auto-Save
+
+Session disimpan secara otomatis setelah setiap exchange (user prompt + AI response), sehingga riwayat percakapan tidak hilang meskipun program ditutup secara tidak terduga.
+
+---
+
 ## 🔒 Keamanan
 
 Ruka AI dilengkapi dengan beberapa lapisan keamanan:
@@ -137,6 +231,10 @@ Ruka-AI/
 ├── main.py          # Source code utama — seluruh logic agent
 ├── .env             # Konfigurasi API key (tidak di-push ke git)
 ├── .gitignore       # Daftar file/folder yang diabaikan git
+├── sessions/        # Folder penyimpanan session (tidak di-push ke git)
+│   ├── session_20250701_143022.json
+│   ├── kerja-proyek.json
+│   └── ...
 └── README.md        # Dokumentasi project ini
 ```
 
@@ -153,6 +251,7 @@ Variabel konfigurasi yang dapat diubah di `main.py`:
 | `MAX_RETRIES` | `5` | Jumlah maksimum retry jika request gagal |
 | `RETRY_BASE_DELAY` | `2` | Delay dasar untuk exponential backoff (detik) |
 | `BASE_DIR` | Direktori script | Direktori kerja tempat file dikelola |
+| `SESSIONS_DIR` | `sessions/` | Folder penyimpanan session |
 
 ---
 
