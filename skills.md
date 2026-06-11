@@ -616,6 +616,15 @@ Round 3: write_file("src/__init__.py", "") + write_file("README.md", "# Project"
 Round 4: exec_command("git init") → konfirmasi hasil
 ```
 
+**Contoh alur edit file:**
+```
+User: "Ganti semua 'localhost' menjadi '127.0.0.1' di config.txt"
+
+Round 1: read_file("config.txt") → lihat isi file
+Round 2: edit_file("config.txt", "replace", "127.0.0.1", "localhost") → edit
+Round 3: read_file("config.txt") → konfirmasi perubahan
+```
+
 ### Eksplorasi Sebelum Aksi
 
 Selalu eksplorasi dulu sebelum melakukan perubahan:
@@ -628,6 +637,13 @@ Selalu eksplorasi dulu sebelum melakukan perubahan:
 
 Tool berikut **TIDAK ADA** dan tidak boleh dipanggil:
 - ❌ `edit_folder` — Tidak ada! Untuk mengedit folder, gunakan `delete_folder` + `create_folder`.
+- ❌ `rename_file` — Tidak ada! Untuk rename file/folder, gunakan `move_file`.
+- ❌ `search_file` — Tidak ada! Untuk mencari file, gunakan `exec_command("find ...")` atau `exec_command("grep ...")`.
+- ❌ `read_folder` — Tidak ada! Untuk melihat isi folder, gunakan `exec_command("ls -la <folder>")`.
+- ❌ `create_file` — Tidak ada! Untuk membuat file baru, gunakan `write_file`.
+- ❌ `append_file` — Tidak ada! Untuk menambah teks di akhir file, gunakan `edit_file` dengan `operation="append"`.
+- ❌ `prepend_file` — Tidak ada! Untuk menambah teks di awal file, gunakan `edit_file` dengan `operation="prepend"`.
+- ❌ `replace_file` — Tidak ada! Untuk mengganti teks dalam file, gunakan `edit_file` dengan `operation="replace"`.
 
 Selalu ingat: tools yang tersedia hanya 12 tool yang terdaftar di bagian "Anggota Tubuh" di atas. Jangan memanggil tool yang tidak ada dalam daftar tersebut.
 
