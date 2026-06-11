@@ -16,7 +16,7 @@
 - [6. Alur Kerja Agentic Loop](#6-alur-kerja-agentic-loop)
 - [7. Panduan Gaya Komunikasi](#7-panduan-gaya-komunikasi)
 - [8. Error Handling](#8-error-handling)
-- [9. Tips & Best Practices](#9-tips--best-practices)
+- [9. Tips & Best Practices](#9-tips--best-practices) *(termasuk PPT Creation)*
 - [10. Browsing & Web Scraping](#10-browsing--web-scraping)
 - [11. Browsing Skill (Lengkap)](#11-browsing-skill-lengkap)
 
@@ -690,13 +690,45 @@ Round 3: read_file("greeting.txt") → konfirmasi perubahan
 - Jika user kembali ke session lama, baca konteks sebelumnya
 - Jangan ulang informasi yang sudah diberikan di session yang sama
 
+### 📊 Membuat PPT (PowerPoint)
+
+Ketika user meminta membuat file PPT / PowerPoint / presentasi, **WAJIB** membaca file `SKILL/pptSkill.md` terlebih dahulu sebelum membuat script.
+
+File `SKILL/pptSkill.md` berisi seluruh panduan pembuatan PPT termasuk:
+- Cara install `python-pptx`
+- Struktur dasar script PPT
+- Helper functions yang dipakai (dark_bg, add_shape, add_text_box, add_circle, add_bullet_list)
+- Panduan warna & tema (dark theme)
+- Tipografi & font standar
+- Template slide (cover, konten, 2 kolom, card grid, quote, penutup, flow)
+- Troubleshooting error umum
+
+**⚠️ Aturan wajib:**
+- BACA `SKILL/pptSkill.md` dulu sebelum membuat PPT, terutama di session baru
+- Pilihan pembuatan PPT:
+  - **Opsi 1** — Konten teks, user copy-paste ke PowerPoint/Google Slides
+  - **Opsi 2** — HTML presentation, bisa langsung presentasi di browser
+  - **Opsi 3** — Python script dengan `python-pptx`, hasilnya file `.pptx` asli
+- Script contoh lengkap: `workspace/rukaPPT/buat_ppt_ruka.py`
+- Output contoh: `workspace/rukaPPT/Ruka_AI_Pengenalan.pptx`
+
+Contoh alur:
+```
+User: "Buatkan PPT tentang X"
+
+Round 1: read_file("SKILL/pptSkill.md") → baca panduan PPT
+Round 2: write_file("buat_ppt_X.py", script) → buat script Python
+Round 3: exec_command("python3 buat_ppt_X.py") → jalankan script
+Round 4: Pindahkan output ke workspace/rukaPPT/ → konfirmasi hasil
+```
+
 ---
 
 ## 10. Browsing & Web Scraping
 
-Ketika user meminta informasi dari internet (search, kurs, data online, dll), **WAJIB** membaca file `browsingSkill.md` terlebih dahulu sebelum melakukan operasi browsing.
+Ketika user meminta informasi dari internet (search, kurs, data online, dll), **WAJIB** membaca file `SKILL/browsingSkill.md` terlebih dahulu sebelum melakukan operasi browsing.
 
-File `browsingSkill.md` berisi seluruh panduan browsing termasuk:
+File `SKILL/browsingSkill.md` berisi seluruh panduan browsing termasuk:
 - Daftar tools browsing (lynx, w3m, curl, python3)
 - Search engine yang bisa diakses dan yang diblokir
 - Pattern scraping yang sudah teruji berhasil
@@ -704,7 +736,7 @@ File `browsingSkill.md` berisi seluruh panduan browsing termasuk:
 - Troubleshooting untuk masalah umum
 
 **⚠️ Aturan wajib:**
-- BACA `browsingSkill.md` dulu sebelum browsing, terutama di session baru
+- BACA `SKILL/browsingSkill.md` dulu sebelum browsing, terutama di session baru
 - JANGAN mencoba mengakses Google — Google memblokir semua text-based browser
 - GUNAKAN DuckDuckGo HTML sebagai search engine utama
 
@@ -712,7 +744,7 @@ Contoh alur:
 ```
 User: "Carikan info X di internet"
 
-Round 1: read_file("browsingSkill.md") → baca panduan browsing
+Round 1: read_file("SKILL/browsingSkill.md") → baca panduan browsing
 Round 2: exec_command("lynx -dump 'https://html.duckduckgo.com/html/?q=X'") → search
 Round 3: Analisis hasil → tampilkan ke user
 ```
@@ -750,6 +782,13 @@ Round 3: Analisis hasil → tampilkan ke user
 │    /sessions, /new, /history                             │
 │    /delete-session <nama>                                │
 │    /rename-session <lama> <baru>                         │
+│                                                          │
+│  PPT CREATION:                                           │
+│    Baca SKILL/pptSkill.md dulu sebelum buat PPT          │
+│    Opsi 1: Teks → user copy-paste                        │
+│    Opsi 2: HTML presentation → browser                   │
+│    Opsi 3: Python + python-pptx → file .pptx             │
+│    Contoh: workspace/rukaPPT/buat_ppt_ruka.py            │
 │                                                          │
 │  RULES:                                                  │
 │    ✅ Bahasa Indonesia                                    │
