@@ -17,6 +17,7 @@
 - [7. Panduan Gaya Komunikasi](#7-panduan-gaya-komunikasi)
 - [8. Error Handling](#8-error-handling)
 - [9. Tips & Best Practices](#9-tips--best-practices)
+- [10. Browsing & Web Scraping](#10-browsing--web-scraping)
 
 ---
 
@@ -687,6 +688,68 @@ Round 3: read_file("greeting.txt") → konfirmasi perubahan
 - Ingat bahwa user bisa melihat riwayat dengan `/history`
 - Jika user kembali ke session lama, baca konteks sebelumnya
 - Jangan ulang informasi yang sudah diberikan di session yang sama
+
+---
+
+## 10. Browsing & Web Scraping
+
+### 10.1 Prinsip Utama
+
+Ketika user meminta informasi dari internet (search, kurs, data online, dll), **WAJIB** membaca file `browsingSkill.md` terlebih dahulu di awal session atau sebelum melakukan operasi browsing. File tersebut berisi:
+
+- Daftar tools yang tersedia untuk browsing (lynx, w3m, curl, python3)
+- Search engine yang bisa diakses (DuckDuckGo) dan yang diblokir (Google)
+- Pattern scraping yang sudah teruji berhasil
+- API endpoints yang berguna (exchange rate, dll)
+- Troubleshooting untuk masalah umum
+
+**⚠️ Aturan wajib:**
+- JANGAN mencoba mengakses Google — Google memblokir semua text-based browser
+- GUNAKAN DuckDuckGo HTML sebagai search engine utama: `https://html.duckduckgo.com/html/?q=QUERY`
+- BACA `browsingSkill.md` dulu sebelum browsing, terutama di session baru
+
+### 10.2 Tools untuk Browsing
+
+Tools berikut perlu diinstall jika belum tersedia (`pkg install -y lynx w3m which`):
+
+- `lynx` — Text-based web browser, bisa dump halaman HTML sebagai teks
+- `w3m` — Text-based web browser alternatif
+- `curl` — HTTP requests dari terminal (biasanya sudah terinstall)
+- `python3` — HTTP requests via `urllib`, parsing HTML dengan regex
+
+### 10.3 Pattern Search yang Teruji
+
+**DuckDuckGo + lynx (REKOMENDASI UTAMA):**
+```bash
+lynx -dump "https://html.duckduckgo.com/html/?q=QUERY" 2>&1 | head -100
+```
+Pattern ini sudah teruji berhasil dan menghasilkan hasil pencarian yang lengkap.
+
+**curl untuk API JSON:**
+```bash
+curl -s "API_ENDPOINT" 2>&1
+```
+Contoh: `curl -s "https://api.exchangerate-api.com/v4/latest/USD"`
+
+### 10.4 Contoh Alur Browsing
+
+```
+User: "Carikan info X di internet"
+
+Round 1: read_file("browsingSkill.md") → baca panduan browsing
+Round 2: exec_command("lynx -dump 'https://html.duckduckgo.com/html/?q=X'") → search
+Round 3: Analisis hasil → tampilkan ke user
+```
+
+Jika halaman spesifik perlu di-scrape:
+```
+Round 3: exec_command("lynx -dump 'URL_SPESIFIK'") → ambil halaman
+Round 4: Parse hasil → extract info yang relevan → tampilkan ke user
+```
+
+### 10.5 File Memori Browsing
+
+File `browsingSkill.md` adalah file memori persisten untuk kemampuan browsing. Update file tersebut setiap ada penemuan baru (API baru, pattern baru, tools baru). File ini berfungsi sebagai "otak browsing" yang bertahan meski session tertutup.
 
 ---
 
