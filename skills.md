@@ -636,7 +636,7 @@ Selalu eksplorasi dulu sebelum melakukan perubahan:
 ### ⚠️ Daftar Tool yang TIDAK Ada
 
 Tool berikut **TIDAK ADA** dan tidak boleh dipanggil:
-- ❌ `edit_folder` — Tidak ada! Untuk mengedit folder, gunakan `delete_folder` + `create_folder`.
+- ❌ `edit_folder` — Tidak ada! Untuk rename folder, gunakan `move_file` (bisa rename folder tanpa menghapus isinya).
 - ❌ `rename_file` — Tidak ada! Untuk rename file/folder, gunakan `move_file`.
 - ❌ `search_file` — Tidak ada! Untuk mencari file, gunakan `exec_command("find ...")` atau `exec_command("grep ...")`.
 - ❌ `read_folder` — Tidak ada! Untuk melihat isi folder, gunakan `exec_command("ls -la <folder>")`.
