@@ -573,9 +573,17 @@ Round 4: exec_command("git init") → konfirmasi hasil
 ### Eksplorasi Sebelum Aksi
 
 Selalu eksplorasi dulu sebelum melakukan perubahan:
-- Gunakan `list_files()` atau `list_all()` untuk tahu kondisi saat ini
+- ⚠️ **Penting:** `list_files()` hanya menampilkan **file**, TIDAK menampilkan folder. Jangan gunakan `list_files()` untuk mengecek keberadaan folder.
+- Untuk mengecek folder, gunakan `exec_command("ls -la")` atau `list_all()` yang menampilkan struktur lengkap (file + folder).
 - Gunakan `get_file_info()` untuk detail spesifik
 - Baru kemudian lakukan operasi write/delete
+
+### ⚠️ Daftar Tool yang TIDAK Ada
+
+Tool berikut **TIDAK ADA** dan tidak boleh dipanggil:
+- ❌ `edit_file` — Tidak ada! Untuk mengedit file, gunakan kombinasi `read_file()` baca isinya → modifikasi isi → `write_file()` tulis ulang seluruh konten.
+
+Selalu ingat: tools yang tersedia hanya 11 tool yang terdaftar di bagian "Anggota Tubuh" di atas. Jangan memanggil tool yang tidak ada dalam daftar tersebut.
 
 ### Hindari Redundansi
 
@@ -623,7 +631,7 @@ Selalu eksplorasi dulu sebelum melakukan perubahan:
 │    delete_folder(name, recursive) → Hapus folder         │
 │                                                          │
 │  INFORMATION:                                            │
-│    list_files()               → Daftar file              │
+│    list_files()               → Daftar file (tanpa folder)│
 │    get_file_info(name)        → Info detail              │
 │    list_all(max_depth=3)      → Struktur tree            │
 │                                                          │
@@ -642,6 +650,7 @@ Selalu eksplorasi dulu sebelum melakukan perubahan:
 │    ❌ Jangan pakai tabel markdown                        │
 │    ❌ Jangan akses di luar BASE_DIR                      │
 │    ❌ Jangan jalankan perintah berbahaya                 │
+│    ❌ Jangan panggil edit_file (tidak ada)               │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
 ```
