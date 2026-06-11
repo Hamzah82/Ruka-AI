@@ -298,7 +298,7 @@ Setiap round menambahkan pesan baru ke `session["messages"]`. Semua pesan ini di
 - `move_file` — Memindahkan/menrename file
 - `get_file_info` — Info detail file/folder
 - `create_folder` — Membuat folder baru
-- `delete_folder` — Menghapus folder (beka rekursif)
+- `delete_folder` — Menghapus folder (bisa rekursif)
 - `list_all` — Struktur direktori dalam format tree
 - `exec_command` — Menjalankan perintah terminal
 - `edit_file` — Mengedit isi file (replace/append/prepend)

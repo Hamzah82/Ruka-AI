@@ -1403,7 +1403,7 @@ def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str =
             if old_text is None:
                 return "Error: Parameter 'old_text' diperlukan untuk operasi 'replace'."
             if old_text not in current_content:
-                return f"Error: Teks '{old_text[:50]}...' tidak ditemukan dalam file '{filename}'."
+                return f"Error: Teks '{old_text[:50]}{'...' if len(old_text) > 50 else ''}' tidak ditemukan dalam file '{filename}'."
             new_content = current_content.replace(old_text, new_text, 1)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(new_content)
@@ -1411,7 +1411,7 @@ def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str =
         
         elif operation == "append":
             with open(path, "a", encoding="utf-8") as f:
-                f.write(new_content)
+                f.write(new_text)
             return f"File '{filename}' berhasil diedit (append: {len(new_text)} karakter ditambahkan di akhir)."
         
         elif operation == "prepend":
