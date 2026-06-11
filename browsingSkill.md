@@ -431,16 +431,6 @@ Butuh data dari internet?
 
 ---
 
-## 📝 Catatan Session
-
-**Session: temp_2 (11 Juni 2026)**
-- Berhasil install: lynx, w3m, which
-- Berhasil akses: DuckDuckGo HTML, ExchangeRate-API, Wise API
-- Gagal akses: Google Search, Google Finance (dibot detection)
-- Walikota Surabaya: Eri Cahyadi, IG: @ericahyadi_ (267K followers)
-
----
-
 <div align="center">
 
 **🐢 Ruka AI — Browsing Skills v1.0**
