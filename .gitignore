@@ -191,3 +191,5 @@ config/
 
 # Session data (chat history)
 sessions/
+# Backup / old files
+skills_old.md
