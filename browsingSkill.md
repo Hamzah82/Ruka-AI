@@ -12,10 +12,11 @@
 - [2. Tools yang Tersedia](#2-tools-yang-tersedia)
 - [3. Masalah Utama: Google Blocking](#3-masalah-utama-google-blocking)
 - [4. Solusi: Search Engine Alternatif](#4-solusi-search-engine-alternatif)
-- [5. Pattern Scraping yang Sudah Teruji](#5-pattern-scraping-yang-sudah-teruji)
-- [6. API Endpoints yang Berguna](#6-api-endpoints-yang-berguna)
-- [7. Troubleshooting](#7-troubleshooting)
-- [8. Cheat Sheet](#8-cheat-sheet)
+- [5. Rate Limiting Strategy](#5-rate-limiting-strategy)
+- [6. Pattern Scraping yang Sudah Teruji](#6-pattern-scraping-yang-sudah-teruji)
+- [7. API Endpoints yang Berguna](#7-api-endpoints-yang-berguna)
+- [8. Troubleshooting](#8-troubleshooting)
+- [9. Cheat Sheet](#9-cheat-sheet)
 
 ---
 
@@ -224,15 +225,107 @@ Langsung gunakan alternatif (lihat bagian 4).
 
 ---
 
-## 5. Pattern Scraping yang Sudah Teruji
+## 5. Rate Limiting Strategy
 
-### 5.1 Pattern: Cari Info via DuckDuckGo + lynx
+> ⚠️ **Aturan wajib yang harus diikuti setiap kali browsing.**
+> Search engine bisa memblokir akses jika request terlalu cepat atau terlalu sering.
+> Bagian ini menjelaskan cara menghindari rate limit dan tetap bisa browsing dengan andal.
+
+### 5.1 Masalah: Mengapa Rate Limit Terjadi
+
+- Search engine mendeteksi request dari bot berdasarkan **frekuensi** dan **pola akses**
+- Brave Search sudah membuktikannya — python3 langsung mendapat HTTP 429 (Too Many Requests)
+- DuckDuckGo saat ini masih toleran, tapi bisa berubah kapan saja
+- Semakin sering kita hit dalam waktu singkat, semakin besar kemungkinan diblokir
+- IP address kita bisa masuk blacklist jika terlalu agresif
+
+### 5.2 Strategi Utama
+
+**A. Delay Antar Request**
+- Selalu beri jeda **minimal 3-5 detik** antara request ke search engine yang sama
+- Jika dalam satu round perlu multiple request, gunakan `sleep` di antara mereka
+- Contoh:
+  ```bash
+  lynx -dump "https://html.duckduckgo.com/html/?q=QUERY1" 2>&1 | head -50
+  sleep 3
+  lynx -dump "https://html.duckduckgo.com/html/?q=QUERY2" 2>&1 | head -50
+  ```
+- Untuk python3, gunakan `time.sleep(3)` antar request
+
+**B. Rotasi Search Engine**
+- Jangan selalu pakai satu engine untuk semua query
+- Jika satu engine gagal (error/429), fallback ke engine lain
+- Urutan fallback yang disarankan:
+  1. DuckDuckGo HTML (utama)
+  2. DuckDuckGo Lite (lebih ringan)
+  3. Bing (hasil lengkap, tapi berat)
+  4. Mojeek (privacy-focused)
+  5. DuckDuckGo API (untuk ringkasan singkat)
+  6. Brave Search (via lynx saja)
+- Rotasi juga berguna jika satu engine sedang down
+
+**C. Caching / Simpan Hasil**
+- Jika user minta info yang sama, pakai hasil sebelumnya — jangan request ulang
+- Bisa simpan hasil search ke file sementara di direktori kerja
+- Hindari request ulang untuk query yang sama dalam session yang sama
+- Jika memungkinkan, cek apakah hasil sudah ada di memori session sebelum browsing
+
+**D. Exponential Backoff**
+- Jika mendapat error (429, 503, timeout), tunggu makin lama sebelum retry
+- Pola: retry setelah 2 detik → 4 detik → 8 detik → 16 detik
+- Setelah **3 kali retry gagal**, pindah ke search engine lain
+- Jangan retry terus-menerus pada URL yang sama jika terus gagal
+
+**E. Pakai API Daripada Scrape**
+- API endpoint (seperti DuckDuckGo API) biasanya lebih toleran daripada scrape HTML
+- Response JSON lebih ringan dan mudah di-parse
+- Prioritaskan API jika tersedia:
+  ```bash
+  curl -s "https://api.duckduckgo.com/?q=QUERY&format=json"
+  ```
+- Scrape HTML hanya jika API tidak memberikan hasil yang cukup
+
+**F. Request Minimal**
+- Jangan ambil seluruh halaman jika tidak perlu
+- Gunakan `head -50` atau `head -100` untuk batasi output
+- Semakin kecil data yang diambil, semakin kecil jejak yang tertinggal
+- Hanya ambil halaman berikutnya jika benar-benar diperlukan
+
+**G. User-Agent Rotation (Opsional)**
+- Ganti-ganti User-Agent string agar tidak terdeteksi sebagai bot yang sama
+- Meski tidak selalu efektif (Brave tetap blokir), bisa membantu di beberapa engine
+- Contoh UA yang bisa dipakai:
+  - `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`
+  - `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36`
+  - `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36`
+
+### 5.3 Aturan Singkat (Quick Rules)
+
+```
+SETIAP kali browsing:
+  ✅ Beri delay 3-5 detik antar request ke engine yang sama
+  ✅ Rotasi engine jika satu gagal
+  ✅ Cache hasil — jangan request ulang query yang sama
+  ✅ Exponential backoff: 2s → 4s → 8s, lalu pindah engine
+  ✅ Prioritaskan API daripada scrape HTML
+  ✅ Batasi output dengan head -50 atau head -100
+
+  ❌ Jangan spam request ke satu engine tanpa jeda
+  ❌ Jangan retry lebih dari 3 kali di URL yang sama
+  ❌ Jangan ambil seluruh halaman jika tidak perlu
+```
+
+---
+
+## 6. Pattern Scraping yang Sudah Teruji
+
+### 6.1 Pattern: Cari Info via DuckDuckGo + lynx
 ```bash
 lynx -dump "https://html.duckduckgo.com/html/?q=SEARCH_QUERY" 2>&1 | head -100
 ```
 **Kapan digunakan:** Butuh hasil pencarian umum dari internet.
 
-### 5.2 Pattern: Ambil Data dari API JSON
+### 6.2 Pattern: Ambil Data dari API JSON
 ```bash
 curl -s "API_ENDPOINT" 2>&1
 ```
@@ -243,7 +336,7 @@ curl -s "https://api.exchangerate-api.com/v4/latest/USD"
 curl -s "https://wise.com/rates/live?source=USD&target=IDR"
 ```
 
-### 5.3 Pattern: Scrape Halaman Spesifik via Python
+### 6.3 Pattern: Scrape Halaman Spesifik via Python
 ```python
 import urllib.request, re
 
@@ -256,7 +349,7 @@ with urllib.request.urlopen(req, timeout=10) as resp:
 ```
 **Kapan digunakan:** Perlu scrape halaman spesifik yang tidak memblokir bot.
 
-### 5.4 Pattern: Scrape via lynx dump + grep
+### 6.4 Pattern: Scrape via lynx dump + grep
 ```bash
 lynx -dump "URL" 2>&1 | grep -i "keyword"
 ```
@@ -264,16 +357,16 @@ lynx -dump "URL" 2>&1 | grep -i "keyword"
 
 ---
 
-## 6. API Endpoints yang Berguna
+## 7. API Endpoints yang Berguna
 
-### 6.1 Kurs / Exchange Rate
+### 7.1 Kurs / Exchange Rate
 | Provider | URL | Status |
 |----------|-----|--------|
 | ExchangeRate-API | `https://api.exchangerate-api.com/v4/latest/USD` | ✅ BERHASIL |
 | Wise | `https://wise.com/rates/live?source=USD&target=IDR` | ✅ BERHASIL |
 | Google Finance | `https://www.google.com/finance/quote/USD-IDR` | ❌ DIBLOKIR |
 
-### 6.2 Search
+### 7.2 Search
 | Provider | URL Pattern | Status | Catatan |
 |----------|-------------|--------|---------|
 | DuckDuckGo HTML | `https://html.duckduckgo.com/html/?q=QUERY` | ✅ BERHASIL | ⭐ Terbaik, ringan, mudah di-parse |
@@ -292,7 +385,7 @@ lynx -dump "URL" 2>&1 | grep -i "keyword"
 | Sogou | `https://www.sogou.com/web?query=QUERY` | ❌ GAGAL | Tidak memberikan hasil |
 | Baidu | `https://www.baidu.com/s?wd=QUERY` | ❌ GAGAL | Network error |
 
-### 6.3 Lainnya (Perlu Diuji)
+### 7.3 Lainnya (Perlu Diuji)
 | Provider | URL | Kegunaan |
 |----------|-----|----------|
 | Wikipedia API | `https://en.wikipedia.org/api/rest_v1/page/summary/TITLE` | Info Wikipedia |
@@ -302,15 +395,15 @@ lynx -dump "URL" 2>&1 | grep -i "keyword"
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
-### 7.1 "Update browser Anda" dari Google
+### 8.1 "Update browser Anda" dari Google
 **Solusi:** Jangan pakai Google. Pakai DuckDuckGo HTML:
 ```bash
 lynx -dump "https://html.duckduckgo.com/html/?q=QUERY"
 ```
 
-### 7.2 curl tidak ada output
+### 8.2 curl tidak ada output
 **Kemungkinan penyebab:**
 - URL salah / 404
 - Server memblokir bot
@@ -322,17 +415,17 @@ lynx -dump "https://html.duckduckgo.com/html/?q=QUERY"
 curl -v "URL" 2>&1 | head -30    # Verbose mode untuk debug
 ```
 
-### 7.3 lynx/w3m tidak ditemukan
+### 8.3 lynx/w3m tidak ditemukan
 **Solusi:**
 ```bash
 pkg install -y lynx w3m
 ```
 
-### 7.4 Permission denied saat write file
+### 8.4 Permission denied saat write file
 **Penyebab:** Mencoba write ke direktori yang tidak diizinkan (misal `/tmp`)
 **Solusi:** Selalu write ke direktori kerja agent (cek dengan `pwd`)
 
-### 7.5 Python urllib error
+### 8.5 Python urllib error
 **Kemungkinan:**
 - `URLError` — URL salah atau tidak ada koneksi
 - `HTTPError` — Server mengembalikan error (403, 404, 500)
@@ -349,7 +442,7 @@ except Exception as e:
 
 ---
 
-## 8. Cheat Sheet
+## 9. Cheat Sheet
 
 ### Quick Commands
 
