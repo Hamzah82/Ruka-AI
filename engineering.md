@@ -173,7 +173,7 @@ Setiap tool didefinisikan dalam format **OpenAI Function Calling Schema**:
 }
 ```
 
-Total: **11 tools** yang tersedia untuk AI.
+Total: **12 tools** yang tersedia untuk AI.
 
 ### 4.3 System Prompt Builder
 
@@ -291,15 +291,17 @@ Setiap round menambahkan pesan baru ke `session["messages"]`. Semua pesan ini di
 
 - `read_file` — Membaca isi file teks
 - `write_file` — Menulis/membuat file teks
+- `edit_file` — Mengedit isi file (replace/append/prepend)
 - `list_files` — Daftar file di direktori kerja
 - `delete_file` — Menghapus file
 - `copy_file` — Menyalin file
 - `move_file` — Memindahkan/menrename file
 - `get_file_info` — Info detail file/folder
 - `create_folder` — Membuat folder baru
-- `delete_folder` — Menghapus folder (bisa rekursif)
+- `delete_folder` — Menghapus folder (beka rekursif)
 - `list_all` — Struktur direktori dalam format tree
 - `exec_command` — Menjalankan perintah terminal
+- `edit_file` — Mengedit isi file (replace/append/prepend)
 
 ### Tool Execution Flow
 
@@ -381,6 +383,16 @@ def execute_tool(tool_name: str, arguments: dict) -> str:
     if tool_name == "do_something":
         return tool_do_something(arguments["param1"])
     # ... existing tools
+```
+
+**Contoh implementasi edit_file:**
+
+```python
+elif name == "edit_file":
+    operation = arguments["operation"]
+    new_text = arguments["new_text"]
+    old_text = arguments.get("old_text")
+    result = tool_edit_file(arguments["filename"], operation, new_text, old_text)
 ```
 
 ---
@@ -749,7 +761,7 @@ print(f"[DEBUG] Response: {response.text}")
 ```
 Language        : Python 3.10+
 Dependencies    : requests, python-dotenv
-Architecture    : Single-file CLI agent with tool-calling loop
+Architecture    : Single-file CLI agent with tool-calling loop (12 tools)
 AI Backend      : OpenRouter API (OpenAI-compatible)
 Default Model   : openrouter/owl-alpha (1M context window)
 Session Format  : JSON files

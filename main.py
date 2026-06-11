@@ -1077,6 +1077,55 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "edit_file",
+            "description": (
+                "Mengedit isi file teks yang sudah ada. Mendukung 3 mode operasi: "
+                "replace (mengganti teks tertentu), append (menambah teks di akhir file), "
+                "prepend (menambah teks di awal file). "
+                "Gunakan ini ketika user ingin mengubah sebagian isi file tanpa "
+                "menulis ulang seluruh file."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Nama file yang ingin diedit, misalnya 'catatan.txt'."
+                    },
+                    "operation": {
+                        "type": "string",
+                        "enum": ["replace", "append", "prepend"],
+                        "description": (
+                            "Mode operasi edit: "
+                            "'replace' — mengganti old_text dengan new_text, "
+                            "'append' — menambah new_text di akhir file, "
+                            "'prepend' — menambah new_text di awal file."
+                        )
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": (
+                            "Teks lama yang akan diganti (hanya untuk operation='replace'). "
+                            "Harus persis sama termasuk spasi dan baris baru."
+                        )
+                    },
+                    "new_text": {
+                        "type": "string",
+                        "description": (
+                            "Teks baru yang akan dimasukkan. "
+                            "Untuk 'replace': menggantikan old_text. "
+                            "Untuk 'append': ditambahkan di akhir file. "
+                            "Untuk 'prepend': ditambahkan di awal file."
+                        )
+                    }
+                },
+                "required": ["filename", "operation", "new_text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_files",
             "description": "Menampilkan daftar semua file di direktori kerja.",
             "parameters": {
@@ -1326,6 +1375,56 @@ def tool_write_file(filename: str, content: str) -> str:
         return f"File '{filename}' berhasil disimpan ({len(content)} karakter)."
     except Exception as e:
         return f"Error menulis file: {e}"
+
+
+def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str = None) -> str:
+    """
+    Mengedit isi file teks yang sudah ada.
+    
+    Mode operasi:
+    - replace: mengganti old_text dengan new_text
+    - append: menambah new_text di akhir file
+    - prepend: menambah new_text di awal file
+    """
+    path = _safe_path(filename)
+    if path is None:
+        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+    if not os.path.exists(path):
+        return f"Error: File '{filename}' tidak ditemukan."
+    if not os.path.isfile(path):
+        return f"Error: '{filename}' bukan file."
+    
+    try:
+        # Baca isi file saat ini
+        with open(path, "r", encoding="utf-8") as f:
+            current_content = f.read()
+        
+        if operation == "replace":
+            if old_text is None:
+                return "Error: Parameter 'old_text' diperlukan untuk operasi 'replace'."
+            if old_text not in current_content:
+                return f"Error: Teks '{old_text[:50]}...' tidak ditemukan dalam file '{filename}'."
+            new_content = current_content.replace(old_text, new_text, 1)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            return f"File '{filename}' berhasil diedit (replace: '{old_text[:30]}...' → '{new_text[:30]}...')."
+        
+        elif operation == "append":
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(new_content)
+            return f"File '{filename}' berhasil diedit (append: {len(new_text)} karakter ditambahkan di akhir)."
+        
+        elif operation == "prepend":
+            new_content = new_text + current_content
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            return f"File '{filename}' berhasil diedit (prepend: {len(new_text)} karakter ditambahkan di awal)."
+        
+        else:
+            return f"Error: Operasi '{operation}' tidak dikenal. Gunakan: replace, append, prepend."
+    
+    except Exception as e:
+        return f"Error mengedit file: {e}"
 
 
 def tool_list_files() -> str:
@@ -1591,6 +1690,11 @@ def execute_tool(name: str, arguments: dict) -> str:
         result = tool_read_file(arguments["filename"])
     elif name == "write_file":
         result = tool_write_file(arguments["filename"], arguments["content"])
+    elif name == "edit_file":
+        operation = arguments["operation"]
+        new_text = arguments["new_text"]
+        old_text = arguments.get("old_text")
+        result = tool_edit_file(arguments["filename"], operation, new_text, old_text)
     elif name == "list_files":
         result = tool_list_files()
     elif name == "delete_file":

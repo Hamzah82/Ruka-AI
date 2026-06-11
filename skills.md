@@ -67,9 +67,9 @@ User Input → System Prompt + Chat History → OpenRouter API
     → Response: tool_calls → Eksekusi Tool → Kirim hasil → Loop lagi
 ```
 
-### Anggota Tubuh: 11 Tools
+### Anggota Tubuh: 12 Tools
 
-Berikut "anggota tubuhku" — 11 tools yang bisa aku gunakan:
+Berikut "anggota tubuhku" — 12 tools yang bisa aku gunakan:
 
 **Tangan Kanan (File Operations):**
 - `read_file` — Membaca isi file
@@ -77,6 +77,7 @@ Berikut "anggota tubuhku" — 11 tools yang bisa aku gunakan:
 - `delete_file` — Menghapus file
 - `copy_file` — Menyalin file
 - `move_file` — Memindahkan/rename file
+- `edit_file` — Mengedit isi file (replace/append/prepend)
 
 **Tangan Kiri (Folder Operations):**
 - `create_folder` — Membuat folder baru
@@ -154,6 +155,51 @@ Setiap percakapan (messages) disimpan otomatis setelah setiap exchange.
 **Output:** `"File 'todo.txt' berhasil disimpan (30 karakter)."`
 
 ---
+
+
+### ✏️ edit_file — Edit Isi File
+
+**Kapan digunakan:** User ingin mengubah sebagian isi file yang sudah ada tanpa menulis ulang seluruh file.
+
+**Parameter:**
+- `filename` (string, required) — Nama file yang ingin diedit
+- `operation` (string, required) — Mode operasi: `"replace"`, `"append"`, atau `"prepend"`
+- `new_text` (string, required) — Teks baru yang akan dimasukkan
+- `old_text` (string, optional) — Teks lama yang akan diganti (hanya untuk `operation="replace"`)
+
+**Mode operasi:**
+- `replace` — Mengganti `old_text` dengan `new_text` (hanya kemunculan pertama)
+- `append` — Menambah `new_text` di akhir file
+- `prepend` — Menambah `new_text` di awal file
+
+**Proses internal:**
+1. Validasi path dengan `_safe_path()`
+2. Cek file ada dan memang file
+3. Baca isi file saat ini
+4. Lakukan operasi sesuai mode:
+   - replace: cari `old_text`, ganti dengan `new_text`
+   - append: tulis `new_text` di akhir file
+   - prepend: tulis `new_text` + isi lama
+5. Return pesan sukses
+
+**Contoh panggilan:**
+```json
+{"name": "edit_file", "arguments": {"filename": "todo.txt", "operation": "replace", "old_text": "Belanja", "new_text": "Belanja sayur"}}
+{"name": "edit_file", "arguments": {"filename": "todo.txt", "operation": "append", "new_text": "\n4. Olahraga"}}
+{"name": "edit_file", "arguments": {"filename": "todo.txt", "operation": "prepend", "new_text": "# TODO List\n"}}
+```
+
+**Kemungkinan output:**
+- `"File 'todo.txt' berhasil diedit (replace: 'Belanja' → 'Belanja sayur')."`
+- `"File 'todo.txt' berhasil diedit (append: 12 karakter ditambahkan di akhir)."`
+- `"File 'todo.txt' berhasil diedit (prepend: 12 karakter ditambahkan di awal)."`
+- `"Error: Teks 'xxx' tidak ditemukan dalam file 'todo.txt'."`
+- `"Error: Parameter 'old_text' diperlukan untuk operasi 'replace'."`
+
+**Tips:**
+- Untuk `replace`, `old_text` harus persis sama termasuk spasi dan baris baru
+- Hanya kemunculan pertama yang diganti (replace once)
+- Gunakan `read_file` dulu untuk melihat isi file sebelum melakukan replace
 
 ### 📋 list_files — Daftar File
 
@@ -581,9 +627,25 @@ Selalu eksplorasi dulu sebelum melakukan perubahan:
 ### ⚠️ Daftar Tool yang TIDAK Ada
 
 Tool berikut **TIDAK ADA** dan tidak boleh dipanggil:
-- ❌ `edit_file` — Tidak ada! Untuk mengedit file, gunakan kombinasi `read_file()` baca isinya → modifikasi isi → `write_file()` tulis ulang seluruh konten.
+- ❌ `edit_folder` — Tidak ada! Untuk mengedit folder, gunakan `delete_folder` + `create_folder`.
 
-Selalu ingat: tools yang tersedia hanya 11 tool yang terdaftar di bagian "Anggota Tubuh" di atas. Jangan memanggil tool yang tidak ada dalam daftar tersebut.
+Selalu ingat: tools yang tersedia hanya 12 tool yang terdaftar di bagian "Anggota Tubuh" di atas. Jangan memanggil tool yang tidak ada dalam daftar tersebut.
+
+### Mengedit File
+
+Untuk mengedit file yang sudah ada, gunakan `edit_file`:
+- **replace** — Ganti teks tertentu dengan teks baru
+- **append** — Tambah teks di akhir file
+- **prepend** — Tambah teks di awal file
+
+Contoh alur:
+```
+User: "Ganti 'Hello' menjadi 'Hi' di file greeting.txt"
+
+Round 1: read_file("greeting.txt") → lihat isi file
+Round 2: edit_file("greeting.txt", "replace", "Hi", "Hello") → edit
+Round 3: read_file("greeting.txt") → konfirmasi perubahan
+```
 
 ### Hindari Redundansi
 
@@ -625,6 +687,7 @@ Selalu ingat: tools yang tersedia hanya 11 tool yang terdaftar di bagian "Anggot
 │    delete_file(filename)      → Hapus file               │
 │    copy_file(src, dst)        → Salin file               │
 │    move_file(src, dst)        → Pindah/rename            │
+│    edit_file(filename, operation, new_text, old_text) → Edit file │
 │                                                          │
 │  FOLDER OPERATIONS:                                      │
 │    create_folder(name)        → Buat folder              │
@@ -650,7 +713,6 @@ Selalu ingat: tools yang tersedia hanya 11 tool yang terdaftar di bagian "Anggot
 │    ❌ Jangan pakai tabel markdown                        │
 │    ❌ Jangan akses di luar BASE_DIR                      │
 │    ❌ Jangan jalankan perintah berbahaya                 │
-│    ❌ Jangan panggil edit_file (tidak ada)               │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
 ```
