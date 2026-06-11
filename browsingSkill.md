@@ -439,16 +439,6 @@ Butuh data dari internet?
 - Gagal akses: Google Search, Google Finance (dibot detection)
 - Walikota Surabaya: Eri Cahyadi, IG: @ericahyadi_ (267K followers)
 
-**Session: trainBrowsing (11 Juni 2026)**
-- Uji 10 search engine dari environment Termux
-- ✅ Berhasil: DuckDuckGo (HTML + Lite + API), Bing, Mojeek, Yahoo, Brave (lynx only)
-- ❌ Gagal: Google, Startpage, Ecosia, Qwant, Yandex, Sogou, Baidu
-- DuckDuckGo HTML tetap rekomendasi utama (ringan, cepat, mudah di-parse)
-- Bing hasil lengkap tapi HTML sangat berat
-- Mojeek bagus untuk privacy-focused search
-- Brave bisa diakses via lynx tapi python3 diblokir (429)
-- Update: browsingSkill.md dengan hasil pengujian lengkap
-
 ---
 
 <div align="center">
