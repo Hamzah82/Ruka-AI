@@ -1,0 +1,16 @@
+# Data files
+data/tasks.json
+data/tasks_export.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
