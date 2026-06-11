@@ -145,15 +145,82 @@ Langsung gunakan alternatif (lihat bagian 4).
 
 ### 4.3 Bing
 - **URL:** `https://www.bing.com/search?q=QUERY`
-- **Status:** Perlu diuji — mungkin juga memblokir
+- **Status:** ✅ BERHASIL — Hasil lengkap, bisa diakses lynx/curl/python3
+- **Keterbatasan:** HTML sangat berat (~15KB+) karena banyak JS/CSS inline
 - **Usage:**
   ```bash
-  lynx -dump "https://www.bing.com/search?q=QUERY"
+  lynx -dump "https://www.bing.com/search?q=QUERY" 2>&1 | head -100
   ```
+- **Catatan:** Meski Bing kaya JS, lynx bisa dump hasilnya dengan baik.
+  Hasil pencarian bisa di-parse dari class `b_algo` via python3.
 
-### 4.4 Startpage
+### 4.4 Mojeek
+- **URL:** `https://www.mojeek.com/search?q=QUERY`
+- **Status:** ✅ BERHASIL — Search engine privacy-focused dari UK
+- **Output:** HTML bersih, hasil mudah di-parse
+- **Usage:**
+  ```bash
+  lynx -dump "https://www.mojeek.com/search?q=QUERY" 2>&1 | head -100
+  ```
+- **Parsing tips (python3):**
+  ```python
+  titles = re.findall(r'class="ob"[^>]*>(.*?)</a>', html)
+  ```
+- **Catatan:** lynx menampilkan form search tapi hasil perlu di-parse berbeda.
+  python3 + urllib lebih reliable untuk Mojeek.
+
+### 4.5 Yahoo
+- **URL:** `https://search.yahoo.com/search?p=QUERY`
+- **Status:** ✅ CUKUP BAGUS — lynx output kosong, tapi python3 bisa parse
+- **Usage (python3):**
+  ```python
+  titles = re.findall(r'<h3[^>]*>(.*?)</h3>', html)
+  ```
+- **Catatan:** Yahoo mungkin perlu JS untuk render di lynx, tapi HTML mentah
+  berisi hasil yang bisa di-parse via regex.
+
+### 4.6 Brave Search
+- **URL:** `https://search.brave.com/search?q=QUERY`
+- **Status:** ⚠️ SEBAGIAN — lynx bisa, python3 diblokir (HTTP 429)
+- **Usage:**
+  ```bash
+  lynx -dump "https://search.brave.com/search?q=QUERY" 2>&1 | head -100
+  ```
+- **Keterbatasan:** python3 urllib mendapat HTTP 429 (Too Many Requests).
+  Gunakan lynx sebagai satu-satunya metode akses.
+
+### 4.7 DuckDuckGo (Instant Answer API)
+- **URL:** `https://api.duckduckgo.com/?q=QUERY&format=json`
+- **Status:** ✅ BERHASIL — Ringan, JSON response
+- **Usage:**
+  ```bash
+  curl -s "https://api.duckduckgo.com/?q=QUERY&format=json" 2>&1
+  ```
+- **Kegunaan:** Cocok untuk definisi singkat, ringkasan topik, bukan full search.
+
+### 4.8 Startpage
 - **URL:** `https://www.startpage.com/do/search?q=QUERY`
-- **Status:** Perlu diuji
+- **Status:** ❌ DIBLOKIR — Membutuhkan JavaScript
+
+### 4.9 Ecosia
+- **URL:** `https://www.ecosia.org/search?q=QUERY`
+- **Status:** ❌ DIBLOKIR — CAPTCHA "Confirm you're not a robot"
+
+### 4.10 Qwant
+- **URL:** `https://www.qwant.com/?q=QUERY`
+- **Status:** ❌ DIBLOKIR — "Not available in your country" (blokir geo)
+
+### 4.11 Yandex
+- **URL:** `https://yandex.com/search/?text=QUERY`
+- **Status:** ❌ DIBLOKIR — Captcha check sebelum redirect
+
+### 4.12 Sogou
+- **URL:** `https://www.sogou.com/web?query=QUERY`
+- **Status:** ❌ TIDAK BERFUNGSI — Form tampil tapi tidak memberikan hasil
+
+### 4.13 Baidu
+- **URL:** `https://www.baidu.com/s?wd=QUERY`
+- **Status:** ❌ TIDAK BERFUNGSI — "网络不给力" (network error)
 
 ---
 
@@ -207,11 +274,23 @@ lynx -dump "URL" 2>&1 | grep -i "keyword"
 | Google Finance | `https://www.google.com/finance/quote/USD-IDR` | ❌ DIBLOKIR |
 
 ### 6.2 Search
-| Provider | URL Pattern | Status |
-|----------|-------------|--------|
-| DuckDuckGo HTML | `https://html.duckduckgo.com/html/?q=QUERY` | ✅ BERHASIL |
-| Google Search | `https://www.google.com/search?q=QUERY` | ❌ DIBLOKIR |
-| DuckDuckGo Lite | `https://lite.duckduckgo.com/lite/?q=QUERY` | ✅ Perlu diuji |
+| Provider | URL Pattern | Status | Catatan |
+|----------|-------------|--------|---------|
+| DuckDuckGo HTML | `https://html.duckduckgo.com/html/?q=QUERY` | ✅ BERHASIL | ⭐ Terbaik, ringan, mudah di-parse |
+| DuckDuckGo Lite | `https://lite.duckduckgo.com/lite/?q=QUERY` | ✅ BERHASIL | Format lebih sederhana |
+| DuckDuckGo API | `https://api.duckduckgo.com/?q=QUERY&format=json` | ✅ BERHASIL | JSON, cocok untuk ringkasan singkat |
+| Bing | `https://www.bing.com/search?q=QUERY` | ✅ BERHASIL | HTML berat (~15KB+) |
+| Mojeek | `https://www.mojeek.com/search?q=QUERY` | ✅ BERHASIL | Privacy-focused, HTML bersih |
+| Yahoo | `https://search.yahoo.com/search?p=QUERY` | ✅ BERHASIL | Lebih reliable via python3 |
+| Brave Search | `https://search.brave.com/search?q=QUERY` | ⚠️ SEBAGIAN | Hanya via lynx (python3 → 429) |
+| Google Search | `https://www.google.com/search?q=QUERY` | ❌ DIBLOKIR | CAPTCHA / JS required |
+| Google Finance | `https://www.google.com/finance/quote/USD-IDR` | ❌ DIBLOKIR | CAPTCHA / JS required |
+| Startpage | `https://www.startpage.com/do/search?q=QUERY` | ❌ DIBLOKIR | JS required |
+| Ecosia | `https://www.ecosia.org/search?q=QUERY` | ❌ DIBLOKIR | CAPTCHA |
+| Qwant | `https://www.qwant.com/?q=QUERY` | ❌ DIBLOKIR | Geo-blocked |
+| Yandex | `https://yandex.com/search/?text=QUERY` | ❌ DIBLOKIR | Captcha |
+| Sogou | `https://www.sogou.com/web?query=QUERY` | ❌ GAGAL | Tidak memberikan hasil |
+| Baidu | `https://www.baidu.com/s?wd=QUERY` | ❌ GAGAL | Network error |
 
 ### 6.3 Lainnya (Perlu Diuji)
 | Provider | URL | Kegunaan |
@@ -275,8 +354,23 @@ except Exception as e:
 ### Quick Commands
 
 ```bash
-# === SEARCH (DuckDuckGo) ===
+# === SEARCH (DuckDuckGo HTML) — REKOMENDASI UTAMA ===
 lynx -dump "https://html.duckduckgo.com/html/?q=QUERY" 2>&1 | head -80
+
+# === SEARCH (DuckDuckGo Lite) ===
+lynx -dump "https://lite.duckduckgo.com/lite/?q=QUERY" 2>&1 | head -80
+
+# === SEARCH (DuckDuckGo API — JSON) ===
+curl -s "https://api.duckduckgo.com/?q=QUERY&format=json" 2>&1
+
+# === SEARCH (Bing) ===
+lynx -dump "https://www.bing.com/search?q=QUERY" 2>&1 | head -100
+
+# === SEARCH (Mojeek) ===
+lynx -dump "https://www.mojeek.com/search?q=QUERY" 2>&1 | head -80
+
+# === SEARCH (Brave) — Hanya via lynx ===
+lynx -dump "https://search.brave.com/search?q=QUERY" 2>&1 | head -80
 
 # === EXCHANGE RATE ===
 curl -s "https://api.exchangerate-api.com/v4/latest/USD" | python3 -c "import sys,json; d=json.load(sys.stdin); print('IDR:', d['rates']['IDR'])"
@@ -304,8 +398,23 @@ with urllib.request.urlopen(req, timeout=10) as r:
 Butuh data dari internet?
 │
 ├─ Butuh hasil pencarian (search)?
-│  └─ GUNAKAN DuckDuckGo HTML:
-│     lynx -dump "https://html.duckduckgo.com/html/?q=QUERY"
+│  ├─ UTAMA: DuckDuckGo HTML
+│  │  lynx -dump "https://html.duckduckgo.com/html/?q=QUERY"
+│  │
+│  ├─ ALTERNATIF 1: DuckDuckGo Lite (lebih ringan)
+│  │  lynx -dump "https://lite.duckduckgo.com/lite/?q=QUERY"
+│  │
+│  ├─ ALTERNATIF 2: DuckDuckGo API (JSON, ringkasan singkat)
+│  │  curl -s "https://api.duckduckgo.com/?q=QUERY&format=json"
+│  │
+│  ├─ ALTERNATIF 3: Bing (hasil lengkap, HTML berat)
+│  │  lynx -dump "https://www.bing.com/search?q=QUERY"
+│  │
+│  ├─ ALTERNATIF 4: Mojeek (privacy-focused)
+│  │  lynx -dump "https://www.mojeek.com/search?q=QUERY"
+│  │
+│  └─ ALTERNATIF 5: Brave Search (via lynx saja)
+│     lynx -dump "https://search.brave.com/search?q=QUERY"
 │
 ├─ Butuh data dari API spesifik?
 │  └─ GUNAKAN curl:
@@ -315,8 +424,8 @@ Butuh data dari internet?
 │  └─ GUNAKAN python3 + urllib + regex:
 │     python3 -c "import urllib.request, re; ..."
 │
-└─ Mau pakai Google?
-   └─ TIDAK BISA. Google memblokir semua text-based tools.
+└─ Mau pakai Google / Startpage / Ecosia / Qwant / Yandex?
+   └─ TIDAK BISA. Semua memblokir text-based tools.
       Langsung pakai DuckDuckGo.
 ```
 
@@ -329,6 +438,16 @@ Butuh data dari internet?
 - Berhasil akses: DuckDuckGo HTML, ExchangeRate-API, Wise API
 - Gagal akses: Google Search, Google Finance (dibot detection)
 - Walikota Surabaya: Eri Cahyadi, IG: @ericahyadi_ (267K followers)
+
+**Session: trainBrowsing (11 Juni 2026)**
+- Uji 10 search engine dari environment Termux
+- ✅ Berhasil: DuckDuckGo (HTML + Lite + API), Bing, Mojeek, Yahoo, Brave (lynx only)
+- ❌ Gagal: Google, Startpage, Ecosia, Qwant, Yandex, Sogou, Baidu
+- DuckDuckGo HTML tetap rekomendasi utama (ringan, cepat, mudah di-parse)
+- Bing hasil lengkap tapi HTML sangat berat
+- Mojeek bagus untuk privacy-focused search
+- Brave bisa diakses via lynx tapi python3 diblokir (429)
+- Update: browsingSkill.md dengan hasil pengujian lengkap
 
 ---
 
