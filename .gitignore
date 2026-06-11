@@ -193,3 +193,5 @@ config/
 sessions/
 # Backup / old files
 skills_old.md
+# Workspace folder
+workspace/
