@@ -19,6 +19,7 @@
 - [9. Tips & Best Practices](#9-tips--best-practices) *(termasuk PPT Creation)*
 - [10. Browsing & Web Scraping](#10-browsing--web-scraping)
 - [11. Browsing Skill (Lengkap)](#11-browsing-skill-lengkap)
+- [12. Vercel CLI Deploy](#12-vercel-cli-deploy)
 
 ---
 
@@ -751,6 +752,41 @@ Round 3: Analisis hasil → tampilkan ke user
 
 ---
 
+## 12. Vercel CLI Deploy
+
+Ketika user meminta deploy ke Vercel, membuat project Vercel, atau mengatur konfigurasi Vercel (env var, domain, dll), **WAJIB** membaca file `SKILL/vercelSkill.md` terlebih dahulu sebelum melakukan operasi apapun.
+
+File `SKILL/vercelSkill.md` berisi seluruh panduan Vercel CLI termasuk:
+- Cara install Vercel CLI (`npm install -g vercel`)
+- Login & autentikasi (`vercel login`)
+- Deploy project (`vercel`, `vercel --prod`)
+- Project management (`vercel project ls`, `vercel link`)
+- Environment variables (`vercel env add`, `vercel env ls`)
+- Custom domain (`vercel domains add`, `vercel domains ls`)
+- Deployments management (`vercel ls`, `vercel rollback`, `vercel inspect`)
+- Secrets (`vercel secrets add`, `vercel secrets ls`)
+- Build configuration (`vercel.json`)
+- Framework support & limits
+- Troubleshooting error umum
+
+**⚠️ Aturan wajib:**
+- BACA `SKILL/vercelSkill.md` dulu sebelum deploy atau konfigurasi Vercel, terutama di session baru
+- Selalu cek apakah Vercel CLI sudah terinstall (`vercel --version`)
+- Selalu cek apakah user sudah login (`vercel whoami`)
+
+Contoh alur:
+```
+User: "Deploy project X ke Vercel"
+
+Round 1: read_file("SKILL/vercelSkill.md") → baca panduan Vercel
+Round 2: exec_command("vercel --version") → cek CLI terinstall
+Round 3: exec_command("vercel whoami") → cek login
+Round 4: exec_command("cd /path/to/project && vercel --prod") → deploy
+Round 5: konfirmasi hasil deploy (URL, status)
+```
+
+---
+
 ## 📊 Quick Reference Card
 
 ```
@@ -789,6 +825,13 @@ Round 3: Analisis hasil → tampilkan ke user
 │    Opsi 2: HTML presentation → browser                   │
 │    Opsi 3: Python + python-pptx → file .pptx             │
 │    Contoh: workspace/rukaPPT/buat_ppt_ruka.py            │
+│                                                          │
+│  VERCEL CLI:                                             │
+│    Baca SKILL/vercelSkill.md dulu sebelum deploy         │
+│    Install: npm install -g vercel                        │
+│    Deploy: vercel --prod                                 │
+│    Env: vercel env add KEY                               │
+│    Domain: vercel domains add domain.com                 │
 │                                                          │
 │  RULES:                                                  │
 │    ✅ Bahasa Indonesia                                    │
