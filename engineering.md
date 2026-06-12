@@ -20,10 +20,9 @@
 - [12. Konfigurasi](#12-konfigurasi)
 - [13. System Prompt](#13-system-prompt)
 - [14. API Reference](#14-api-reference)
-- [15. Integrasi Moltbook](#15-integrasi-moltbook)
-- [16. Browsing Skills](#16-browsing-skills)
-- [17. Development Guide](#17-development-guide)
-- [18. Troubleshooting](#18-troubleshooting)
+- [15. Browsing Skills](#15-browsing-skills)
+- [16. Development Guide](#16-development-guide)
+- [17. Troubleshooting](#17-troubleshooting)
 
 ---
 
@@ -808,36 +807,7 @@ X-Title: Ruka AI - Kura-Kura Agent
 
 ---
 
-## 15. Integrasi Moltbook
-
-Ruka AI terintegrasi dengan **Moltbook** — social network for AI agents. Integrasi ini ada di folder `config/moltbook/`.
-
-### File Terkait
-
-- `config/moltbook/skill.md` — Dokumentasi API Moltbook (33 KB)
-- `config/moltbook/credentials.json` — API key dan agent name
-- `config/moltbook/heartbeat.md` — State tracker untuk heartbeat
-- `config/moltbook/notes.md` — Memory notes tentang aktivitas Moltbook
-
-### Moltbook Agent
-
-- **Agent Name:** rukaai
-- **Profile URL:** https://www.moltbook.com/u/rukaai
-- **API Key:** tersimpan di `config/moltbook/credentials.json`
-- **Status:** claimed and active
-
-### Fitur yang Digunakan
-
-- Post, comment, upvote/downvote
-- Follow/unfollow agents
-- Subscribe ke submolts
-- Semantic search
-- Heartbeat check-in
-- Verification challenge solving (math problems)
-
----
-
-## 16. Browsing Skills
+## 15. Browsing Skills
 
 Ruka AI memiliki kemampuan browsing web yang didokumentasikan di `browsingSkill.md`.
 
@@ -870,7 +840,7 @@ Ruka AI memiliki kemampuan browsing web yang didokumentasikan di `browsingSkill.
 
 ---
 
-## 17. Development Guide
+## 16. Development Guide
 
 ### Setup Development Environment
 
@@ -932,7 +902,7 @@ git push origin fitur-baru
 
 ---
 
-## 18. Troubleshooting
+## 17. Troubleshooting
 
 ### Masalah Umum
 
@@ -994,11 +964,9 @@ Max Tokens      : 2000 (API request)
 Temperature     : 0.7 (API request)
 Interrupt       : Queue-based, real-time ('q' to interrupt)
 Output Format   : Markdown → TerminalFormatter (styled terminal)
-Integrations    : Moltbook (social network for AI agents)
 Browsing        : DuckDuckGo, Bing, Mojeek, Brave, Yahoo (via lynx/curl/python3)
 Key Files       : main.py, skills.md, engineering.md, browsingSkill.md
-Runtime Files   : config/moltbook/credentials.json, config/moltbook/heartbeat.md, config/moltbook/notes.md, config/moltbook/skill.md
-                 sessions/*.json, sessions/backups/*.json
+Runtime Files   : sessions/*.json, sessions/backups/*.json
 ```
 
 ---
@@ -1019,15 +987,9 @@ Ruka-AI/
 ├── sessions/            # Folder penyimpanan session (tidak di-push ke git)
 │   ├── *.json           # Session files (nama tergantung session)
 │   └── backups/         # Backup session lama
-└── config/
-    └── moltbook/        # Integrasi Moltbook (tidak di-push ke git)
-        ├── skill.md          # Dokumentasi API Moltbook
-        ├── credentials.json  # API key Moltbook
-        ├── heartbeat.md      # Heartbeat state tracker
-        └── notes.md          # Memory notes aktivitas
 ```
 
-> **Catatan:** File `.env`, `.env.example`, `__pycache__/`, `*.pyc`, `build/`, `dist/`, `*.egg-info/`, dan file/folder lain yang ada di `.gitignore` bukan bagian dari project. Folder `sessions/` dan `config/` ada di `.gitignore` karena berisi data lokal user.
+> **Catatan:** File `.env`, `.env.example`, `__pycache__/`, `*.pyc`, `build/`, `dist/`, `*.egg-info/`, dan file/folder lain yang ada di `.gitignore` bukan bagian dari project. Folder `sessions/` ada di `.gitignore` karena berisi data lokal user.
 
 ---
 
