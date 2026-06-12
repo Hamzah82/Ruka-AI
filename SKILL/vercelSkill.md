@@ -16,6 +16,7 @@
 - [5. Project Management](#5-project-management)
 - [6. Environment Variables](#6-environment-variables)
 - [7. Custom Domain](#7-custom-domain)
+  - [7.7 Set Subdomain Vercel (*.vercel.app)](#77-set-subdomain-vercel-vercelapp)
 - [8. Deployments Management](#8-deployments-management)
 - [9. Secrets](#9-secrets)
 - [10. Teams & Organizations](#10-teams--organizations)
@@ -285,6 +286,64 @@ Name: www
 Value: cname.vercel-dns.com
 ```
 
+### 7.7 Set Subdomain Vercel (*.vercel.app)
+
+Berbeda dengan custom domain yang perlu setup DNS, subdomain `*.verlangsung bisa dipakai tanpa konfigurasi DNS tambahan. Caranya adalah dengan **alias** langsung ke deployment production.
+
+**Langkah-langkah:**
+
+1. **Pastikan project sudah di-deploy ke production**
+   ```bash
+   cd /path/to/project
+   vercel --prod
+   ```
+
+2. **Cek deployment production terbaru**
+   ```bash
+   vercel ls
+   ```
+   Output akan menampilkan daftan deployment, contoh:
+   ```
+   3h  project-name  https://project-name-abc123-user.vercel.app  ● Ready  Production
+   ```
+
+3. **Set alias subdomain vercel.app ke deployment**
+   ```bash
+   vercel alias <deployment-url> <subdomain>.vercel.app
+   ```
+   Contoh:
+   ```bash
+   vercel alias project-name-abc123-user.vercel.app ular-tangga-ruka-ai.vercel.app
+   ```
+
+4. **Hasil sukses:**
+   ```
+   > Success! https://ular-tangga-ruka-ai.vercel.app now points to project-name-abc123-user.vercel.app [2s]
+   ```
+
+5. **Verifikasi alias sudah terdaftar**
+   ```bash
+   vercel alias ls
+   ```
+
+**⚠️ Catatan penting:**
+- Subdomain `*.vercel.app` **tidak perlu setup DNS** — langsung aktif setelah alias dibuat
+- Subdomain harus **unik** secara global di seluruh Vercel (jika sudah dipakai user lain, akan error)
+- Jika `vercel domains inspect <subdomain>.vercel.app` error "You don't have access", itu artinya domain belum ter-assign ke scope kamu — **langsung pakai `vercel alias` saja** sudah cukup
+- `vercel domains add` **tidak bisa** dipakai untuk subdomain `*.vercel.app` — hanya untuk custom domain yang dimiliki (misal `domain.com`)
+- Alias ini **mengarahkan** (redirect) subdomain ke deployment tertentu, bukan membuat deployment baru
+- Setiap kali deploy ulang ke production, URL deployment berubah (suffix random), tapi **alias subdomain tetap menunjuk ke deployment terbaru** yang kamu assign
+
+**Perbedaan `vercel domains add` vs `vercel alias`:**
+
+| Aspek | `vercel domains add` | `vercel alias` |
+|-------|---------------------|----------------|
+| Custom domain sendiri (domain.com) | ✅ | ❌ |
+| Subdomain vercel.app (*.vercel.app) | ❌ | ✅ |
+| Perlu setup DNS | ✅ | ❌ |
+| Langsung aktif | ❌ (tunggu propagasi) | ✅ (beberapa detik) |
+| SSL otomatis | ✅ | ✅ |
+
 ---
 
 ## 8. Deployments Management
@@ -316,10 +375,19 @@ vercel rollback <deployment-url>
 - Tidak perlu rebuild
 
 ### 8.5 Alias Deployment
+
+**Custom domain (domain sendiri):**
 ```bash
 vercel alias <deployment-url> <custom-domain.com>
 ```
-- Pasang custom domain ke deployment tertentu
+
+**Subdomain vercel.app (tanpa DNS):**
+```bash
+vercel alias <deployment-url> <subdomain>.vercel.app
+```
+
+- Pasang custom domain / subdomain ke deployment tertentu
+- Lihat detail penggunaan di [7.7 Set Subdomain Vercel](#77-set-subdomain-vercel-vercelapp)
 
 ### 8.6 List Alias
 ```bash
@@ -715,7 +783,8 @@ vercel rm <url>                # Hapus deployment
 vercel rollback <url>          # Rollback ke deployment tertentu
 
 # === ALIAS ===
-vercel alias <url> <domain>    # Pasang domain ke deployment
+vercel alias <url> <domain>    # Pasang custom domain ke deployment
+vercel alias <url> <sub>.vercel.app  # Pasang subdomain vercel.app (tanpa DNS)
 vercel alias ls                # List alias
 vercel alias rm <domain>       # Hapus alias
 
