@@ -1925,14 +1925,38 @@ def process_response(messages: list, data: dict) -> tuple:
             tool_name = tc["function"]["name"]
             try:
                 tool_args = json.loads(tc["function"]["arguments"])
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 tool_args = {}
+                result = (
+                    f"Error: Gagal parse arguments JSON untuk tool '{tool_name}'. "
+                    f"Arguments: {tc['function']['arguments']}. "
+                    f"JSON error: {e}. "
+                    "Model harus mengirim arguments yang valid dalam format JSON."
+                )
+                result_preview = result[:120] + ("..." if len(result) > 120 else "")
+                show_tool_call(round_num, tool_name, "(invalid json)", result_preview)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": result
+                })
+                continue
 
             args_preview = ", ".join(f"{k}={repr(v)[:40]}" for k, v in tool_args.items())
             result = execute_tool(tool_name, tool_args)
             result_preview = result[:120] + ("..." if len(result) > 120 else "")
 
             show_tool_call(round_num, tool_name, args_preview, result_preview)
+
+            # Jika tool error, tambahkan konteks agar model bisa retry
+            if result.startswith("Error:"):
+                result = (
+                    f"{result}\n\n"
+                    "⚠️ Tool call di atas GAGAL. "
+                    "Silakan analisis penyebab error dan coba lagi dengan pendekatan yang berbeda. "
+                    "Misalnya: periksa nama file, path, parameter, atau coba tool lain yang lebih sesuai. "
+                    "Jangan mengulang tool yang sama dengan parameter yang sama jika sudah gagal."
+                )
 
             messages.append({
                 "role": "tool",
