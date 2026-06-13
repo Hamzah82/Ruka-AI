@@ -156,6 +156,18 @@ python main.py rename-session nama-lama nama-baru
 👤  Kamu: /rename-session nama-lama nama-baru
 ```
 
+### Tips Awal Session
+
+Saat memulai session baru, ucapkan **"Hai"** terlebih dahulu ke Ruka AI. Hal ini membantu model AI memahami system prompt dengan lebih baik sebelum melanjutkan ke percakapan utama.
+
+```
+👤  Kamu: Hai
+🤖  Ruka AI: Hai! Ada yang bisa saya bantu? 🐢
+👤  Kamu: Tampilkan daftar file dan folder
+```
+
+Dengan memulai percakapan menggunakan sapaan, AI akan lebih responsif dan memahami konteks session yang sedang berjalan.
+
 ### Contoh Percakapan
 
 ```
