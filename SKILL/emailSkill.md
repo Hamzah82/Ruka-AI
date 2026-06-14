@@ -1,6 +1,6 @@
 # 🐢 Ruka AI — Email Skills & msmtp Guide
 
-> Dokumentasi teknis cara mengirim email dari CLI menggunakan `msmtp`.
+> Dokumentasi teknis cara mengirim & membaca email dari CLI menggunakan `msmtp` dan Python `imaplib`.
 > File ini berfungsi sebagai MEMORI PERSISTEN — baca setiap session baru
 > sebelum melakukan operasi email.
 
@@ -18,6 +18,7 @@
 - [8. Keamanan](#8-keamanan)
 - [9. Troubleshooting](#9-troubleshooting)
 - [10. Cheat Sheet](#10-cheat-sheet)
+- [11. Membaca Inbox via Python imaplib](#11-membaca-inbox-via-python-imaplib)
 
 ---
 
@@ -38,7 +39,8 @@ Pesan (stdin/file) → msmtp → SMTP Server (Gmail, dll) → Penerima
 
 **Prinsip:**
 - `msmtp` hanya mengirim (send-only), tidak bisa menerima email
-- Butuh SMTP credentials dari provider email
+- Untuk membaca inbox, gunakan Python `imaplib` (bawaan Python, tidak perlu install)
+- Butuh SMTP/IMAP credentials dari provider email
 - Gmail butuh **App Password** (bukan password biasa)
 
 ---
@@ -617,6 +619,40 @@ chmod 600 config/email/msmtprc           # Set permission
 # === DEBUG ===
 cat ~/.msmtp.log                          # Lihat log
 echo "test" | msmtp --verbose --file=config/email/msmtprc tujuan@gmail.com 2>&1
+
+# === BACA INBOX (Python imaplib) ===
+# Lihat 10 email terbaru
+python3 -c "
+import imaplib, email
+from email.header import decode_header
+mail = imaplib.IMAP4_SSL(\"imap.gmail.com\", 993)
+mail.login(\"EMAIL@gmail.com\", \"APP_PASSWORD\")
+mail.select(\"INBOX\")
+status, msgs = mail.search(None, \"ALL\")
+ids = msgs[0].split()
+for eid in reversed(ids[-10:]):
+    _, data = mail.fetch(eid, \"(RFC822)\")
+    for part in data:
+        if isinstance(part, tuple):
+            m = email.message_from_bytes(part[1])
+            s = decode_header(m[\"Subject\"] or \"\")
+            subject = \"\".join(p.decode(e or \"utf-8\") if isinstance(p, bytes) else p for p,e in s)
+            print(f\"[{m['From']}] {subject}\")
+mail.logout()
+"
+
+# Cari email belum dibaca
+# Ganti 'UNSEEN' dengan search keyword lain (lihat bagian 11.5)
+python3 -c "
+import imaplib, email
+mail = imaplib.IMAP4_SSL(\"imap.gmail.com\", 993)
+mail.login(\"EMAIL@gmail.com\", \"APP_PASSWORD\")
+mail.select(\"INBOX\")
+status, msgs = mail.search(None, \"UNSEEN\")
+ids = msgs[0].split()
+print(f\"Email belum dibaca: {len(ids)}\")
+mail.logout()
+"
 ```
 
 ### Decision Tree: Mau Kirim Email?
@@ -644,6 +680,17 @@ Mau kirim email?
 │  └─ Tulis header Content-Type: text/html di pesan:
 │     echo -e "Subject: HTML\nContent-Type: text/html\n\n<h1>Halo</h1>" | msmtp --file=config/email/msmtprc tujuan@gmail.com
 │
+├─ Mau baca inbox?
+│  └─ Pakai Python imaplib:
+│     1. Pastikan IMAP aktif di Gmail settings
+│     2. Gunakan App Password yang sama
+│     3. Lihat bagian 11 untuk script lengkap
+│     4. Server: imap.gmail.com:993 (SSL)
+│
+├─ Mau download lampiran?
+│  └─ Pakai Python imaplib (lihat bagian 11.7)
+│     Loop multipart, cek Content-Disposition == "attachment"
+│
 └─ Kirim gagal?
    └─ Cek log: cat ~/.msmtp.log
       ├─ 535 error → Password salah / belum App Password
@@ -654,6 +701,269 @@ Mau kirim email?
 
 ---
 
+## 11. Membaca Inbox via Python imaplib
+
+`msmtp` hanya bisa mengirim email. Untuk **membaca inbox**, kita gunakan module bawaan Python `imlib` + `email`.
+
+### 11.1 Prasyarat
+
+**IMAP harus aktif di Gmail:**
+1. Buka Gmail → Settings (ikon gear) → See all settings
+2. Tab "Forwarding and POP/IMAP"
+3. Pilih "Enable IMAP"
+4. Klik Save Changes
+
+**App Password:**
+- Sama seperti setup msmtp — pakai App Password yang sudah dibuat
+- App Password yang sama bisa dipakai untuk SMTP (msmtp) dan IMAP (Python)
+
+**Tidak perlu install apapun** — `imaplib` dan `email` adalah module bawaan Python.
+
+### 11.2 Script Baca Inbox (10 Email Terbaru)
+
+```python
+import imaplib
+import email
+from email.header import decode_header
+
+# Connect ke Gmail IMAP
+mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+mail.login("EMAIL_KAMU@gmail.com", "APP_PASSWORD")
+mail.select("INBOX")
+
+# Cari semua email di inbox
+status, messages = mail.search(None, "ALL")
+email_ids = messages[0].split()
+total = len(email_ids)
+print(f"Total email di inbox: {total}")
+
+# Ambil 10 email terbaru
+latest_ids = email_ids[-10:]
+for eid in reversed(latest_ids):
+    status, msg_data = mail.fetch(eid, "(RFC822)")
+    if status != "OK":
+        continue
+    for response_part in msg_data:
+        if isinstance(response_part, tuple):
+            msg = email.message_from_bytes(response_part[1])
+
+            # Decode subject
+            subject_raw = msg["Subject"]
+            if subject_raw:
+                decoded = decode_header(subject_raw)
+                subject = ""
+                for part, enc in decoded:
+                    if isinstance(part, bytes):
+                        subject += part.decode(enc or "utf-8", errors="replace")
+                    else:
+                        subject += part
+            else:
+                subject = "(Tanpa subjek)"
+
+            # Decode sender
+            from_raw = msg["From"]
+            if from_raw:
+                decoded = decode_header(from_raw)
+                sender = ""
+                for part, enc in decoded:
+                    if isinstance(part, bytes):
+                        sender += part.decode(enc or "utf-8", errors="replace")
+                    else:
+                        sender += part
+            else:
+                sender = "(Unknown)"
+
+            # Date
+            date = msg["Date"] or "(Tanpa tanggal)"
+
+            # Body preview
+            body = ""
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        try:
+                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")[:200]
+                        except:
+                            body = "(tidak bisa decode)"
+                        break
+            else:
+                try:
+                    body = msg.get_payload(decode=True).decode("utf-8", errors="replace")[:200]
+                except:
+                    body = "(tidak bisa decode)"
+
+            print(f"Subjek  : {subject}")
+            print(f"Dari    : {sender}")
+            print(f"Tanggal : {date}")
+            print(f"Preview : {body[:150]}")
+            print("-" * 60)
+
+mail.logout()
+```
+
+### 11.3 Baca Email Lengkap Berdasarkan Index
+
+Untuk membaca satu email secara lengkap (bukan preview), ganti bagian loop dengan:
+
+```python
+# Baca email ke-N terbaru (0 = paling baru)
+idx = 0
+eid = email_ids[-(idx+1)]
+status, msg_data = mail.fetch(eid, "(RFC822)")
+for response_part in msg_data:
+    if isinstance(response_part, tuple):
+        msg = email.message_from_bytes(response_part[1])
+        print(f"Subject: {msg['Subject']}")
+        print(f"From: {msg['From']}")
+        print(f"Date: {msg['Date']}")
+        print("=" * 60)
+        # Print full body
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                    print(part.get_payload(decode=True).decode("utf-8", errors="replace"))
+        else:
+            print(msg.get_payload(decode=True).decode("utf-8", errors="replace"))
+```
+
+### 11.4 Cari Email dengan Kata Kunci
+
+```python
+# Cari email yang mengandung kata kunci di subjek
+status, messages = mail.search(None, 'SUBJECT "keyword"')
+
+# Cari email dari pengirim tertentu
+status, messages = mail.search(None, 'FROM "pengirim@email.com"')
+
+# Cari email yang belum dibaca
+status, messages = mail.search(None, 'UNSEEN')
+
+# Cari email dalam rentang tanggal
+status, messages = mail.search(None, 'SINCE "01-Jun-2026" BEFORE "15-Jun-2026"')
+
+# Kombinasi: belum dibaca + dari pengirim tertentu
+status, messages = mail.search(None, 'UNSEEN FROM "pengirim@email.com"')
+```
+
+### 11.5 IMAP Search Keywords
+
+```
+ALL          — Semua email
+UNSEEN       — Belum dibaca
+SEEN         — Sudah dibaca
+FROM "x"     — Dari pengirim tertentu
+SUBJECT "x"  — Subjek mengandung kata
+SINCE "x"    — Setelah tanggal (format: DD-Mon-YYYY)
+BEFORE "x"   — Sebelum tanggal
+LARGER "x"   — Lebih besar dari x bytes
+SMALLER "x"  — Lebih kecil dari x bytes
+TO "x"       — Tertuju ke
+CC "x"       — CC ke
+BCC "x"      — BCC ke
+TEXT "x"     — Body mengandung kata
+OR / AND     — Kombinasi kondisi
+```
+
+### 11.6 Baca Email dari Folder Lain
+
+```python
+# List semua folder
+status, folders = mail.list()
+for folder in folders:
+    print(folder)
+
+# Baca dari folder tertentu
+mail.select("[Gmail]/Sent")       # Sent mail
+mail.select("[Gmail]/Drafts")     # Drafts
+mail.select("[Gmail]/Trash")      # Trash
+mail.select("[Gmail]/Spam")       # Spam
+mail.select("[Gmail]/All Mail")   # All Mail
+```
+
+### 11.7 Download Lampiran (Attachment)
+
+```python
+import os
+
+if msg.is_multipart():
+    for part in msg.walk():
+        if part.get_content_disposition() == "attachment":
+            filename = part.get_filename()
+            if filename:
+                # Decode filename jika perlu
+                decoded = decode_header(filename)
+                fname = ""
+                for part_name, enc in decoded:
+                    if isinstance(part_name, bytes):
+                        fname += part_name.decode(enc or "utf-8", errors="replace")
+                    else:
+                        fname += part_name
+                # Simpan file
+                filepath = os.path.join("/tmp", fname)
+                with open(filepath, "wb") as f:
+                    f.write(part.get_payload(decode=True))
+                print(f"Lampiran disimpan: {filepath}")
+```
+
+### 11.8 Tandai Email sebagai Sudah Dibaca / Belum Dibaca
+
+```python
+# Tandai sebagai SUDAH dibaca (add \Seen flag)
+mail.store(eid, "+FLAGS", "\\Seen")
+
+# Tandai sebagai BELUM dibaca (remove \Seen flag)
+mail.store(eid, "-FLAGS", "\\Seen")
+
+# Tandai sebagai dihapus
+mail.store(eid, "+FLAGS", "\\Deleted")
+mail.expunge()
+```
+
+### 11.9 IMAP Server Settings untuk Baca Inbox
+
+```
+Gmail:
+  IMAP: imap.gmail.com:993 (SSL)
+  SMTP: smtp.gmail.com:587 (STARTTLS)
+
+Outlook:
+  IMAP: imap-mail.outlook.com:993 (SSL)
+  SMTP: smtp-mail.outlook.com:587 (STARTTLS)
+
+Yahoo:
+  IMAP: imap.mail.yahoo.com:993 (SSL)
+  SMTP: smtp.mail.yahoo.com:587 (STARTTLS)
+
+iCloud:
+  IMAP: imap.mail.me.com:993 (SSL)
+  SMTP: smtp.mail.me.com:587 (STARTTLS)
+```
+
+### 11.10 Troubleshooting IMAP
+
+**Error: `[AUTHENTICATIONFAILED] Invalid credentials`**
+- Pastikan App Password benar (bukan password biasa)
+- Pastikan 2FA sudah aktif di Gmail
+- Buat App Password baru jika perlu
+
+**Error: `LOGIN failed`**
+- Cek apakah IMAP sudah aktif di Gmail settings
+- Coba login manual: `openssl s_client -connect imap.gmail.com:993`
+
+**Error: `Connection refused`**
+- Cek koneksi internet
+- Cek apakah port 993 diblokir firewall
+
+**Email body kosong atau HTML:**
+- Cek `text/plain` dulu, fallback ke `text/html`
+- Untuk HTML, bisa convert ke text dengan `html2text` atau regex
+
+**Decode error pada subject/sender:**
+- Selalu gunakan `decode_header()` dari `email.header`
+- Gunakan `errors="replace"` untuk hindari crash
+
+---
+
 ## 📌 Catatan Penting
 
 - **Config path:** `config/email/msmtprc` (JANGAN di-commit ke git)
@@ -661,14 +971,17 @@ Mau kirim email?
 - **Gmail wajib pakai App Password** — password biasa tidak akan bekerja
 - **Permission config HARUS 600** — msmtp akan menolak jika terlalu open
 - **msmtp hanya kirim** — tidak bisa menerima/baca email
-- **Attachment tidak native** — butuh `mpack` atau Python `smtplib` + `email.mime`
+- **Baca inbox pakai Python `imaplib`** — module bawaan Python, tidak perlu install
+- **Attachment tidak native di msmtp** — butuh `mpack` atau Python `smtplib` + `email.mime`
+- **Download lampiran via `imaplib`** — lihat bagian 11.7
+- **IMAP Gmail:** `imap.gmail.com:993` (SSL) — harus aktifkan IMAP di Gmail settings
 
 ---
 
 <div align="center">
 
-**🐢 Ruka AI — Email Skills v1.0**
-*Di-generate berdasarkan percobaan langsung msmtp + Gmail di environment Termux.*
+**🐢 Ruka AI — Email Skills v1.1**
+*Di-generate berdasarkan percobaan langsung msmtp + Python imaplib + Gmail di environment Termux.*
 *Update file ini setiap ada penemuan baru.*
 
 </div>
