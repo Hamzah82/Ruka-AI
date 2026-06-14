@@ -18,8 +18,8 @@
 - [8. Error Handling](#8-error-handling)
 - [9. Tips & Best Practices](#9-tips--best-practices) *(termasuk PPT Creation)*
 - [10. Browsing & Web Scraping](#10-browsing--web-scraping)
-- [11. Browsing Skill (Lengkap)](#11-browsing-skill-lengkap)
-- [12. Vercel CLI Deploy](#12-vercel-cli-deploy)
+- [11. Vercel CLI Deploy](#11-vercel-cli-deploy)
+- [12. Email via msmtp](#12-email-via-msmtp)
 
 ---
 
@@ -752,7 +752,7 @@ Round 3: Analisis hasil → tampilkan ke user
 
 ---
 
-## 12. Vercel CLI Deploy
+## 11. Vercel CLI Deploy
 
 Ketika user meminta deploy ke Vercel, membuat project Vercel, atau mengatur konfigurasi Vercel (env var, domain, dll), **WAJIB** membaca file `SKILL/vercelSkill.md` terlebih dahulu sebelum melakukan operasi apapun.
 
@@ -783,6 +783,47 @@ Round 2: exec_command("vercel --version") → cek CLI terinstall
 Round 3: exec_command("vercel whoami") → cek login
 Round 4: exec_command("cd /path/to/project && vercel --prod") → deploy
 Round 5: konfirmasi hasil deploy (URL, status)
+```
+
+---
+
+## 12. Email via msmtp
+
+Ketika user meminta mengirim email, membaca email, atau mengatur konfigurasi email, **WAJIB** membaca file `SKILL/emailSkill.md` terlebih dahulu sebelum melakukan operasi apapun.
+
+File `SKILL/emailSkill.md` berisi seluruh panduan email termasuk:
+- Cara install `msmtp` di berbagai platform
+- Setup App Password untuk Gmail
+- Format file config `msmtprc`
+- Cara kirim email (sederhana, multi-recipient, CC/BCC, dari file)
+- SMTP settings untuk berbagai provider (Gmail, Outlook, Yahoo, Zoho, iCloud)
+- Format pesan RFC 2822
+- Logging & debugging
+- Troubleshooting error umum
+
+**⚠️ Aturan wajib:**
+- BACA `SKILL/emailSkill.md` dulu sebelum kirim email, terutama di session baru
+- Config email tersimpan di `config/email/msmtprc` — **JANGAN** di-commit ke git (sudah di `.gitignore`)
+- **JANGAN** tulis password/credential langsung di script atau command — selalu pakai `--file=config/email/msmtprc`
+- Gmail **wajib** pakai App Password — password biasa tidak akan bekerja
+- Permission file config HARUS `600` — msmtp akan menolak jika terlalu open
+- `msmtp` hanya bisa **kirim** email — tidak bisa menerima/baca email
+
+**Lokasi file penting:**
+- Config: `config/email/msmtprc`
+- Log: `~/.msmtp.log`
+- Skill: `SKILL/emailSkill.md`
+
+Contoh alur:
+```
+User: "Kirimkan email ke xiergraph@gmail.com"
+
+Round 1: read_file("SKILL/emailSkill.md") → baca panduan email
+Round 2: exec_command("ls -la config/email/msmtprc") → cek config ada
+Round 3: email config belum ada → setup dulu (install msmtp, buat App Password, buat config)
+         email config sudah ada → langsung kirim
+Round 4: echo -e "Subject: Subjek\n\nIsi pesan" | msmtp --file=config/email/msmtprc tujuan@gmail.com
+Round 5: exec_command("cat ~/.msmtp.log") → cek log, konfirmasi hasil
 ```
 
 ---
@@ -832,6 +873,14 @@ Round 5: konfirmasi hasil deploy (URL, status)
 │    Deploy: vercel --prod                                 │
 │    Env: vercel env add KEY                               │
 │    Domain: vercel domains add domain.com                 │
+│                                                          │
+│  EMAIL (msmtp):                                          │
+│    Baca SKILL/emailSkill.md dulu sebelum kirim email     │
+│    Config: config/email/msmtprc                          │
+│    Log: ~/.msmtp.log                                     │
+│    Kirim: echo -e "Subject: ...\n\n..." | msmtp          │
+│           --file=config/email/msmtprc tujuan@gmail.com   │
+│    Gmail wajib App Password + permission 600             │
 │                                                          │
 │  RULES:                                                  │
 │    ✅ Bahasa Indonesia                                    │
