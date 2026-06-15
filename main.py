@@ -2028,7 +2028,7 @@ def get_system_prompt(session_name: str = None) -> str:
         "══════════════════════════════════════════════════════════════\n"
         "📋 INSTRUKSI AWAL SESSION — BACA SEBELUM MULAI:\n"
         "══════════════════════════════════════════════════════════════\n"
-        "Baca file 'skills.md' menggunakan tool read_file untuk memahami:\n"
+        "Baca file 'SKILL/skills.md' menggunakan tool read_file untuk memahami:\n"
         "   - Daftar 12 tools yang tersedia dan cara menggunakannya\n"
         "   - Batasan keamanan dan path traversal protection\n"
         "   - Alur kerja agentic loop dan multi-step execution\n"
