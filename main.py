@@ -48,7 +48,7 @@ DEFAULT_CMD_TIMEOUT = 60
 
 # Retry configuration
 MAX_RETRIES = 5
-RETRY_BASE_DELAY = 2  # detik, akan di-exponential backoff
+RETRY_BASE_DELAY = 5  # detik, akan di-exponential backoff
 
 # Perintah yang diblokir untuk keamanan (jangan pernah menjalankan ini)
 BLOCKED_COMMANDS = [
