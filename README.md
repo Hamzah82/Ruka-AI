@@ -113,7 +113,7 @@ Jika session `kerja-proyek` sudah ada, percakapan sebelumnya akan dimulai. Jika 
 ### Melihat Daftar Session
 
 ```bash
-python main.py list-sessions
+python main.py listSessions
 ```
 
 Atau saat dalam sesi chat, ketik:
@@ -140,7 +140,7 @@ Session saat ini akan otomatis tersimpan, lalu session baru dimulai.
 
 ```bash
 # Dari CLI:
-python main.py delete-session kerja-proyek
+python main.py deleteSession kerja-proyek
 
 # Dari dalam chat:
 👤  Kamu: /delete-session kerja-proyek
@@ -150,7 +150,7 @@ python main.py delete-session kerja-proyek
 
 ```bash
 # Dari CLI:
-python main.py rename-session nama-lama nama-baru
+python main.py renameSession nama-lama nama-baru
 
 # Dari dalam chat:
 👤  Kamu: /rename-session nama-lama nama-baru
@@ -214,7 +214,7 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - **Riwayat pesan** — Seluruh percakapan (system, user, assistant, tool)
 - **Metadata** — Tanggal dibuat, tanggal diupdate, jumlah pesan
 
-### Perintah Session dalam Chat
+### Perintah Session dalam Chat (Slash Command)
 
 - `/sessions` — Tampilkan daftar semua session tersimpan
 - `/new` — Mulai session baru (session lama auto-save)
@@ -222,12 +222,16 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - `/delete-session <nama>` — Hapus session tertentu
 - `/rename-session <lama> <baru>` — Rename session
 
+> Slash command tetap menggunakan format kebab-case dengan prefix `/`.
+
 ### Perintah Session dari CLI
 
 - `python main.py <nama>` — Load atau buat session dengan nama tertentu
-- `python main.py list-sessions` — Lihat daftar semua session
-- `python main.py delete-session <nama>` — Hapus session dari CLI
-- `python main.py rename-session <lama> <baru>` — Rename session dari CLI
+- `python main.py listSessions` — Lihat daftar semua session
+- `python main.py deleteSession <nama>` — Hapus session dari CLI
+- `python main.py renameSession <lama> <baru>` — Rename session dari CLI
+
+> **Catatan:** CLI command menggunakan **camelCase** (tanpa tanda `-`), sedangkan slash command di dalam chat tetap menggunakan kebab-case dengan prefix `/`.
 
 ### Auto-Save
 

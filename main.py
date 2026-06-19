@@ -7,11 +7,14 @@ Output AI diformat dari markdown ke styled terminal text.
 Session Management:
   python main.py              → session baru dengan nama timestamp
   python main.py <namaSesi>   → load atau buat sesi dengan nama tertentu
-  /sessions                  → tampilkan daftar semua sesi
-  /new                       → mulai sesi baru
-  /history                   → tampilkan riwayat chat sesi saat ini
-  /delete-session <nama>     → hapus sesi tertentu
-  /rename-session <lama> <baru> → rename sesi
+  python main.py listSessions → tampilkan daftar semua sesi (CLI)
+  python main.py deleteSession <nama> → hapus sesi tertentu (CLI)
+  python main.py renameSession <lama> <baru> → rename sesi (CLI)
+  /sessions                  → tampilkan daftar semua sesi (slash command)
+  /new                       → mulai sesi baru (slash command)
+  /history                   → tampilkan riwayat chat sesi saat ini (slash command)
+  /delete-session <nama>     → hapus sesi tertentu (slash command)
+  /rename-session <lama> <baru> → rename sesi (slash command)
 """
 
 import os
@@ -752,8 +755,10 @@ def show_banner(session_name: str = None, session_meta: dict = None):
 ║   🔄  Round      : Unlimited (ketik 'q' untuk interupsi)     ║
 ║   🚪  Ketik      : 'exit' untuk keluar                       ║
 ║   💾  Session    : 'python main.py <nama>' untuk load/buat   ║
-║                    '/sessions' lihat daftar, '/new' baru     ║
-║                    '/history' riwayat, '/delete-session' hapus║{session_info}
+║   📋  CLI        : listSessions | deleteSession <n>          ║
+║                    renameSession <lama> <baru>               ║
+║   🔧  Slash      : /sessions | /new | /history               ║
+║                    /delete-session <n> | /rename-session     ║{session_info}
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝{Style.RESET}""")
 
@@ -776,12 +781,16 @@ def show_examples():
   │  {Style.WHITE}• Tampilkan proses yang berjalan dengan 'ps aux'{Style.DIM}         │
   │  {Style.WHITE}• Cek koneksi jaringan dengan 'ping google.com -c 3'{Style.DIM}     │
   │                                                            │
-  │  {Style.YELLOW}📌 Perintah session:{Style.DIM}                                      │
+  │  {Style.YELLOW}📌 Slash command (dalam sesi):{Style.DIM}                          │
   │  {Style.WHITE}• /sessions — lihat semua sesi{Style.DIM}                           │
   │  {Style.WHITE}• /new — mulai sesi baru{Style.DIM}                                │
   │  {Style.WHITE}• /history — riwayat chat sesi ini{Style.DIM}                       │
   │  {Style.WHITE}• /delete-session <nama> — hapus sesi{Style.DIM}                   │
   │  {Style.WHITE}• /rename-session <lama> <baru> — rename sesi{Style.DIM}            │
+  │  {Style.YELLOW}📌 CLI command (dari terminal):{Style.DIM}                          │
+  │  {Style.WHITE}• python main.py listSessions{Style.DIM}                             │
+  │  {Style.WHITE}• python main.py deleteSession <nama>{Style.DIM}                     │
+  │  {Style.WHITE}• python main.py renameSession <lama> <baru>{Style.DIM}              │
   │                                                            │
   └──────────────────────────────────────────────────────────┘{Style.RESET}""")
 
@@ -795,6 +804,7 @@ def show_session_list():
   {Style.YELLOW}┌──────────────────────────────────────────────────────────┐
   │  📌 Belum ada session tersimpan.                           │
   │      Ketik 'python main.py <nama>' untuk memulai.          │
+  │      Ketik 'python main.py listSessions' untuk lihat.      │
   └──────────────────────────────────────────────────────────┘{Style.RESET}""")
         return
 
@@ -809,6 +819,7 @@ def show_session_list():
         print(f"       {Style.DIM}Pesan: {s['messages']}  |  Dibuat: {s['created']}  |  Diupdate: {s['updated']}  |  Ukuran: {size_str}{Style.RESET}")
 
     print(f"\n  {Style.DIM}Ketik 'python main.py <nama>' untuk melanjutkan sesi.{Style.RESET}")
+    print(f"  {Style.DIM}Ketik 'python main.py listSessions' untuk melihat daftar.{Style.RESET}")
 
 
 def show_session_history(messages: list, session_name: str):
@@ -1976,7 +1987,10 @@ def get_system_prompt(session_name: str = None) -> str:
             f"Session tersimpan otomatis di folder 'sessions/'.\n"
             f"User bisa melihat daftar sesi dengan '/sessions', mulai sesi baru dengan '/new', "
             f"melihat riwayat dengan '/history', hapus sesi dengan '/delete-session <nama>', "
-            f"dan rename sesi dengan '/rename-session <lama> <baru>'."
+            f"dan rename sesi dengan '/rename-session <lama> <baru>'. "
+            f"CLI command (dari terminal): python main.py listSessions, "
+            f"python main.py deleteSession <nama>, "
+            f"python main.py renameSession <lama> <baru>."
         )
 
     return (
@@ -2165,15 +2179,15 @@ if __name__ == "__main__":
         arg = sys.argv[1]
 
         # Cek apakah argumen adalah perintah session
-        if arg == "list-sessions":
+        if arg == "listSessions":
             # Mode: tampilkan daftar session
             show_session_list()
-        elif arg == "delete-session" and len(sys.argv) > 2:
+        elif arg == "deleteSession" and len(sys.argv) > 2:
             # Mode: hapus session dari CLI
             target = sys.argv[2]
             result = delete_session(target)
             print(result)
-        elif arg == "rename-session" and len(sys.argv) > 3:
+        elif arg == "renameSession" and len(sys.argv) > 3:
             # Mode: rename session dari CLI
             old_name = sys.argv[2]
             new_name = sys.argv[3]
