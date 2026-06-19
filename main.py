@@ -797,6 +797,79 @@ def rename_session(old_name: str, new_name: str) -> str:
 # UI FUNCTIONS - RUKA AI (KURA-KURA)
 # ============================================================
 
+def show_help():
+    """Tampilkan menu help dengan semua command yang tersedia."""
+    print(f"""
+{Style.GREEN}{Style.BOLD}╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║              🐢  R U K A   A I   -   H E L P                 ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝{Style.RESET}
+
+{Style.YELLOW}{Style.BOLD}📌 CARA PENGGUNAAN:{Style.RESET}
+
+  {Style.WHITE}python main.py{Style.RESET}                    Mode interaktif (session baru otomatis)
+  {Style.WHITE}python main.py <namaSesi>{Style.RESET}        Load atau buat session dengan nama tertentu
+  {Style.WHITE}python main.py <prompt>{Style.RESET}           Single prompt mode (langsung jawab)
+
+{Style.YELLOW}{Style.BOLD}📋 CLI COMMAND (dari terminal):{Style.RESET}
+
+  {Style.CYAN}python main.py help{Style.RESET}
+      Tampilkan menu help ini
+
+  {Style.CYAN}python main.py listSessions{Style.RESET}
+      Tampilkan daftar semua session yang tersimpan
+
+  {Style.CYAN}python main.py searchSessions <keyword>{Style.RESET}
+      Cari session berdasarkan keyword (case-insensitive)
+
+  {Style.CYAN}python main.py deleteSession <nama>{Style.RESET}
+      Hapus session tertentu berdasarkan nama
+
+  {Style.CYAN}python main.py renameSession <lama> <baru>{Style.RESET}
+      Rename session dari nama lama ke nama baru
+
+  {Style.CYAN}python main.py clearSessions{Style.RESET}
+      Hapus semua session tanpa nama (auto-generated)
+      Session dengan nama custom TIDAK akan dihapus
+
+{Style.YELLOW}{Style.BOLD}🔧 SLASH COMMAND (dalam sesi interaktif):{Style.RESET}
+
+  {Style.CYAN}/sessions{Style.RESET}                      Lihat daftar semua session
+  {Style.CYAN}/new{Style.RESET}                           Mulai session baru (lama auto-save)
+  {Style.CYAN}/history{Style.RESET}                       Lihat riwayat chat sesi saat ini
+  {Style.CYAN}/delete-session <nama>{Style.RESET}         Hapus session tertentu
+  {Style.CYAN}/rename-session <lama> <baru>{Style.RESET}  Rename session
+
+{Style.YELLOW}{Style.BOLD}💡 CONTOH PENGGUNAAN:{Style.RESET}
+
+  {Style.DIM}# Mulai session baru{Style.RESET}
+  {Style.WHITE}python main.py{Style.RESET}
+
+  {Style.DIM}# Load session bernama 'kerja'{Style.RESET}
+  {Style.WHITE}python main.py kerja{Style.RESET}
+
+  {Style.DIM}# Cari session yang mengandung 'proyek'{Style.RESET}
+  {Style.WHITE}python main.py searchSessions proyek{Style.RESET}
+
+  {Style.DIM}# Hapus session 'tes'{Style.RESET}
+  {Style.WHITE}python main.py deleteSession tes{Style.RESET}
+
+  {Style.DIM}# Single prompt{Style.RESET}
+  {Style.WHITE}python main.py "Tampilkan daftar file"{Style.RESET}
+
+{Style.YELLOW}{Style.BOLD}🔑 CATATAN:{Style.RESET}
+
+  • CLI command menggunakan {Style.BOLD}camelCase{Style.RESET} (tanpa tanda -)
+  • Slash command menggunakan {Style.BOLD}kebab-case{Style.RESET} dengan prefix /
+  • Session tersimpan otomatis di folder 'sessions/'
+  • Ketik 'exit' atau 'quit' untuk keluar dari sesi interaktif
+  • Ketik 'q' saat AI memproses untuk interupsi
+
+{Style.GREEN}════════════════════════════════════════════════════════════════{Style.RESET}
+""")
+
+
 def ruka_print():
     print(f"""
 {Style.GREEN}{Style.BOLD}              🐢  R U K A   A I  🐢
@@ -2268,7 +2341,10 @@ if __name__ == "__main__":
         arg = sys.argv[1]
 
         # Cek apakah argumen adalah perintah session
-        if arg == "listSessions":
+        if arg in ("help", "--help", "-h"):
+            # Mode: tampilkan help
+            show_help()
+        elif arg == "listSessions":
             # Mode: tampilkan daftar session
             show_session_list()
         elif arg == "deleteSession" and len(sys.argv) > 2:

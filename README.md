@@ -233,7 +233,24 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - `python main.py clearSessions` — Hapus semua session tanpa nama (auto-generated) dari CLI
 - `python main.py searchSessions <keyword>` — Cari session berdasarkan keyword dari CLI
 
+- `python main.py help` — Tampilkan menu help lengkap
+
 > **Catatan:** CLI command menggunakan **camelCase** (tanpa tanda `-`), sedangkan slash command di dalam chat tetap menggunakan kebab-case dengan prefix `/`.
+
+### Menu Help
+
+```bash
+python main.py help
+```
+
+Atau menggunakan alias:
+
+```bash
+python main.py --help
+python main.py -h
+```
+
+Command ini akan menampilkan menu help lengkap berisi semua CLI command, slash command, contoh penggunaan, dan catatan penting.
 
 ### Mencari Session
 
