@@ -31,47 +31,20 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================================
-# KONFIGURASI
+# KONFIGURASI — dimuat dari config.py
 # ============================================================
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "sk-or-v1-xxxxxx")
-MODEL = "openrouter/owl-alpha"
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
-
-# Direktori kerja = folder tempat script ini berada
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Folder untuk menyimpan sesi
-SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
-
-# Timeout default untuk eksekusi perintah (detik)
-DEFAULT_CMD_TIMEOUT = 60
-
-# Retry configuration
-MAX_RETRIES = 5
-RETRY_BASE_DELAY = 5  # detik, akan di-exponential backoff
-
-# Perintah yang diblokir untuk keamanan (jangan pernah menjalankan ini)
-BLOCKED_COMMANDS = [
-    "rm -rf /",
-    "rm -rf /*",
-    "mkfs.",
-    "dd if=/dev/zero",
-    "shutdown -h now",
-    "shutdown -r now",
-    "poweroff",
-    "reboot",
-    ":(){:|:&};:",
-    "del /s /q \\",
-    "rd /s /q \\",
-    "format c:",
-]
-
-HEADERS = {
-    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    "Content-Type": "application/json",
-    "HTTP-Referer": "https://myapp.com",
-    "X-Title": "Ruka AI - Kura-Kura Agent",
-}
+from config import (
+    OPENROUTER_API_KEY,
+    MODEL,
+    API_URL,
+    HEADERS,
+    BASE_DIR,
+    SESSIONS_DIR,
+    DEFAULT_CMD_TIMEOUT,
+    MAX_RETRIES,
+    RETRY_BASE_DELAY,
+    BLOCKED_COMMANDS,
+)
 
 # ============================================================
 # INTERRUPT MECHANISM — queue-based, single input source
