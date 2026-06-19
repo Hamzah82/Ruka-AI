@@ -11,6 +11,7 @@ Session Management:
   python main.py deleteSession <nama> → hapus sesi tertentu (CLI)
   python main.py renameSession <lama> <baru> → rename sesi (CLI)
   python main.py clearSessions → hapus semua session tanpa nama (CLI)
+  python main.py searchSessions <keyword> → cari session berdasarkan nama (CLI)
   /sessions                  → tampilkan daftar semua sesi (slash command)
   /new                       → mulai sesi baru (slash command)
   /history                   → tampilkan riwayat chat sesi saat ini (slash command)
@@ -735,6 +736,37 @@ def clear_sessions() -> str:
     return "\n".join(parts)
 
 
+def search_sessions(keyword: str) -> str:
+    """
+    Cari session berdasarkan keyword (case-insensitive).
+    Mencocokkan keyword dengan nama session.
+    Returns: formatted string dengan hasil pencarian.
+    """
+    all_sessions = list_sessions()
+
+    if not all_sessions:
+        return "ℹ️ Tidak ada session tersimpan."
+
+    keyword_lower = keyword.strip().lower()
+    matched = [s for s in all_sessions if keyword_lower in s["name"].lower()]
+
+    if not matched:
+        return f"🔍 Tidak ditemukan session yang mengandung '{keyword}'."
+
+    # Format hasil pencarian
+    lines = [
+        f"🔍 Hasil pencarian untuk '{keyword}' ({len(matched)} dari {len(all_sessions)} session):",
+        ""
+    ]
+
+    for i, s in enumerate(matched, 1):
+        size_str = _format_size(s["size"])
+        lines.append(f"  {Style.YELLOW}{Style.BOLD}{i:3d}.{Style.RESET}  {Style.WHITE}{s['name']}{Style.RESET}")
+        lines.append(f"       {Style.DIM}Pesan: {s['messages']}  |  Dibuat: {s['created']}  |  Diupdate: {s['updated']}  |  Ukuran: {size_str}{Style.RESET}")
+
+    return "\n".join(lines)
+
+
 def rename_session(old_name: str, new_name: str) -> str:
     """Rename file session."""
     old_path = _session_path(old_name)
@@ -807,8 +839,9 @@ def show_banner(session_name: str = None, session_meta: dict = None):
 ║   🔄  Round      : Unlimited (ketik 'q' untuk interupsi)     ║
 ║   🚪  Ketik      : 'exit' untuk keluar                       ║
 ║   💾  Session    : 'python main.py <nama>' untuk load/buat   ║
-║   📋  CLI        : listSessions | deleteSession <n>          ║
-║                    renameSession <l> <b> | clearSessions     ║
+║   📋  CLI        : listSessions | searchSessions <kw>        ║
+║                    deleteSession <n> | renameSession <l> <b>  ║
+║                    clearSessions                              ║
 ║   🔧  Slash      : /sessions | /new | /history               ║
 ║                    /delete-session <n> | /rename-session     ║{session_info}
 ║                                                              ║
@@ -844,6 +877,7 @@ def show_examples():
   │  {Style.WHITE}• python main.py deleteSession <nama>{Style.DIM}                     │
   │  {Style.WHITE}• python main.py renameSession <lama> <baru>{Style.DIM}              │
   │  {Style.WHITE}• python main.py clearSessions — hapus sesi tanpa nama{Style.DIM}    │
+  │  {Style.WHITE}• python main.py searchSessions <keyword>{Style.DIM}                   │
   │                                                            │
   └──────────────────────────────────────────────────────────┘{Style.RESET}""")
 
@@ -2044,7 +2078,8 @@ def get_system_prompt(session_name: str = None) -> str:
             f"CLI command (dari terminal): python main.py listSessions, "
             f"python main.py deleteSession <nama>, "
             f"python main.py renameSession <lama> <baru>, "
-            f"python main.py clearSessions (hapus semua session tanpa nama)."
+            f"python main.py clearSessions (hapus semua session tanpa nama), "
+            f"python main.py searchSessions <keyword> (cari session berdasarkan nama)."
         )
 
     return (
@@ -2250,6 +2285,11 @@ if __name__ == "__main__":
         elif arg == "clearSessions":
             # Mode: hapus semua session auto-generated (tanpa nama)
             result = clear_sessions()
+            print(result)
+        elif arg == "searchSessions" and len(sys.argv) > 2:
+            # Mode: cari session berdasarkan keyword
+            keyword = " ".join(sys.argv[2:])
+            result = search_sessions(keyword)
             print(result)
         elif not arg.startswith("/"):
             # Mode: session dengan nama tertentu

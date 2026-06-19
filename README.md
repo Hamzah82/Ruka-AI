@@ -231,8 +231,29 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - `python main.py deleteSession <nama>` — Hapus session tertentu dari CLI
 - `python main.py renameSession <lama> <baru>` — Rename session dari CLI
 - `python main.py clearSessions` — Hapus semua session tanpa nama (auto-generated) dari CLI
+- `python main.py searchSessions <keyword>` — Cari session berdasarkan keyword dari CLI
 
 > **Catatan:** CLI command menggunakan **camelCase** (tanpa tanda `-`), sedangkan slash command di dalam chat tetap menggunakan kebab-case dengan prefix `/`.
+
+### Mencari Session
+
+```bash
+python main.py searchSessions proyek
+```
+
+Command ini akan mencari semua session yang namanya mengandung keyword `proyek` (case-insensitive). Berguna ketika punya banyak session dan ingin cepat menemukan session tertentu.
+
+Output contoh:
+
+```
+🔍 Hasil pencarian untuk 'proyek' (2 dari 8 session):
+
+  1.  kerja-proyek
+      Pesan: 45  |  Dibuat: 2025-07-01 14:30  |  Diupdate: 2025-07-03 09:15  |  Ukuran: 120.3 KB
+
+  2.  proyek-akhir
+      Pesan: 23  |  Dibuat: 2025-07-05 10:00  |  Diupdate: 2025-07-05 18:22  |  Ukuran: 58.7 KB
+```
 
 ### Menghapus Session Tanpa Nama
 
