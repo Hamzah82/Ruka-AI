@@ -228,10 +228,32 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 
 - `python main.py <nama>` — Load atau buat session dengan nama tertentu
 - `python main.py listSessions` — Lihat daftar semua session
-- `python main.py deleteSession <nama>` — Hapus session dari CLI
+- `python main.py deleteSession <nama>` — Hapus session tertentu dari CLI
 - `python main.py renameSession <lama> <baru>` — Rename session dari CLI
+- `python main.py clearSessions` — Hapus semua session tanpa nama (auto-generated) dari CLI
 
 > **Catatan:** CLI command menggunakan **camelCase** (tanpa tanda `-`), sedangkan slash command di dalam chat tetap menggunakan kebab-case dengan prefix `/`.
+
+### Menghapus Session Tanpa Nama
+
+```bash
+python main.py clearSessions
+```
+
+Command ini akan menghapus semua session yang **tidak memiliki nama** (auto-generated), yaitu session dengan pola nama `session_YYYYMMDD_HHMMSS`. Session dengan nama custom yang kamu buat sendiri **tidak akan dihapus**.
+
+Output contoh:
+
+```
+✅ 3 session auto-generated berhasil dihapus:
+   • session_20250701_143022
+   • session_20250702_091530
+   • session_20250703_164510
+
+📌 2 session custom (tidak dihapus):
+   • kerja-proyek
+   • catatan-harian
+```
 
 ### Auto-Save
 

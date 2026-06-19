@@ -10,6 +10,7 @@ Session Management:
   python main.py listSessions → tampilkan daftar semua sesi (CLI)
   python main.py deleteSession <nama> → hapus sesi tertentu (CLI)
   python main.py renameSession <lama> <baru> → rename sesi (CLI)
+  python main.py clearSessions → hapus semua session tanpa nama (CLI)
   /sessions                  → tampilkan daftar semua sesi (slash command)
   /new                       → mulai sesi baru (slash command)
   /history                   → tampilkan riwayat chat sesi saat ini (slash command)
@@ -683,6 +684,57 @@ def delete_session(name: str) -> str:
         return f"Error menghapus session: {e}"
 
 
+def clear_sessions() -> str:
+    """
+    Hapus semua session auto-generated (tanpa nama).
+    Session auto-generated memiliki pola nama: session_YYYYMMDD_HHMMSS
+    Session dengan nama custom (user-defined) TIDAK akan dihapus.
+    Returns: pesan status dengan jumlah session yang dihapus.
+    """
+    _ensure_sessions_dir()
+
+    # Regex pattern untuk session auto-generated
+    auto_pattern = re.compile(r'^session_\d{8}_\d{6}$')
+
+    deleted = []
+    skipped = []
+
+    try:
+        files = os.listdir(SESSIONS_DIR)
+    except OSError as e:
+        return f"Error membaca folder sessions: {e}"
+
+    for f in files:
+        if not f.endswith(".json"):
+            continue
+        name = f[:-5]  # hapus .json
+        if auto_pattern.match(name):
+            path = os.path.join(SESSIONS_DIR, f)
+            try:
+                os.remove(path)
+                deleted.append(name)
+            except OSError as e:
+                skipped.append(f"{name} (error: {e})")
+        else:
+            skipped.append(name)
+
+    # Build result message
+    parts = []
+    if deleted:
+        parts.append(f"✅ {len(deleted)} session auto-generated berhasil dihapus:")
+        for d in deleted:
+            parts.append(f"   • {d}")
+    else:
+        parts.append("ℹ️ Tidak ada session auto-generated yang ditemukan.")
+
+    if skipped:
+        parts.append(f"\n📌 {len(skipped)} session custom (tidak dihapus):")
+        for s in skipped:
+            parts.append(f"   • {s}")
+
+    return "\n".join(parts)
+
+
 def rename_session(old_name: str, new_name: str) -> str:
     """Rename file session."""
     old_path = _session_path(old_name)
@@ -756,7 +808,7 @@ def show_banner(session_name: str = None, session_meta: dict = None):
 ║   🚪  Ketik      : 'exit' untuk keluar                       ║
 ║   💾  Session    : 'python main.py <nama>' untuk load/buat   ║
 ║   📋  CLI        : listSessions | deleteSession <n>          ║
-║                    renameSession <lama> <baru>               ║
+║                    renameSession <l> <b> | clearSessions     ║
 ║   🔧  Slash      : /sessions | /new | /history               ║
 ║                    /delete-session <n> | /rename-session     ║{session_info}
 ║                                                              ║
@@ -791,6 +843,7 @@ def show_examples():
   │  {Style.WHITE}• python main.py listSessions{Style.DIM}                             │
   │  {Style.WHITE}• python main.py deleteSession <nama>{Style.DIM}                     │
   │  {Style.WHITE}• python main.py renameSession <lama> <baru>{Style.DIM}              │
+  │  {Style.WHITE}• python main.py clearSessions — hapus sesi tanpa nama{Style.DIM}    │
   │                                                            │
   └──────────────────────────────────────────────────────────┘{Style.RESET}""")
 
@@ -1990,7 +2043,8 @@ def get_system_prompt(session_name: str = None) -> str:
             f"dan rename sesi dengan '/rename-session <lama> <baru>'. "
             f"CLI command (dari terminal): python main.py listSessions, "
             f"python main.py deleteSession <nama>, "
-            f"python main.py renameSession <lama> <baru>."
+            f"python main.py renameSession <lama> <baru>, "
+            f"python main.py clearSessions (hapus semua session tanpa nama)."
         )
 
     return (
@@ -2192,6 +2246,10 @@ if __name__ == "__main__":
             old_name = sys.argv[2]
             new_name = sys.argv[3]
             result = rename_session(old_name, new_name)
+            print(result)
+        elif arg == "clearSessions":
+            # Mode: hapus semua session auto-generated (tanpa nama)
+            result = clear_sessions()
             print(result)
         elif not arg.startswith("/"):
             # Mode: session dengan nama tertentu
