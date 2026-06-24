@@ -41,8 +41,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Ini TIDAK PERNAH berubah meskipun workspace user berbeda
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Folder untuk menyimpan sesi chat
-SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
+# Folder untuk menyimpan sesi chat — SELALU di SCRIPT_DIR, bukan BASE_DIR
+# Session harus tetap di folder main.py meskipun workspace user berbeda
+SESSIONS_DIR = os.path.join(SCRIPT_DIR, "sessions")
 
 # ============================================================
 # TIMEOUT & RETRY CONFIGURATION

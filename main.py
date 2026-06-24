@@ -2603,11 +2603,8 @@ if __name__ == "__main__":
                     session_name = sys.argv[2]
 
                 # Override BASE_DIR ke workspace baru
+                # SESSIONS_DIR tetap di SCRIPT_DIR (folder main.py) — JANGAN diubah
                 config.BASE_DIR = workspace_path
-                config.SESSIONS_DIR = os.path.join(workspace_path, "sessions")
-
-                # Pastikan folder sessions ada di workspace baru
-                _ensure_sessions_dir()
 
                 if session_name:
                     chat_session(session_name)
