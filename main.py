@@ -71,16 +71,19 @@ def _input_reader():
     """
     Satu-satunya thread yang membaca dari stdin.
     Semua input user masuk ke _input_queue.
+
+    Menggunakan input() yang secara default menggunakan readline,
+    sehingga arrow key, history, dan line editing bekerja.
     """
     while _input_running.is_set():
         try:
-            line = sys.stdin.readline()
-            if not line:  # EOF
-                _input_queue.put(None)
-                break
-            line = line.rstrip('\n').rstrip('\r')
+            # input() menggunakan readline secara default — arrow key works
+            line = input()
             _input_queue.put(line)
-        except (EOFError, OSError):
+        except EOFError:
+            _input_queue.put(None)
+            break
+        except (OSError, KeyboardInterrupt):
             _input_queue.put(None)
             break
 
