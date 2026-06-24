@@ -19,6 +19,7 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Retry dengan Exponential Backoff** — Otomatis retry hingga 5 kali jika request ke API gagal
 - **Keamanan Terintegrasi** — Path traversal protection dan pemblokiran perintah berbahaya
 - **Unlimited Rounds** — Tidak ada batas maksimum round per sesi
+- **Custom Workspace Path** — Jalankan AI di workspace tertentu dengan `python main.py <path> <namaSesi>`, folder SKILL/ tetap diakses dari path asal main.py
 
 ---
 
@@ -78,18 +79,26 @@ Elemen visual: aksen **coral** hangat sebagai warna utama, skala abu-abu berlapi
 
 ---
 
-## 🛠️ Kemampuan Tools
+## 🛠️ Kemampuan Tools (12 Total)
 
+**Tangan Kanan (File Operations):**
 - `read_file` — Membaca isi file teks dari direktori kerja
 - `write_file` — Menulis atau membuat file teks baru
-- `list_files` — Menampilkan daftar semua file di direktori kerja
+- `edit_file` — Mengedit isi file (replace, append, prepend)
 - `delete_file` — Menghapus file dari direktori kerja
 - `copy_file` — Menyalin file dari sumber ke tujuan
 - `move_file` — Memindahkan atau me-rename file/folder
-- `get_file_info` — Menampilkan info detail file/folder (ukuran, tanggal, izin)
+
+**Tangan Kiri (Folder Operations):**
 - `create_folder` — Membuat folder baru
 - `delete_folder` — Menghapus folder (opsional rekursif)
 - `list_all` — Menampilkan struktur direktori lengkap dalam format tree
+
+**Mata & Telinga (Information Gathering):**
+- `list_files` — Menampilkan daftar semua file di direktori kerja
+- `get_file_info` — Menampilkan info detail file/folder (ukuran, tanggal, izin)
+
+**Mulut & Kaki (Terminal Execution):**
 - `exec_command` — Menjalankan perintah terminal (bash/shell)
 
 ---
@@ -251,6 +260,26 @@ Dengan memulai percakapan menggunakan sapaan, AI akan lebih responsif dan memaha
 ❯ exit
 ```
 
+### Mode Custom Workspace
+
+Jalankan Ruka AI di workspace tertentu — semua operasi file/folder akan dilakukan di path tersebut:
+
+```bash
+# Session baru di workspace tertentu
+python main.py /home/user/project
+
+# Session dengan nama di workspace tertentu
+python main.py /home/user/project kerja-proyek
+
+# Path relatif juga bisa
+python main.py ./my-project sesi-baru
+```
+
+Saat menggunakan custom workspace:
+- Semua operasi file (baca, tulis, hapus, dll) dilakukan di **workspace path**
+- Session tersimpan di **`<workspace>/sessions/`**
+- Folder `SKILL/` (panduan AI) tetap diakses dari **path asal main.py** — jadi AI selalu punya akses ke panduan meskipun workspace berbeda
+
 ### Mode Single Prompt
 
 ```bash
@@ -294,12 +323,13 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 ### Perintah Session dari CLI
 
 - `python main.py <nama>` — Load atau buat session dengan nama tertentu
+- `python main.py <workspace_path>` — Session baru di workspace tertentu
+- `python main.py <workspace_path> <nama>` — Session tertentu di workspace tertentu
 - `python main.py listSessions` — Lihat daftar semua session
 - `python main.py deleteSession <nama>` — Hapus session tertentu dari CLI
 - `python main.py renameSession <lama> <baru>` — Rename session dari CLI
 - `python main.py clearSessions` — Hapus semua session tanpa nama (auto-generated) dari CLI
 - `python main.py searchSessions <keyword>` — Cari session berdasarkan keyword dari CLI
-
 - `python main.py help` — Tampilkan menu help lengkap
 
 > **Catatan:** CLI command menggunakan **camelCase** (tanpa tanda `-`), sedangkan slash command di dalam chat tetap menggunakan kebab-case dengan prefix `/`.
@@ -381,11 +411,18 @@ Ruka AI dilengkapi dengan beberapa lapisan keamanan:
 ```
 Ruka-AI/
 ├── main.py           # Source code utama — seluruh logic agent
+├── config.py         # Konfigurasi (API key, model, BASE_DIR, SCRIPT_DIR)
 ├── requirements.txt  # Dependensi Python yang dibutuhkan
 ├── .env.example      # Template konfigurasi API key
 ├── .env              # Konfigurasi API key (tidak di-push ke git)
 ├── .gitignore        # Daftar file/folder yang diabaikan git
 ├── LICENSE           # Lisensi MIT
+├── SKILL/            # Folder panduan AI (skills, tidak di-push ke git)
+│   ├── skills.md     # Panduan utama capabilities & constraints
+│   ├── pptSkill.md   # Panduan pembuatan PPT
+│   ├── browsingSkill.md  # Panduan browsing & web scraping
+│   ├── vercelSkill.md    # Panduan deploy Vercel
+│   └── emailSkill.md     # Panduan email via msmtp
 ├── sessions/         # Folder penyimpanan session (tidak di-push ke git)
 │   ├── session_20250701_143022.json
 │   ├── kerja-proyek.json
@@ -397,14 +434,15 @@ Ruka-AI/
 
 ## ⚙️ Konfigurasi
 
-Variabel konfigurasi yang dapat diubah di `main.py`:
+Variabel konfigurasi yang dapat diubah di `config.py`:
 
 - `MODEL` — Default: `openrouter/owl-alpha` — Model AI yang digunakan via OpenRouter
 - `DEFAULT_CMD_TIMEOUT` — Default: `60` — Timeout default untuk eksekusi perintah (detik)
 - `MAX_RETRIES` — Default: `5` — Jumlah maksimum retry jika request gagal
-- `RETRY_BASE_DELAY` — Default: `2` — Delay dasar untuk exponential backoff (detik)
-- `BASE_DIR` — Default: Direktori script — Direktori kerja tempat file dikelola
-- `SESSIONS_DIR` — Default: `sessions/` — Folder penyimpanan session
+- `RETRY_BASE_DELAY` — Default: `5` — Delay dasar untuk exponential backoff (detik)
+- `BASE_DIR` — Default: Direktori main.py — Direktori kerja tempat file dikelola (bisa di-override via CLI)
+- `SCRIPT_DIR` — Path absolut ke folder main.py — dipakai untuk akses SKILL/ dan file internal (tidak pernah berubah)
+- `SESSIONS_DIR` — Default: `sessions/` — Folder penyimpanan session (relatif terhadap BASE_DIR)
 
 ---
 
