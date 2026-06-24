@@ -42,6 +42,7 @@ load_dotenv()
 # ============================================================
 # KONFIGURASI — dimuat dari config.py
 # ============================================================
+import config
 from config import (
     OPENROUTER_API_KEY,
     MODEL,
@@ -2592,7 +2593,6 @@ if __name__ == "__main__":
                     session_name = sys.argv[2]
 
                 # Override BASE_DIR ke workspace baru
-                import config
                 config.BASE_DIR = workspace_path
                 config.SESSIONS_DIR = os.path.join(workspace_path, "sessions")
 
