@@ -239,8 +239,12 @@ def _box(lines, color=Style.GREY_DARK, pad=1, width=UI_WIDTH):
 
 
 def _format_duration(secs: float) -> str:
-    """Format durasi jadi ringkas: '4s', '1m 5s', '1j 2m'."""
-    secs = int(round(secs))
+    """
+    Format durasi jadi ringkas & manusiawi: '45s', '2m', '2m 3s', '1j 2m'.
+    Memakai floor agar konsisten dengan timer berjalan (stopwatch).
+    Contoh: 123s → '2m 3s', 120s → '2m', 3661s → '1j 1m'.
+    """
+    secs = max(0, int(secs))
     if secs < 60:
         return f"{secs}s"
     if secs < 3600:
@@ -320,11 +324,10 @@ class Spinner:
             else:
                 # ganti kata kerja tiap ~3.5 detik
                 word = self.WORDS[int(elapsed // 3.5) % len(self.WORDS)]
-            secs = int(elapsed)
             line = (
                 f"\r  {Style.ACCENT}{frame}{Style.RESET}  "
                 f"{Style.GREY_LIGHT}{word}…{Style.RESET} "
-                f"{Style.GREY}({secs}s · q untuk interupsi){Style.RESET}"
+                f"{Style.GREY}({_format_duration(elapsed)} · q untuk interupsi){Style.RESET}"
             )
             sys.stdout.write(line + "\033[K")  # \033[K = bersihkan sisa baris
             sys.stdout.flush()
