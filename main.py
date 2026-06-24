@@ -712,7 +712,7 @@ def format_reply(text: str) -> str:
 
 def _ensure_sessions_dir():
     """Pastikan folder sessions/ ada."""
-    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    os.makedirs(config.SESSIONS_DIR, exist_ok=True)
 
 
 def _session_path(name: str) -> str:
@@ -721,7 +721,7 @@ def _session_path(name: str) -> str:
     safe_name = re.sub(r'[^\w\-]', '_', name).strip('_')
     if not safe_name:
         safe_name = "untitled"
-    return os.path.join(SESSIONS_DIR, f"{safe_name}.json")
+    return os.path.join(config.SESSIONS_DIR, f"{safe_name}.json")
 
 
 def _generate_session_name() -> str:
@@ -798,14 +798,14 @@ def list_sessions() -> list:
     sessions = []
 
     try:
-        files = sorted(os.listdir(SESSIONS_DIR))
+        files = sorted(os.listdir(config.SESSIONS_DIR))
     except OSError:
         return sessions
 
     for f in files:
         if not f.endswith(".json"):
             continue
-        path = os.path.join(SESSIONS_DIR, f)
+        path = os.path.join(config.SESSIONS_DIR, f)
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -876,7 +876,7 @@ def clear_sessions() -> str:
     skipped = []
 
     try:
-        files = os.listdir(SESSIONS_DIR)
+        files = os.listdir(config.SESSIONS_DIR)
     except OSError as e:
         return f"Error membaca folder sessions: {e}"
 
@@ -885,7 +885,7 @@ def clear_sessions() -> str:
             continue
         name = f[:-5]  # hapus .json
         if auto_pattern.match(name):
-            path = os.path.join(SESSIONS_DIR, f)
+            path = os.path.join(config.SESSIONS_DIR, f)
             try:
                 os.remove(path)
                 deleted.append(name)
@@ -1054,7 +1054,7 @@ def show_banner(session_name: str = None, session_meta: dict = None, is_new: boo
     bullet = f"{Style.GREY_DARK}•{Style.RESET}"
 
     print()
-    print(f"  {Style.GREY}cwd{Style.RESET}      {bullet} {Style.GREY_LIGHT}{_shorten_path(BASE_DIR)}{Style.RESET}")
+    print(f"  {Style.GREY}cwd{Style.RESET}      {bullet} {Style.GREY_LIGHT}{_shorten_path(config.BASE_DIR)}{Style.RESET}")
     print(f"  {Style.GREY}model{Style.RESET}    {bullet} {Style.GREY_LIGHT}{MODEL}{Style.RESET}")
 
     if session_name:
@@ -1327,9 +1327,9 @@ def _safe_path(name: str) -> str | None:
     """
     Mengembalikan path absolut yang aman, atau None jika path traversal terdeteksi.
     """
-    path = os.path.join(BASE_DIR, name)
+    path = os.path.join(config.BASE_DIR, name)
     abs_path = os.path.abspath(path)
-    if not abs_path.startswith(BASE_DIR):
+    if not abs_path.startswith(config.BASE_DIR):
         return None
     return abs_path
 
@@ -1762,8 +1762,8 @@ def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str =
 def tool_list_files() -> str:
     try:
         files = [
-            f for f in os.listdir(BASE_DIR)
-            if os.path.isfile(os.path.join(BASE_DIR, f))
+            f for f in os.listdir(config.BASE_DIR)
+            if os.path.isfile(os.path.join(config.BASE_DIR, f))
         ]
         if not files:
             return "Direktori kosong, tidak ada file."
@@ -1919,7 +1919,8 @@ def tool_delete_folder(foldername: str, recursive: bool = False) -> str:
 
 def tool_list_all(max_depth: int = 3) -> str:
     try:
-        lines = [f"Struktur Direktori: {BASE_DIR}"]
+        base = config.BASE_DIR
+        lines = [f"Struktur Direktori: {base}"]
 
         def _walk(current_path: str, prefix: str, current_depth: int):
             if current_depth > max_depth:
@@ -1951,10 +1952,10 @@ def tool_list_all(max_depth: int = 3) -> str:
                 except OSError:
                     lines.append(f"{prefix}📄 {f}")
 
-        _walk(BASE_DIR, "  ", 1)
+        _walk(base, "  ", 1)
 
-        total_files = sum(1 for _, _, files in os.walk(BASE_DIR) for _ in files)
-        total_dirs = sum(1 for _, dirs, _ in os.walk(BASE_DIR) for _ in dirs)
+        total_files = sum(1 for _, _, files in os.walk(base) for _ in files)
+        total_dirs = sum(1 for _, dirs, _ in os.walk(base) for _ in dirs)
         lines.append(f"\n  Total: {total_dirs} folder, {total_files} file")
 
         return "\n".join(lines)
@@ -1977,7 +1978,7 @@ def tool_exec_command(command: str, timeout: int = 60) -> str:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                cwd=BASE_DIR,
+                cwd=config.BASE_DIR,
                 env=os.environ.copy(),
             )
         else:
@@ -1988,7 +1989,7 @@ def tool_exec_command(command: str, timeout: int = 60) -> str:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                cwd=BASE_DIR,
+                cwd=config.BASE_DIR,
                 env=os.environ.copy(),
             )
 
