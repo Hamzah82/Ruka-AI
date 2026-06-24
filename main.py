@@ -238,6 +238,19 @@ def _box(lines, color=Style.GREY_DARK, pad=1, width=UI_WIDTH):
     return "\n".join(out)
 
 
+def _format_duration(secs: float) -> str:
+    """Format durasi jadi ringkas: '4s', '1m 5s', '1j 2m'."""
+    secs = int(round(secs))
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        m, s = divmod(secs, 60)
+        return f"{m}m {s}s" if s else f"{m}m"
+    h, rem = divmod(secs, 3600)
+    m = rem // 60
+    return f"{h}j {m}m" if m else f"{h}j"
+
+
 class Spinner:
     """
     Spinner animasi satu-baris ala Claude Code:
@@ -247,6 +260,11 @@ class Spinner:
     Bintang berdenyut, kata kerja berganti tiap beberapa detik, dan timer
     berjalan. Berjalan di thread daemon terpisah; berhenti rapi dengan
     membersihkan barisnya sehingga output berikutnya mulai dari baris bersih.
+
+    PENTING: timer mengikuti satu *giliran* penuh (dari prompt user sampai
+    jawaban akhir), bukan tiap panggilan API. Jadi hitungan tidak ter-reset
+    di antara tool call. Panggil begin_turn() saat user mengirim prompt, dan
+    end_turn() setelah jawaban akhir untuk mendapatkan total durasi.
     """
 
     # Bintang berdenyut (tumbuh-menyusut) — terasa "hidup"
@@ -262,15 +280,30 @@ class Spinner:
         self._thread = None
         self._running = threading.Event()
         self._label = None
-        self._start_ts = 0.0
+        self._turn_start_ts = 0.0   # awal giliran (di-reset hanya oleh begin_turn)
         self._enabled = sys.stdout.isatty()
+
+    def begin_turn(self):
+        """Tandai awal giliran baru — titik nol timer. Dipanggil sekali per prompt user."""
+        self._turn_start_ts = time.time()
+
+    def end_turn(self) -> float:
+        """Hentikan animasi (jika ada) dan kembalikan total durasi giliran (detik)."""
+        self.stop()
+        if not self._turn_start_ts:
+            return 0.0
+        elapsed = time.time() - self._turn_start_ts
+        self._turn_start_ts = 0.0
+        return elapsed
 
     def start(self, label: str = None):
         """Mulai animasi. `label` tetap jika diberikan; jika None, kata berganti otomatis."""
         if not self._enabled or self._running.is_set():
             return
+        # Jika belum ada giliran aktif (mis. mode single-prompt), mulai sekarang.
+        if not self._turn_start_ts:
+            self._turn_start_ts = time.time()
         self._label = label
-        self._start_ts = time.time()
         self._running.set()
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
@@ -278,7 +311,9 @@ class Spinner:
     def _spin(self):
         i = 0
         while self._running.is_set():
-            elapsed = time.time() - self._start_ts
+            # Elapsed dihitung dari AWAL GILIRAN, bukan dari start() ini —
+            # sehingga timer terus berjalan menembus beberapa tool call.
+            elapsed = time.time() - self._turn_start_ts
             frame = self.FRAMES[i % len(self.FRAMES)]
             if self._label:
                 word = self._label
@@ -297,7 +332,7 @@ class Spinner:
             time.sleep(0.1)
 
     def stop(self):
-        """Hentikan animasi dan bersihkan baris spinner."""
+        """Hentikan animasi dan bersihkan baris spinner (timer giliran TIDAK di-reset)."""
         if not self._running.is_set():
             return
         self._running.clear()
@@ -1177,6 +1212,16 @@ def _emit_agent_text(text: str, interrupted: bool = False):
     print(f"\n  {marker}⏺{Style.RESET} {first}")
     for ln in lines[1:]:
         print(f"  {ln}" if ln.strip() else "")
+
+
+def show_turn_summary(duration_secs: float):
+    """
+    Ringkasan kecil & redup setelah jawaban akhir: total durasi giliran.
+    Contoh:  ⎿ selesai dalam 12s
+    """
+    if duration_secs <= 0:
+        return
+    print(f"\n  {Style.GREY_DARK}⎿ selesai dalam {_format_duration(duration_secs)}{Style.RESET}")
 
 
 def show_model_narration(round_num, content):
@@ -2423,10 +2468,15 @@ def chat_session(session_name: str = None):
         show_separator()
         messages.append({"role": "user", "content": user_input})
 
+        # Mulai timer giliran — titik nol yang bertahan menembus semua tool call
+        _spinner.begin_turn()
         try:
             show_thinking()
             data = chat(messages)
             reply, messages, was_interrupted = process_response(messages, data)
+
+            # Total durasi giliran (sebelum mencetak apa pun yang lain)
+            turn_secs = _spinner.end_turn()
 
             # Jawaban akhir asisten dengan marker ⏺ ala Claude Code
             _emit_agent_text(reply, interrupted=was_interrupted)
@@ -2434,10 +2484,14 @@ def chat_session(session_name: str = None):
             if was_interrupted:
                 print(f"\n  {Style.GREY}■ Sesi agent diinterupsi. Kembali ke prompt utama.{Style.RESET}")
 
+            # Ringkasan kecil & redup: berapa lama giliran ini berjalan
+            show_turn_summary(turn_secs)
+
             # Auto-save setelah setiap exchange
             save_session(session_name, messages)
 
         except Exception as e:
+            _spinner.end_turn()
             show_error(str(e)[:80])
             # Tetap save meski error
             save_session(session_name, messages)
@@ -2498,11 +2552,15 @@ if __name__ == "__main__":
                 {"role": "user", "content": prompt}
             ]
             try:
+                _spinner.begin_turn()
                 data = chat(msgs)
                 reply, _, was_interrupted = process_response(msgs, data)
+                turn_secs = _spinner.end_turn()
                 _emit_agent_text(reply, interrupted=was_interrupted)
+                show_turn_summary(turn_secs)
                 print()
             except Exception as e:
+                _spinner.end_turn()
                 show_error(str(e)[:80])
     else:
         # Mode interaktif tanpa nama session → auto-generate

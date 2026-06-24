@@ -65,10 +65,14 @@ Ruka AI mengadopsi gaya antarmuka **bersih dan minimalis ala Claude Code** — f
     • MAX_RETRIES — jumlah retry saat API gagal
 
   Total 76 baris.
+
+  ⎿ selesai dalam 12s
 ```
 
 > Saat menunggu respons API, spinner animasi berdenyut menampilkan status & timer:
 > `✷  Menelaah… (3s · q untuk interupsi)`
+>
+> Timer berjalan untuk **satu giliran penuh** — dari prompt user sampai jawaban akhir — dan tidak ter-reset di antara pemanggilan tool. Setelah selesai, durasi total ditampilkan sebagai ringkasan kecil & redup: `⎿ selesai dalam 12s`.
 
 Elemen visual: aksen **coral** hangat sebagai warna utama, skala abu-abu berlapis untuk teks sekunder, titik status **hijau** (sukses) / **merah** (error) pada setiap tool, serta panel rounded-corner `╭─╮`.
 
