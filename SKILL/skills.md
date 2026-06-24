@@ -879,14 +879,14 @@ File `SKILL/emailSkill.md` berisi seluruh panduan email termasuk:
 
 **⚠️ Aturan wajib:**
 - BACA `SKILL/emailSkill.md` dulu sebelum kirim email, terutama di session baru
-- Config email tersimpan di `config/email/msmtprc` — **JANGAN** di-commit ke git (sudah di `.gitignore`)
-- **JANGAN** tulis password/credential langsung di script atau command — selalu pakai `--file=config/email/msmtprc`
+- Config email tersimpan di `SKILL/config/email/msmtprc` — **JANGAN** di-commit ke git (sudah di `.gitignore`)
+- **JANGAN** tulis password/credential langsung di script atau command — selalu pakai `--file=SKILL/config/email/msmtprc`
 - Gmail **wajib** pakai App Password — password biasa tidak akan bekerja
 - Permission file config HARUS `600` — msmtp akan menolak jika terlalu open
 - `msmtp` hanya bisa **kirim** email — tidak bisa menerima/baca email
 
 **Lokasi file penting:**
-- Config: `config/email/msmtprc`
+- Config: `SKILL/config/email/msmtprc`
 - Log: `~/.msmtp.log`
 - Skill: `SKILL/emailSkill.md`
 
@@ -895,10 +895,10 @@ Contoh alur:
 User: "Kirimkan email ke xiergraph@gmail.com"
 
 Round 1: read_file("SKILL/emailSkill.md") → baca panduan email
-Round 2: exec_command("ls -la config/email/msmtprc") → cek config ada
+Round 2: exec_command("ls -la SKILL/config/email/msmtprc") → cek config ada
 Round 3: email config belum ada → setup dulu (install msmtp, buat App Password, buat config)
          email config sudah ada → langsung kirim
-Round 4: echo -e "Subject: Subjek\n\nIsi pesan" | msmtp --file=config/email/msmtprc tujuan@gmail.com
+Round 4: echo -e "Subject: Subjek\n\nIsi pesan" | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 Round 5: exec_command("cat ~/.msmtp.log") → cek log, konfirmasi hasil
 ```
 
@@ -952,10 +952,10 @@ Round 5: exec_command("cat ~/.msmtp.log") → cek log, konfirmasi hasil
 │                                                          │
 │  EMAIL (msmtp):                                          │
 │    Baca SKILL/emailSkill.md dulu sebelum kirim email     │
-│    Config: config/email/msmtprc                          │
+│    Config: SKILL/config/email/msmtprc                    │
 │    Log: ~/.msmtp.log                                     │
 │    Kirim: echo -e "Subject: ...\n\n..." | msmtp          │
-│           --file=config/email/msmtprc tujuan@gmail.com   │
+│           --file=SKILL/config/email/msmtprc tujuan@gmail.com │
 │    Gmail wajib App Password + permission 600             │
 │                                                          │
 │  RULES:                                                  │

@@ -52,7 +52,7 @@ Pesan (stdin/file) → msmtp → SMTP Server (Gmail, dll) → Penerima
 
 **Lokasi config email:**
 ```
-config/email/msmtprc
+SKILL/config/email/msmtprc
 ```
 
 **Isi config (tanpa credential):**
@@ -71,14 +71,14 @@ logfile ~/.msmtp.log
 
 **Permission file config:**
 ```
-chmod 600 config/email/msmtprc
+chmod 600 SKILL/config/email/msmtprc
 ```
 File config HARUS punya permission `600` (hanya owner yang bisa baca/tulis).
 Jika permission salah, `msmtp` akan menolak membaca config.
 
 **Cek apakah config sudah ada:**
 ```bash
-ls -la config/email/msmtprc
+ls -la SKILL/config/email/msmtprc
 ```
 
 Jika file belum ada, lakukan setup (lihat bagian 3).
@@ -141,7 +141,7 @@ Harus pakai **App Password**:
 
 ### 3.4 Buat File Config
 
-Buat file `config/email/msmtprc` dengan format:
+Buat file `SKILL/config/email/msmtprc` dengan format:
 
 ```
 account default
@@ -163,13 +163,13 @@ Ganti:
 ### 3.5 Set Permission
 
 ```bash
-chmod 600 config/email/msmtprc
+chmod 600 SKILL/config/email/msmtprc
 ```
 
 ### 3.6 Test Kirim Email
 
 ```bash
-echo -e "Subject: Test Setup\n\nJika kamu menerima ini, setup berhasil!" | msmtp --file=config/email/msmtprc tujuan@gmail.com
+echo -e "Subject: Test Setup\n\nJika kamu menerima ini, setup berhasil!" | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 ```
 
 Cek log untuk memastikan:
@@ -190,19 +190,19 @@ exitcode=EX_OK
 ### 4.1 Email Sederhana (dari echo)
 
 ```bash
-echo -e "Subject: Subjek Email\n\nIsi pesan di sini." | msmtp --file=config/email/msmtprc tujuan@gmail.com
+echo -e "Subject: Subjek Email\n\nIsi pesan di sini." | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 ```
 
 **Penjelasan:**
 - `-e` pada echo menginterpretasikan `\n` sebagai baris baru
 - Baris pertama setelah `Subject:` adalah subjek
 - Baris kosong memisahkan header dan body
-- `--file=config/email/msmtprc` path ke file config
+- `--file=SKILL/config/email/msmtprc` path ke file config
 
 ### 4.2 Email dengan Body Multi-baris
 
 ```bash
-cat <<'EOF' | msmtp --file=config/email/msmtprc tujuan@gmail.com
+cat <<'EOF' | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 Subject: Subjek Email
 From: kamu@gmail.com
 To: tujuan@gmail.com
@@ -231,7 +231,7 @@ Isi pesan di sini.
 EOF
 
 # Kirim
-msmtp --file=config/email/msmtprc tujuan@gmail.com < /tmp/email.txt
+msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com < /tmp/email.txt
 ```
 
 ### 4.4 Email dengan Subjek Spesifik via -s Flag
@@ -243,19 +243,19 @@ msmtp --file=config/email/msmtprc tujuan@gmail.com < /tmp/email.txt
 msmtp -s "Subjek" tujuan@gmail.com
 
 # BENAR — tulis Subject di header
-echo -e "Subject: Subjek\n\nBody" | msmtp --file=config/email/msmtprc tujuan@gmail.com
+echo -e "Subject: Subjek\n\nBody" | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 ```
 
 ### 4.5 Email ke Multiple Penerima
 
 ```bash
-echo -e "Subject: Halo Semua\n\nPesan untuk semua." | msmtp --file=config/email/msmtprc tujuan1@gmail.com tujuan2@gmail.com tujuan3@gmail.com
+echo -e "Subject: Halo Semua\n\nPesan untuk semua." | msmtp --file=SKILL/config/email/msmtprc tujuan1@gmail.com tujuan2@gmail.com tujuan3@gmail.com
 ```
 
 Atau via header `To:`:
 
 ```bash
-cat <<'EOF' | msmtp --file=config/email/msmtprc tujuan1@gmail.com tujuan2@gmail.com
+cat <<'EOF' | msmtp --file=SKILL/config/email/msmtprc tujuan1@gmail.com tujuan2@gmail.com
 Subject: Halo Semua
 To: tujuan1@gmail.com, tujuan2@gmail.com
 
@@ -266,7 +266,7 @@ EOF
 ### 4.6 Email dengan CC dan BCC
 
 ```bash
-cat <<'EOF' | msmtp --file=config/email/msmtprc tujuan@gmail.com
+cat <<'EOF' | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 Subject: Email dengan CC
 To: tujuan@gmail.com
 CC: cc1@gmail.com, cc2@gmail.com
@@ -430,7 +430,7 @@ Jun 14 14:19:27 host=smtp.gmail.com tls=on auth=on user=kamu@gmail.com from=kamu
 Untuk debug lebih detail, tambahkan `--tls-certificate-check=off` (hanya untuk debug):
 
 ```bash
-echo "test" | msmtp --verbose --file=config/email/msmtprc tujuan@gmail.com 2>&1
+echo "test" | msmtp --verbose --file=SKILL/config/email/msmtprc tujuan@gmail.com 2>&1
 ```
 
 ---
@@ -442,7 +442,7 @@ echo "test" | msmtp --verbose --file=config/email/msmtprc tujuan@gmail.com 2>&1
 **SELALU** set permission `600` pada file config:
 
 ```bash
-chmod 600 config/email/msmtprc
+chmod 600 SKILL/config/email/msmtprc
 ```
 
 Jangan biarkan file config bisa dibaca user lain — berisi password!
@@ -456,12 +456,12 @@ msmtp --host=smtp.gmail.com --user=kamu@gmail.com --password=rahasia tujuan@gmai
 
 **BENAR:**
 ```bash
-msmtp --file=config/email/msmtprc tujuan@gmail.com
+msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 ```
 
 ### 8.3 Jangan Commit Config ke Git
 
-Pastikan `config/email/msmtprc` ada di `.gitignore`:
+Pastikan `SKILL/config/email/msmtprc` ada di `.gitignore`:
 
 ```
 config/email/
@@ -509,10 +509,10 @@ sudo apt install msmtp msmtp-mta  # Debian/Ubuntu
 **Solusi:**
 ```bash
 # Cek path config
-ls -la config/email/msmtprc
+ls -la SKILL/config/email/msmtprc
 
 # Pastikan pakai --file yang benar
-msmtp --file=config/email/msmtprc tujuan@gmail.com
+msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 ```
 
 ### 9.4 "535-5.7.8 Username and Password not accepted"
@@ -525,7 +525,7 @@ msmtp --file=config/email/msmtprc tujuan@gmail.com
 
 **Solusi:**
 1. Buat App Password baru di https://myaccount.google.com/apppasswords
-2. Update password di `config/email/msmtprc`
+2. Update password di `SKILL/config/email/msmtprc`
 3. Test ulang
 
 ### 9.5 "530-5.7.0 Must issue a STARTTLS command first"
@@ -590,15 +590,15 @@ echo 'export GCRYPT_ALLOW_RANDOM_SUCKING=1' >> ~/.bashrc
 # === CEK SETUP ===
 which msmtp                              # Cek msmtp terinstall
 msmtp --version                          # Cek versi
-ls -la config/email/msmtprc              # Cek config ada
+ls -la SKILL/config/email/msmtprc              # Cek config ada
 cat ~/.msmtp.log                         # Cek log
 
 # === KIRIM EMAIL ===
 # Sederhana
-echo -e "Subject: Halo\n\nIsi pesan." | msmtp --file=config/email/msmtprc tujuan@gmail.com
+echo -e "Subject: Halo\n\nIsi pesan." | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 
 # Multi-baris via heredoc
-cat <<'EOF' | msmtp --file=config/email/msmtprc tujuan@gmail.com
+cat <<'EOF' | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 Subject: Subjek
 To: tujuan@gmail.com
 
@@ -606,19 +606,19 @@ Isi pesan multi baris.
 EOF
 
 # Dari file
-msmtp --file=config/email/msmtprc tujuan@gmail.com < /tmp/email.txt
+msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com < /tmp/email.txt
 
 # Multiple penerima
-echo -e "Subject: Halo\n\nPesan." | msmtp --file=config/email/msmtprc tujuan1@gmail.com tujuan2@gmail.com
+echo -e "Subject: Halo\n\nPesan." | msmtp --file=SKILL/config/email/msmtprc tujuan1@gmail.com tujuan2@gmail.com
 
 # === SETUP AWAL ===
 pkg install -y msmtp msmtp-mta           # Install
 mkdir -p config/email                     # Buat folder
-chmod 600 config/email/msmtprc           # Set permission
+chmod 600 SKILL/config/email/msmtprc           # Set permission
 
 # === DEBUG ===
 cat ~/.msmtp.log                          # Lihat log
-echo "test" | msmtp --verbose --file=config/email/msmtprc tujuan@gmail.com 2>&1
+echo "test" | msmtp --verbose --file=SKILL/config/email/msmtprc tujuan@gmail.com 2>&1
 
 # === BACA INBOX (Python imaplib) ===
 # Lihat 10 email terbaru
@@ -662,14 +662,14 @@ Mau kirim email?
 │
 ├─ Config sudah ada?
 │  ├─ YA → Langsung kirim:
-│  │       echo -e "Subject: ...\n\n..." | msmtp --file=config/email/msmtprc tujuan@gmail.com
+│  │       echo -e "Subject: ...\n\n..." | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 │  │
 │  └─ BELUM → Setup dulu:
 │     1. pkg install -y msmtp msmtp-mta
 │     2. mkdir -p config/email
 │     3. Buat App Password (Gmail) / siapkan password
-│     4. Buat config/email/msmtprc
-│     5. chmod 600 config/email/msmtprc
+│     4. Buat SKILL/config/email/msmtprc
+│     5. chmod 600 SKILL/config/email/msmtprc
 │     6. Test kirim
 │
 ├─ Butuh lampiran (attachment)?
@@ -678,7 +678,7 @@ Mau kirim email?
 │
 ├─ Butuh HTML email?
 │  └─ Tulis header Content-Type: text/html di pesan:
-│     echo -e "Subject: HTML\nContent-Type: text/html\n\n<h1>Halo</h1>" | msmtp --file=config/email/msmtprc tujuan@gmail.com
+│     echo -e "Subject: HTML\nContent-Type: text/html\n\n<h1>Halo</h1>" | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
 │
 ├─ Mau baca inbox?
 │  └─ Pakai Python imaplib:
@@ -966,7 +966,7 @@ iCloud:
 
 ## 📌 Catatan Penting
 
-- **Config path:** `config/email/msmtprc` (JANGAN di-commit ke git)
+- **Config path:** `SKILL/config/email/msmtprc` (JANGAN di-commit ke git)
 - **Log path:** `~/.msmtp.log`
 - **Gmail wajib pakai App Password** — password biasa tidak akan bekerja
 - **Permission config HARUS 600** — msmtp akan menolak jika terlalu open
