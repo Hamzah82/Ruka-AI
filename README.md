@@ -13,11 +13,64 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Eksekusi Terminal** — Jalankan perintah bash/shell langsung dari percakapan
 - **Session Management** — Simpan, muat, hapus, dan rename sesi percakapan dengan mudah
 - **Multi-Step Agentic Loop** — AI dapat memanggil tool secara berantai dalam satu sesi (misalnya: list file → baca → edit → simpan)
+- **UI/UX ala Claude Code** — Tampilan terminal bersih & minimalis: panel sambutan rounded, marker `⏺`/`⎿` untuk tool & jawaban, prompt chevron `❯`, palet coral hangat, dan spinner animasi dengan timer berjalan
 - **Interupsi Real-Time** — Tekan `q` kapan saja untuk menghentikan proses yang sedang berjalan
-- **Markdown to Terminal Formatter** — Output AI diformat dari markdown ke styled terminal text yang cantik
+- **Markdown to Terminal Formatter** — Output AI diformat dari markdown ke styled terminal text yang rapi (header, list, code block, tabel)
 - **Retry dengan Exponential Backoff** — Otomatis retry hingga 5 kali jika request ke API gagal
 - **Keamanan Terintegrasi** — Path traversal protection dan pemblokiran perintah berbahaya
 - **Unlimited Rounds** — Tidak ada batas maksimum round per sesi
+
+---
+
+## 🎨 Tampilan
+
+Ruka AI mengadopsi gaya antarmuka **bersih dan minimalis ala Claude Code** — fokus pada konten, bukan bingkai yang ramai.
+
+**Layar sambutan:**
+
+```
+╭────────────────────────────────────────────────────────────────╮
+│ ✻ Selamat datang di Ruka AI                                    │
+│                                                                │
+│ Agen kura-kura untuk file, folder & terminal.                  │
+│ Bijak, sabar, teliti. 🐢                                       │
+╰────────────────────────────────────────────────────────────────╯
+
+  cwd      • ~/Ruka-AI
+  model    • openrouter/owl-alpha
+  session  • kerja-proyek (42 pesan · dibuat 2026-06-20 14:30)
+
+  Ketik /help untuk bantuan, exit untuk keluar, q untuk interupsi.
+
+  Coba sesuatu seperti:
+  ❯ Tampilkan daftar file dan folder
+  ❯ Baca isi file catatan.txt lalu ringkas
+  ❯ Buat file todo.txt berisi daftar belanja
+```
+
+**Saat percakapan berlangsung** — prompt chevron `❯`, pemanggilan tool ditandai `⏺` dengan ringkasan hasil `⎿`, dan jawaban akhir ber-marker `⏺`:
+
+```
+❯ Baca config.py lalu jelaskan isinya
+
+  ⏺ Read(config.py)
+    ⎿  import os  +2 baris
+
+  ⏺ Bash(wc -l config.py)
+    ⎿  76 config.py
+
+  ⏺ File config.py berisi konfigurasi utama:
+
+    • MODEL — model AI yang dipakai
+    • MAX_RETRIES — jumlah retry saat API gagal
+
+  Total 76 baris.
+```
+
+> Saat menunggu respons API, spinner animasi berdenyut menampilkan status & timer:
+> `✷  Menelaah… (3s · q untuk interupsi)`
+
+Elemen visual: aksen **coral** hangat sebagai warna utama, skala abu-abu berlapis untuk teks sekunder, titik status **hijau** (sukses) / **merah** (error) pada setiap tool, serta panel rounded-corner `╭─╮`.
 
 ---
 
@@ -119,13 +172,13 @@ python main.py listSessions
 Atau saat dalam sesi chat, ketik:
 
 ```
-👤  Kamu: /sessions
+❯ /sessions
 ```
 
 ### Mulai Session Baru
 
 ```
-👤  Kamu: /new
+❯ /new
 ```
 
 Session saat ini akan otomatis tersimpan, lalu session baru dimulai.
@@ -133,7 +186,14 @@ Session saat ini akan otomatis tersimpan, lalu session baru dimulai.
 ### Melihat Riwayat Chat
 
 ```
-👤  Kamu: /history
+❯ /history
+```
+
+### Bantuan & Bersihkan Layar
+
+```
+❯ /help      # tampilkan menu bantuan
+❯ /clear     # bersihkan layar
 ```
 
 ### Menghapus Session
@@ -143,7 +203,7 @@ Session saat ini akan otomatis tersimpan, lalu session baru dimulai.
 python main.py deleteSession kerja-proyek
 
 # Dari dalam chat:
-👤  Kamu: /delete-session kerja-proyek
+❯ /delete-session kerja-proyek
 ```
 
 ### Rename Session
@@ -153,7 +213,7 @@ python main.py deleteSession kerja-proyek
 python main.py renameSession nama-lama nama-baru
 
 # Dari dalam chat:
-👤  Kamu: /rename-session nama-lama nama-baru
+❯ /rename-session nama-lama nama-baru
 ```
 
 ### Tips Awal Session
@@ -161,9 +221,10 @@ python main.py renameSession nama-lama nama-baru
 Saat memulai session baru, ucapkan **"Hai"** terlebih dahulu ke Ruka AI. Hal ini membantu model AI memahami system prompt dengan lebih baik sebelum melanjutkan ke percakapan utama.
 
 ```
-👤  Kamu: Hai
-🤖  Ruka AI: Hai! Ada yang bisa saya bantu? 🐢
-👤  Kamu: Tampilkan daftar file dan folder
+❯ Hai
+⏺ Hai! Ada yang bisa saya bantu? 🐢
+
+❯ Tampilkan daftar file dan folder
 ```
 
 Dengan memulai percakapan menggunakan sapaan, AI akan lebih responsif dan memahami konteks session yang sedang berjalan.
@@ -171,19 +232,19 @@ Dengan memulai percakapan menggunakan sapaan, AI akan lebih responsif dan memaha
 ### Contoh Percakapan
 
 ```
-👤  Kamu: Tampilkan daftar file dan folder
-👤  Kamu: Baca isi file catatan.txt
-👤  Kamu: Buat file todo.txt berisi daftar belanja
-👤  Kamu: Hapus file lama.txt
-👤  Kamu: Salin data.txt ke backup/data.txt
-👤  Kamu: Buat folder baru bernama 'projects'
-👤  Kamu: Jalankan perintah 'ls -la' di terminal
-👤  Kamu: Cek penggunaan disk dengan 'df -h'
-👤  Kamu: Tampilkan struktur direktori saat ini
-👤  Kamu: /history
-👤  Kamu: /sessions
-👤  Kamu: /new
-👤  Kamu: exit
+❯ Tampilkan daftar file dan folder
+❯ Baca isi file catatan.txt
+❯ Buat file todo.txt berisi daftar belanja
+❯ Hapus file lama.txt
+❯ Salin data.txt ke backup/data.txt
+❯ Buat folder baru bernama 'projects'
+❯ Jalankan perintah 'ls -la' di terminal
+❯ Cek penggunaan disk dengan 'df -h'
+❯ Tampilkan struktur direktori saat ini
+❯ /history
+❯ /sessions
+❯ /new
+❯ exit
 ```
 
 ### Mode Single Prompt
@@ -196,12 +257,12 @@ python main.py "Jalankan perintah ping google.com -c 3"
 
 ### Interupsi Proses
 
-Saat AI sedang memproses (multi-step), ketik `q` untuk menghentikan:
+Saat AI sedang memproses (multi-step), ketik `q` untuk menghentikan. Spinner animasi menampilkan status berjalan beserta timer:
 
 ```
-🔄  [Round 3] Ruka AI sedang memproses...
+✷  Menelaah… (3s · q untuk interupsi)
 q
-⏸️  INTERRUPT: Proses akan dihentikan setelah round saat ini selesai.
+■  Interupsi diminta — menyelesaikan round saat ini lalu berhenti…
 ```
 
 ---
@@ -216,9 +277,11 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 
 ### Perintah Session dalam Chat (Slash Command)
 
+- `/help` — Tampilkan menu bantuan
 - `/sessions` — Tampilkan daftar semua session tersimpan
 - `/new` — Mulai session baru (session lama auto-save)
 - `/history` — Tampilkan riwayat chat sesi saat ini
+- `/clear` — Bersihkan layar
 - `/delete-session <nama>` — Hapus session tertentu
 - `/rename-session <lama> <baru>` — Rename session
 
@@ -250,7 +313,7 @@ python main.py --help
 python main.py -h
 ```
 
-Command ini akan menampilkan menu help lengkap berisi semua CLI command, slash command, contoh penggunaan, dan catatan penting.
+Command ini akan menampilkan menu help yang rapi dan terbagi dalam beberapa bagian: **Penggunaan**, **Slash command**, **CLI command**, dan **Tips**. Di dalam sesi chat, kamu juga bisa mengetik `/help` untuk memunculkan menu yang sama.
 
 ### Mencari Session
 
@@ -263,13 +326,12 @@ Command ini akan mencari semua session yang namanya mengandung keyword `proyek` 
 Output contoh:
 
 ```
-🔍 Hasil pencarian untuk 'proyek' (2 dari 8 session):
-
-  1.  kerja-proyek
-      Pesan: 45  |  Dibuat: 2025-07-01 14:30  |  Diupdate: 2025-07-03 09:15  |  Ukuran: 120.3 KB
-
-  2.  proyek-akhir
-      Pesan: 23  |  Dibuat: 2025-07-05 10:00  |  Diupdate: 2025-07-05 18:22  |  Ukuran: 58.7 KB
+  ✻ Pencarian 'proyek' — 2/8 session
+  ────────────────────────────────────────────────────────────────
+   1 ⏺ kerja-proyek
+       45 pesan · diupdate 2025-07-03 09:15 · 120.3 KB
+   2 ⏺ proyek-akhir
+       23 pesan · diupdate 2025-07-05 18:22 · 58.7 KB
 ```
 
 ### Menghapus Session Tanpa Nama
@@ -283,14 +345,14 @@ Command ini akan menghapus semua session yang **tidak memiliki nama** (auto-gene
 Output contoh:
 
 ```
-✅ 3 session auto-generated berhasil dihapus:
-   • session_20250701_143022
-   • session_20250702_091530
-   • session_20250703_164510
+  ⏺ 3 session auto-generated dihapus
+    ⎿  session_20250701_143022
+    ⎿  session_20250702_091530
+    ⎿  session_20250703_164510
 
-📌 2 session custom (tidak dihapus):
-   • kerja-proyek
-   • catatan-harian
+  ⏺ 2 session custom dipertahankan
+    ⎿  kerja-proyek
+    ⎿  catatan-harian
 ```
 
 ### Auto-Save

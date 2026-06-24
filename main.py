@@ -26,9 +26,11 @@ import json
 import shutil
 import stat
 import time
+import random
 import subprocess
 import threading
 import queue
+import unicodedata
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -150,7 +152,7 @@ def _is_interrupted() -> bool:
 # WARNA & DEKORASI
 # ============================================================
 class Style:
-    # Warna
+    # Warna dasar
     RED     = "\033[91m"
     GREEN   = "\033[92m"
     YELLOW  = "\033[93m"
@@ -162,12 +164,152 @@ class Style:
     ORANGE  = "\033[38;5;208m"
     PINK    = "\033[38;5;213m"
     TEAL    = "\033[38;5;30m"
+
+    # ── Palet ala Claude Code ──────────────────────────────────
+    # Aksen utama: coral/salmon hangat (warna khas Claude)
+    ACCENT      = "\033[38;5;209m"   # coral terang  — branding & marker utama
+    ACCENT_DIM  = "\033[38;5;174m"   # coral lembut  — aksen sekunder
+    # Skala abu-abu berlapis untuk teks sekunder/meta
+    GREY        = "\033[38;5;245m"   # abu medium    — teks meta
+    GREY_DARK   = "\033[38;5;240m"   # abu gelap     — garis & border
+    GREY_LIGHT  = "\033[38;5;250m"   # abu terang    — teks isi sekunder
+    OK          = "\033[38;5;114m"   # hijau lembut  — status sukses
+    WARN        = "\033[38;5;215m"   # kuning hangat — peringatan
+    ERR         = "\033[38;5;203m"   # merah lembut  — error
+
     # Gaya
     BOLD    = "\033[1m"
     ITALIC  = "\033[3m"
     UNDERLINE = "\033[4m"
     STRIKE  = "\033[9m"
     RESET   = "\033[0m"
+
+
+# ============================================================
+# UI HELPER — primitif tampilan ala Claude Code
+# ============================================================
+
+# Lebar konten standar untuk panel & garis
+UI_WIDTH = 64
+
+_ANSI_RE = re.compile(r'\033\[[0-9;]*m')
+
+
+def _strip_ansi(text: str) -> str:
+    """Hapus semua kode warna ANSI — dipakai untuk menghitung lebar visual."""
+    return _ANSI_RE.sub('', text)
+
+
+def _visible_len(text: str) -> int:
+    """
+    Lebar tampil teks (tanpa kode ANSI), sadar karakter lebar-ganda.
+    Emoji & CJK (East Asian Width 'W'/'F') dihitung 2 kolom agar border
+    panel tetap rata. Variation selector (mis. ️) dihitung 0.
+    """
+    width = 0
+    for ch in _strip_ansi(text):
+        if unicodedata.combining(ch) or ch == "️":
+            continue
+        width += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return width
+
+
+def _rule(width: int = UI_WIDTH, color: str = Style.GREY_DARK, char: str = "─") -> str:
+    """Garis horizontal tipis."""
+    return f"{color}{char * width}{Style.RESET}"
+
+
+def _box(lines, color=Style.GREY_DARK, pad=1, width=UI_WIDTH):
+    """
+    Bungkus daftar baris dalam panel rounded-corner ala Claude Code.
+    Tiap elemen `lines` boleh mengandung kode ANSI; lebar dihitung dari teks
+    tampak sehingga border tetap rata.
+    Mengembalikan string multi-baris siap di-print.
+    """
+    inner = width - (pad * 2)
+    out = [f"{color}╭{'─' * width}╮{Style.RESET}"]
+    for ln in lines:
+        vis = _visible_len(ln)
+        filler = max(0, inner - vis)
+        out.append(
+            f"{color}│{Style.RESET}{' ' * pad}{ln}{' ' * filler}{' ' * pad}{color}│{Style.RESET}"
+        )
+    out.append(f"{color}╰{'─' * width}╯{Style.RESET}")
+    return "\n".join(out)
+
+
+class Spinner:
+    """
+    Spinner animasi satu-baris ala Claude Code:
+
+        ✷  Menelaah… (4s · q untuk interupsi)
+
+    Bintang berdenyut, kata kerja berganti tiap beberapa detik, dan timer
+    berjalan. Berjalan di thread daemon terpisah; berhenti rapi dengan
+    membersihkan barisnya sehingga output berikutnya mulai dari baris bersih.
+    """
+
+    # Bintang berdenyut (tumbuh-menyusut) — terasa "hidup"
+    FRAMES = ["✶", "✷", "✸", "✹", "✺", "✹", "✸", "✷"]
+
+    # Kata kerja yang berganti-ganti (sentuhan menyenangkan khas Claude)
+    WORDS = [
+        "Berpikir", "Menelaah", "Merangkai", "Menimbang", "Menyusun",
+        "Memproses", "Menggali", "Meramu", "Mencerna", "Menalar",
+    ]
+
+    def __init__(self):
+        self._thread = None
+        self._running = threading.Event()
+        self._label = None
+        self._start_ts = 0.0
+        self._enabled = sys.stdout.isatty()
+
+    def start(self, label: str = None):
+        """Mulai animasi. `label` tetap jika diberikan; jika None, kata berganti otomatis."""
+        if not self._enabled or self._running.is_set():
+            return
+        self._label = label
+        self._start_ts = time.time()
+        self._running.set()
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+
+    def _spin(self):
+        i = 0
+        while self._running.is_set():
+            elapsed = time.time() - self._start_ts
+            frame = self.FRAMES[i % len(self.FRAMES)]
+            if self._label:
+                word = self._label
+            else:
+                # ganti kata kerja tiap ~3.5 detik
+                word = self.WORDS[int(elapsed // 3.5) % len(self.WORDS)]
+            secs = int(elapsed)
+            line = (
+                f"\r  {Style.ACCENT}{frame}{Style.RESET}  "
+                f"{Style.GREY_LIGHT}{word}…{Style.RESET} "
+                f"{Style.GREY}({secs}s · q untuk interupsi){Style.RESET}"
+            )
+            sys.stdout.write(line + "\033[K")  # \033[K = bersihkan sisa baris
+            sys.stdout.flush()
+            i += 1
+            time.sleep(0.1)
+
+    def stop(self):
+        """Hentikan animasi dan bersihkan baris spinner."""
+        if not self._running.is_set():
+            return
+        self._running.clear()
+        if self._thread:
+            self._thread.join(timeout=0.3)
+        # Bersihkan seluruh baris spinner agar output berikut mulai bersih
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+
+
+# Spinner global tunggal — siklus hidupnya dikelola di dalam chat()
+_spinner = Spinner()
 
 
 # ============================================================
@@ -245,23 +387,21 @@ class TerminalFormatter:
                 title = re.sub(r'^#\s+', '', stripped)
                 title = cls._strip_inline_md(title)
                 width = cls.TERM_WIDTH - 4
-                padded = f"  {Style.TEAL}{Style.BOLD}{title}{Style.RESET}"
+                padded = f"  {Style.ACCENT}{Style.BOLD}{title}{Style.RESET}"
                 result.append(padded)
-                result.append(f"  {Style.TEAL}{Style.BOLD}{'═' * width}{Style.RESET}")
+                result.append(f"  {Style.GREY_DARK}{'─' * width}{Style.RESET}")
 
             elif re.match(r'^##\s+', stripped) and not re.match(r'^###\s+', stripped):
                 title = re.sub(r'^##\s+', '', stripped)
                 title = cls._strip_inline_md(title)
-                width = cls.TERM_WIDTH - 4
-                padded = f"  {Style.GREEN}{title}{Style.RESET}"
+                padded = f"  {Style.ACCENT}{Style.BOLD}{title}{Style.RESET}"
                 result.append("")
                 result.append(padded)
-                result.append(f"  {Style.GREEN}{'─' * width}{Style.RESET}")
 
             elif re.match(r'^###\s+', stripped) and not re.match(r'^####\s+', stripped):
                 title = re.sub(r'^###\s+', '', stripped)
                 title = cls._strip_inline_md(title)
-                result.append(f"\n  {Style.WHITE}{Style.BOLD}▸ {title}{Style.RESET}")
+                result.append(f"\n  {Style.BOLD}{title}{Style.RESET}")
 
             elif re.match(r'^#{4}\s+', stripped) and not re.match(r'^#{5}\s+', stripped):
                 title = re.sub(r'^#{4}\s+', '', stripped)
@@ -366,25 +506,18 @@ class TerminalFormatter:
             code = match.group(2).rstrip('\n')
 
             code_lines = code.split("\n")
-            max_width = max(len(cls._strip_inline_md(l)) for l in code_lines) if code_lines else 0
-            max_width = min(max_width, cls.TERM_WIDTH - 6)
+            result_lines = [""]
 
-            result_lines = []
-
+            # Label bahasa tipis di atas (mis. "python")
             if lang:
-                header = f"  {Style.DIM}┌─── {lang} {'─' * max(0, max_width - len(lang))}─┐{Style.RESET}"
-            else:
-                header = f"  {Style.DIM}┌{'─' * (max_width + 4)}┐{Style.RESET}"
-            result_lines.append(header)
+                result_lines.append(f"  {Style.GREY_DARK}{lang}{Style.RESET}")
 
+            # Gaya Claude Code: garis kiri tipis + teks kode VERBATIM
+            # (jangan strip markdown/indentasi — kode harus apa adanya)
             for cl in code_lines:
-                clean = cls._strip_inline_md(cl)
-                padded = clean.ljust(max_width)
-                result_lines.append(f"  {Style.DIM}│{Style.RESET}  {Style.GREEN}{padded}{Style.RESET}  {Style.DIM}│{Style.RESET}")
+                result_lines.append(f"  {Style.GREY_DARK}│{Style.RESET} {Style.GREY_LIGHT}{cl}{Style.RESET}")
 
-            footer = f"  {Style.DIM}└{'─' * (max_width + 4)}┘{Style.RESET}"
-            result_lines.append(footer)
-
+            result_lines.append("")
             return "\n".join(result_lines)
 
         return re.sub(r'```(\w*)\n(.*?)```', replace_block, text, flags=re.DOTALL)
@@ -429,7 +562,7 @@ class TerminalFormatter:
                 level = len(indent) // 2
                 bullet = cls.BULLETS[min(level, len(cls.BULLETS) - 1)]
                 indent_str = "  " + "    " * level
-                result.append(f"{indent_str}{Style.YELLOW}{bullet}{Style.RESET} {content}")
+                result.append(f"{indent_str}{Style.ACCENT_DIM}{bullet}{Style.RESET} {content}")
 
             elif ordered_match:
                 indent = ordered_match.group(1)
@@ -437,7 +570,7 @@ class TerminalFormatter:
                 content = ordered_match.group(3)
                 level = len(indent) // 2
                 indent_str = "  " + "    " * level
-                result.append(f"{indent_str}{Style.YELLOW}{number}.{Style.RESET} {content}")
+                result.append(f"{indent_str}{Style.ACCENT_DIM}{number}.{Style.RESET} {content}")
 
             else:
                 result.append(line)
@@ -498,9 +631,10 @@ class TerminalFormatter:
 
     @classmethod
     def _format_inline_code(cls, text: str) -> str:
+        # Inline code: aksen coral lembut, tanpa spasi tambahan yang mengganggu
         return re.sub(
             r'`([^`]+)`',
-            rf' {Style.GREEN}\1{Style.RESET} ',
+            rf'{Style.ACCENT_DIM}\1{Style.RESET}',
             text
         )
 
@@ -508,7 +642,7 @@ class TerminalFormatter:
     def _format_links(cls, text: str) -> str:
         return re.sub(
             r'\[([^\]]+)\]\(([^)]+)\)',
-            rf'{Style.UNDERLINE}{Style.CYAN}\1{Style.RESET} {Style.DIM}({Style.RESET}{Style.DIM}\2{Style.RESET}{Style.DIM}){Style.RESET}',
+            rf'{Style.UNDERLINE}{Style.CYAN}\1{Style.RESET} {Style.GREY}({Style.RESET}{Style.GREY}\2{Style.RESET}{Style.GREY}){Style.RESET}',
             text
         )
 
@@ -719,19 +853,19 @@ def clear_sessions() -> str:
         else:
             skipped.append(name)
 
-    # Build result message
+    # Build result message — gaya bersih ala Claude Code
     parts = []
     if deleted:
-        parts.append(f"✅ {len(deleted)} session auto-generated berhasil dihapus:")
+        parts.append(f"\n  {Style.OK}⏺{Style.RESET} {Style.GREY_LIGHT}{len(deleted)} session auto-generated dihapus{Style.RESET}")
         for d in deleted:
-            parts.append(f"   • {d}")
+            parts.append(f"    {Style.GREY_DARK}⎿{Style.RESET}  {Style.GREY}{d}{Style.RESET}")
     else:
-        parts.append("ℹ️ Tidak ada session auto-generated yang ditemukan.")
+        parts.append(f"\n  {Style.GREY}Tidak ada session auto-generated yang ditemukan.{Style.RESET}")
 
     if skipped:
-        parts.append(f"\n📌 {len(skipped)} session custom (tidak dihapus):")
+        parts.append(f"\n  {Style.ACCENT_DIM}⏺{Style.RESET} {Style.GREY_LIGHT}{len(skipped)} session custom dipertahankan{Style.RESET}")
         for s in skipped:
-            parts.append(f"   • {s}")
+            parts.append(f"    {Style.GREY_DARK}⎿{Style.RESET}  {Style.GREY}{s}{Style.RESET}")
 
     return "\n".join(parts)
 
@@ -751,18 +885,18 @@ def search_sessions(keyword: str) -> str:
     matched = [s for s in all_sessions if keyword_lower in s["name"].lower()]
 
     if not matched:
-        return f"🔍 Tidak ditemukan session yang mengandung '{keyword}'."
+        return f"  {Style.GREY}Tidak ditemukan session yang mengandung {Style.GREY_LIGHT}'{keyword}'{Style.GREY}.{Style.RESET}"
 
-    # Format hasil pencarian
+    # Format hasil pencarian — gaya bersih ala Claude Code
     lines = [
-        f"🔍 Hasil pencarian untuk '{keyword}' ({len(matched)} dari {len(all_sessions)} session):",
-        ""
+        f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Pencarian{Style.RESET} {Style.GREY}'{keyword}' — {len(matched)}/{len(all_sessions)} session{Style.RESET}",
+        f"  {_rule()}",
     ]
 
     for i, s in enumerate(matched, 1):
         size_str = _format_size(s["size"])
-        lines.append(f"  {Style.YELLOW}{Style.BOLD}{i:3d}.{Style.RESET}  {Style.WHITE}{s['name']}{Style.RESET}")
-        lines.append(f"       {Style.DIM}Pesan: {s['messages']}  |  Dibuat: {s['created']}  |  Diupdate: {s['updated']}  |  Ukuran: {size_str}{Style.RESET}")
+        lines.append(f"  {Style.GREY_DARK}{i:>2}{Style.RESET} {Style.ACCENT_DIM}⏺{Style.RESET} {Style.GREY_LIGHT}{s['name']}{Style.RESET}")
+        lines.append(f"       {Style.GREY}{s['messages']} pesan · diupdate {s['updated']} · {size_str}{Style.RESET}")
 
     return "\n".join(lines)
 
@@ -797,162 +931,121 @@ def rename_session(old_name: str, new_name: str) -> str:
 # UI FUNCTIONS - RUKA AI (KURA-KURA)
 # ============================================================
 
+def _help_section(title: str):
+    """Header bagian help: judul aksen + garis tipis."""
+    print(f"\n  {Style.ACCENT}{Style.BOLD}{title}{Style.RESET}")
+
+
+def _help_row(cmd: str, desc: str, cmd_color: str = Style.GREY_LIGHT):
+    """Satu baris help dengan kolom command sejajar."""
+    pad = max(0, 30 - len(cmd))
+    print(f"    {cmd_color}{cmd}{Style.RESET}{' ' * pad}{Style.GREY}{desc}{Style.RESET}")
+
+
 def show_help():
-    """Tampilkan menu help dengan semua command yang tersedia."""
-    print(f"""
-{Style.GREEN}{Style.BOLD}╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║              🐢  R U K A   A I   -   H E L P                 ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝{Style.RESET}
+    """Tampilkan menu help — gaya bersih ala Claude Code (header tipis, kolom sejajar)."""
+    star = f"{Style.ACCENT}{Style.BOLD}✻{Style.RESET}"
+    print()
+    print(f"  {star} {Style.BOLD}Ruka AI{Style.RESET} {Style.GREY}— bantuan{Style.RESET}")
+    print(f"  {_rule()}")
 
-{Style.YELLOW}{Style.BOLD}📌 CARA PENGGUNAAN:{Style.RESET}
+    _help_section("Penggunaan")
+    _help_row("python main.py", "Mode interaktif (session baru otomatis)")
+    _help_row("python main.py <namaSesi>", "Load atau buat session bernama")
+    _help_row("python main.py \"<prompt>\"", "Mode prompt tunggal (langsung jawab)")
 
-  {Style.WHITE}python main.py{Style.RESET}                    Mode interaktif (session baru otomatis)
-  {Style.WHITE}python main.py <namaSesi>{Style.RESET}        Load atau buat session dengan nama tertentu
-  {Style.WHITE}python main.py <prompt>{Style.RESET}           Single prompt mode (langsung jawab)
+    _help_section("Slash command (dalam sesi)")
+    _help_row("/help", "Tampilkan bantuan ini")
+    _help_row("/sessions", "Lihat daftar semua session")
+    _help_row("/new", "Mulai session baru (lama auto-save)")
+    _help_row("/history", "Lihat riwayat chat sesi ini")
+    _help_row("/clear", "Bersihkan layar")
+    _help_row("/delete-session <nama>", "Hapus session tertentu")
+    _help_row("/rename-session <l> <b>", "Rename session")
 
-{Style.YELLOW}{Style.BOLD}📋 CLI COMMAND (dari terminal):{Style.RESET}
+    _help_section("CLI command (dari terminal)")
+    _help_row("listSessions", "Daftar semua session tersimpan")
+    _help_row("searchSessions <keyword>", "Cari session (case-insensitive)")
+    _help_row("deleteSession <nama>", "Hapus session tertentu")
+    _help_row("renameSession <l> <b>", "Rename session")
+    _help_row("clearSessions", "Hapus semua session auto-generated")
 
-  {Style.CYAN}python main.py help{Style.RESET}
-      Tampilkan menu help ini
-
-  {Style.CYAN}python main.py listSessions{Style.RESET}
-      Tampilkan daftar semua session yang tersimpan
-
-  {Style.CYAN}python main.py searchSessions <keyword>{Style.RESET}
-      Cari session berdasarkan keyword (case-insensitive)
-
-  {Style.CYAN}python main.py deleteSession <nama>{Style.RESET}
-      Hapus session tertentu berdasarkan nama
-
-  {Style.CYAN}python main.py renameSession <lama> <baru>{Style.RESET}
-      Rename session dari nama lama ke nama baru
-
-  {Style.CYAN}python main.py clearSessions{Style.RESET}
-      Hapus semua session tanpa nama (auto-generated)
-      Session dengan nama custom TIDAK akan dihapus
-
-{Style.YELLOW}{Style.BOLD}🔧 SLASH COMMAND (dalam sesi interaktif):{Style.RESET}
-
-  {Style.CYAN}/sessions{Style.RESET}                      Lihat daftar semua session
-  {Style.CYAN}/new{Style.RESET}                           Mulai session baru (lama auto-save)
-  {Style.CYAN}/history{Style.RESET}                       Lihat riwayat chat sesi saat ini
-  {Style.CYAN}/delete-session <nama>{Style.RESET}         Hapus session tertentu
-  {Style.CYAN}/rename-session <lama> <baru>{Style.RESET}  Rename session
-
-{Style.YELLOW}{Style.BOLD}💡 CONTOH PENGGUNAAN:{Style.RESET}
-
-  {Style.DIM}# Mulai session baru{Style.RESET}
-  {Style.WHITE}python main.py{Style.RESET}
-
-  {Style.DIM}# Load session bernama 'kerja'{Style.RESET}
-  {Style.WHITE}python main.py kerja{Style.RESET}
-
-  {Style.DIM}# Cari session yang mengandung 'proyek'{Style.RESET}
-  {Style.WHITE}python main.py searchSessions proyek{Style.RESET}
-
-  {Style.DIM}# Hapus session 'tes'{Style.RESET}
-  {Style.WHITE}python main.py deleteSession tes{Style.RESET}
-
-  {Style.DIM}# Single prompt{Style.RESET}
-  {Style.WHITE}python main.py "Tampilkan daftar file"{Style.RESET}
-
-{Style.YELLOW}{Style.BOLD}🔑 CATATAN:{Style.RESET}
-
-  • CLI command menggunakan {Style.BOLD}camelCase{Style.RESET} (tanpa tanda -)
-  • Slash command menggunakan {Style.BOLD}kebab-case{Style.RESET} dengan prefix /
-  • Session tersimpan otomatis di folder 'sessions/'
-  • Ketik 'exit' atau 'quit' untuk keluar dari sesi interaktif
-  • Ketik 'q' saat AI memproses untuk interupsi
-
-{Style.GREEN}════════════════════════════════════════════════════════════════{Style.RESET}
-""")
+    _help_section("Tips")
+    print(f"    {Style.GREY}•{Style.RESET} {Style.GREY}Ketik {Style.GREY_LIGHT}q{Style.GREY} saat AI memproses untuk interupsi.{Style.RESET}")
+    print(f"    {Style.GREY}•{Style.RESET} {Style.GREY}Ketik {Style.GREY_LIGHT}exit{Style.GREY} atau {Style.GREY_LIGHT}quit{Style.GREY} untuk keluar.{Style.RESET}")
+    print(f"    {Style.GREY}•{Style.RESET} {Style.GREY}Session tersimpan otomatis di folder {Style.GREY_LIGHT}sessions/{Style.GREY}.{Style.RESET}")
+    print()
 
 
 def ruka_print():
-    print(f"""
-{Style.GREEN}{Style.BOLD}              🐢  R U K A   A I  🐢
-{Style.DIM}         ╭─────────────────────────────────────╮
-{Style.DIM}        │                                     │
-{Style.GREEN}       │    ████████████████████████████      │
-{Style.GREEN}       │   ██  ████████████████████  ██      │
-{Style.GREEN}       │  ██ ██  R U K A   A I  ████ ██     │
-{Style.GREEN}       │   ██  ████████████████████  ██      │
-{Style.GREEN}       │    ████████████████████████████      │
-{Style.DIM}        │                                     │
-{Style.DIM}         ╰─────────────────────────────────────╯
-{Style.TEAL}              🐢  Kura-Kura Agent  🐢{Style.RESET}
-{Style.DIM}         OpenRouter File & Terminal Agent{Style.RESET}""")
+    """Sapaan pembuka — panel sambutan rounded ala Claude Code."""
+    star = f"{Style.ACCENT}{Style.BOLD}✻{Style.RESET}"
+    lines = [
+        f"{star} {Style.BOLD}Selamat datang di Ruka AI{Style.RESET}",
+        "",
+        f"{Style.GREY}Agen kura-kura untuk file, folder & terminal.{Style.RESET}",
+        f"{Style.GREY}Bijak, sabar, teliti. 🐢{Style.RESET}",
+    ]
+    print()
+    print(_box(lines, color=Style.ACCENT_DIM))
 
 
-def show_banner(session_name: str = None, session_meta: dict = None):
-    session_info = ""
+def _shorten_path(path: str, limit: int = 44) -> str:
+    """Persingkat path panjang dengan menyisipkan … di tengah."""
+    home = os.path.expanduser("~")
+    if path.startswith(home):
+        path = "~" + path[len(home):]
+    if len(path) <= limit:
+        return path
+    keep = limit - 1
+    head = keep // 2
+    tail = keep - head
+    return path[:head] + "…" + path[-tail:]
+
+
+def show_banner(session_name: str = None, session_meta: dict = None, is_new: bool = True):
+    """
+    Ringkasan konteks ala Claude Code: baris-baris meta tipis di bawah
+    panel sambutan, bukan boks ganda yang berat.
+    """
+    bullet = f"{Style.GREY_DARK}•{Style.RESET}"
+
+    print()
+    print(f"  {Style.GREY}cwd{Style.RESET}      {bullet} {Style.GREY_LIGHT}{_shorten_path(BASE_DIR)}{Style.RESET}")
+    print(f"  {Style.GREY}model{Style.RESET}    {bullet} {Style.GREY_LIGHT}{MODEL}{Style.RESET}")
+
     if session_name:
-        msg_count = session_meta.get("message_count", 0) if session_meta else 0
-        created = session_meta.get("created_at", "?") if session_meta else "?"
-        try:
-            created = datetime.fromisoformat(created).strftime("%Y-%m-%d %H:%M")
-        except (ValueError, TypeError):
-            pass
-        session_info = f"\n║   📌  Session   : {Style.TEAL}{session_name}{Style.WHITE} ({msg_count} pesan, dibuat {created}){Style.WHITE}"
+        if is_new:
+            tag = f"{Style.GREY}(baru){Style.RESET}"
+        else:
+            msg_count = session_meta.get("message_count", 0) if session_meta else 0
+            created = session_meta.get("created_at", "?") if session_meta else "?"
+            try:
+                created = datetime.fromisoformat(created).strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                pass
+            meta = f"{msg_count} pesan" + (f" · dibuat {created}" if created != "?" else "")
+            tag = f"{Style.GREY}({meta}){Style.RESET}"
+        print(f"  {Style.GREY}session{Style.RESET}  {bullet} {Style.ACCENT}{session_name}{Style.RESET} {tag}")
 
-    print(f"""{Style.BOLD}
-╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║   {Style.GREEN}🐢  R U K A   A I   -   K U R A - K U R A{Style.WHITE}              ║
-║              {Style.DIM}FILE & TERMINAL AGENT{Style.WHITE}                       ║
-║                                                              ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║   📂  Direktori  : {Style.TEAL}{BASE_DIR}{Style.WHITE}║
-║   ⚡  Kemampuan  : Baca • Tulis • Hapus • Copy • Move        ║
-║   📁              Info File • Buat/Hapus Folder • List All   ║
-║   💻              Eksekusi Perintah Terminal (Bash)          ║
-║   🔄  Round      : Unlimited (ketik 'q' untuk interupsi)     ║
-║   🚪  Ketik      : 'exit' untuk keluar                       ║
-║   💾  Session    : 'python main.py <nama>' untuk load/buat   ║
-║   📋  CLI        : listSessions | searchSessions <kw>        ║
-║                    deleteSession <n> | renameSession <l> <b>  ║
-║                    clearSessions                              ║
-║   🔧  Slash      : /sessions | /new | /history               ║
-║                    /delete-session <n> | /rename-session     ║{session_info}
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝{Style.RESET}""")
+    print()
+    print(f"  {Style.GREY}Ketik {Style.RESET}{Style.GREY_LIGHT}/help{Style.RESET} {Style.GREY}untuk bantuan, {Style.RESET}{Style.GREY_LIGHT}exit{Style.RESET} {Style.GREY}untuk keluar, {Style.RESET}{Style.GREY_LIGHT}q{Style.RESET} {Style.GREY}untuk interupsi.{Style.RESET}")
 
 
 def show_examples():
-    print(f"""  {Style.DIM}┌──────────────────────────────────────────────────────────┐
-  │  {Style.YELLOW}💡 Contoh perintah:{Style.DIM}                                        │
-  │                                                            │
-  │  {Style.WHITE}• Tampilkan daftar file dan folder{Style.DIM}                    │
-  │  {Style.WHITE}• Baca isi file catatan.txt{Style.DIM}                             │
-  │  {Style.WHITE}• Buat file todo.txt berisi daftar belanja{Style.DIM}               │
-  │  {Style.WHITE}• Hapus file lama.txt{Style.DIM}                                   │
-  │  {Style.WHITE}• Salin data.txt ke backup/data.txt{Style.DIM}                     │
-  │  {Style.WHITE}• Pindahkan file.txt ke arsip/file.txt{Style.DIM}                  │
-  │  {Style.WHITE}• Buat folder baru bernama 'projects'{Style.DIM}                   │
-  │  {Style.WHITE}• Hapus folder 'temp' beserta isinya{Style.DIM}                    │
-  │  {Style.WHITE}• Tampilkan info file data.json{Style.DIM}                          │
-  │  {Style.WHITE}• Jalankan perintah 'ls -la' di terminal{Style.DIM}                │
-  │  {Style.WHITE}• Cek penggunaan disk dengan 'df -h'{Style.DIM}                    │
-  │  {Style.WHITE}• Tampilkan proses yang berjalan dengan 'ps aux'{Style.DIM}         │
-  │  {Style.WHITE}• Cek koneksi jaringan dengan 'ping google.com -c 3'{Style.DIM}     │
-  │                                                            │
-  │  {Style.YELLOW}📌 Slash command (dalam sesi):{Style.DIM}                          │
-  │  {Style.WHITE}• /sessions — lihat semua sesi{Style.DIM}                           │
-  │  {Style.WHITE}• /new — mulai sesi baru{Style.DIM}                                │
-  │  {Style.WHITE}• /history — riwayat chat sesi ini{Style.DIM}                       │
-  │  {Style.WHITE}• /delete-session <nama> — hapus sesi{Style.DIM}                   │
-  │  {Style.WHITE}• /rename-session <lama> <baru> — rename sesi{Style.DIM}            │
-  │  {Style.YELLOW}📌 CLI command (dari terminal):{Style.DIM}                          │
-  │  {Style.WHITE}• python main.py listSessions{Style.DIM}                             │
-  │  {Style.WHITE}• python main.py deleteSession <nama>{Style.DIM}                     │
-  │  {Style.WHITE}• python main.py renameSession <lama> <baru>{Style.DIM}              │
-  │  {Style.WHITE}• python main.py clearSessions — hapus sesi tanpa nama{Style.DIM}    │
-  │  {Style.WHITE}• python main.py searchSessions <keyword>{Style.DIM}                   │
-  │                                                            │
-  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+    """Beberapa contoh perintah singkat — gaya 'tips' Claude Code, ringan & tidak berbingkai."""
+    examples = [
+        "Tampilkan daftar file dan folder",
+        "Baca isi file catatan.txt lalu ringkas",
+        "Buat file todo.txt berisi daftar belanja",
+        "Jalankan 'ls -la' lalu jelaskan hasilnya",
+        "Cari semua file .py dan hitung jumlah barisnya",
+    ]
+    print()
+    print(f"  {Style.GREY}Coba sesuatu seperti:{Style.RESET}")
+    for ex in examples:
+        print(f"  {Style.ACCENT_DIM}❯{Style.RESET} {Style.GREY_LIGHT}{ex}{Style.RESET}")
+    print()
 
 
 def show_session_list():
@@ -960,26 +1053,19 @@ def show_session_list():
     sessions = list_sessions()
 
     if not sessions:
-        print(f"""
-  {Style.YELLOW}┌──────────────────────────────────────────────────────────┐
-  │  📌 Belum ada session tersimpan.                           │
-  │      Ketik 'python main.py <nama>' untuk memulai.          │
-  │      Ketik 'python main.py listSessions' untuk lihat.      │
-  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+        print(f"\n  {Style.GREY}Belum ada session tersimpan.{Style.RESET}")
+        print(f"  {Style.GREY}Mulai dengan {Style.GREY_LIGHT}python main.py <nama>{Style.GREY}.{Style.RESET}")
         return
 
-    print(f"""
-  {Style.CYAN}{Style.BOLD}┌──────────────────────────────────────────────────────────┐
-  │  📌  DAFTAR SESSION ({len(sessions)} sesi)                             │
-  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+    print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Session{Style.RESET} {Style.GREY}({len(sessions)}){Style.RESET}")
+    print(f"  {_rule()}")
 
     for i, s in enumerate(sessions, 1):
         size_str = _format_size(s["size"])
-        print(f"  {Style.YELLOW}{Style.BOLD}{i:3d}.{Style.RESET}  {Style.WHITE}{s['name']}{Style.RESET}")
-        print(f"       {Style.DIM}Pesan: {s['messages']}  |  Dibuat: {s['created']}  |  Diupdate: {s['updated']}  |  Ukuran: {size_str}{Style.RESET}")
+        print(f"  {Style.GREY_DARK}{i:>2}{Style.RESET} {Style.ACCENT_DIM}⏺{Style.RESET} {Style.GREY_LIGHT}{s['name']}{Style.RESET}")
+        print(f"       {Style.GREY}{s['messages']} pesan · diupdate {s['updated']} · {size_str}{Style.RESET}")
 
-    print(f"\n  {Style.DIM}Ketik 'python main.py <nama>' untuk melanjutkan sesi.{Style.RESET}")
-    print(f"  {Style.DIM}Ketik 'python main.py listSessions' untuk melihat daftar.{Style.RESET}")
+    print(f"\n  {Style.GREY}Lanjutkan dengan {Style.GREY_LIGHT}python main.py <nama>{Style.GREY}.{Style.RESET}")
 
 
 def show_session_history(messages: list, session_name: str):
@@ -988,13 +1074,11 @@ def show_session_history(messages: list, session_name: str):
     chat_messages = [m for m in messages if m.get("role") in ("user", "assistant")]
 
     if not chat_messages:
-        print(f"\n  {Style.YELLOW}📌 Belum ada riwayat chat di sesi ini.{Style.RESET}")
+        print(f"\n  {Style.GREY}Belum ada riwayat chat di sesi ini.{Style.RESET}")
         return
 
-    print(f"""
-  {Style.CYAN}{Style.BOLD}┌──────────────────────────────────────────────────────────┐
-  │  📌  RIOWAYAT CHAT — {Style.WHITE}{session_name}{Style.RESET}{Style.CYAN}{Style.BOLD}                    │
-  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+    print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Riwayat{Style.RESET} {Style.GREY}— {session_name}{Style.RESET}")
+    print(f"  {_rule()}")
 
     for i, msg in enumerate(chat_messages, 1):
         role = msg.get("role", "?")
@@ -1006,129 +1090,180 @@ def show_session_history(messages: list, session_name: str):
 
         # Truncate content jika terlalu panjang
         if content and len(content) > 200:
-            content = content[:200] + "..."
+            content = content[:200] + "…"
         if not content:
-            content = "(tool call)"
+            content = f"{Style.GREY_DARK}(tool call){Style.RESET}"
 
         if role == "user":
-            print(f"  {Style.TEAL}{Style.BOLD}👤  Kamu:{Style.RESET} {content}")
+            print(f"\n  {Style.GREY}❯{Style.RESET} {Style.GREY_LIGHT}{content}{Style.RESET}")
         elif role == "assistant":
-            print(f"  {Style.GREEN}{Style.BOLD}🐢  Ruka:{Style.RESET} {content}")
-
-        if i < len(chat_messages):
-            print(f"  {Style.DIM}  {'─' * 50}{Style.RESET}")
+            print(f"  {Style.ACCENT}⏺{Style.RESET} {content}")
 
     print()
 
 
 def show_separator():
-    print(f"\n  {Style.DIM}{'─' * 58}{Style.RESET}")
+    # Pemisah antar-giliran sangat tipis & lapang (gaya Claude Code)
+    print()
+
+
+# ── Pemetaan nama tool internal → label ringkas ala Claude Code ──
+TOOL_LABELS = {
+    "read_file":     "Read",
+    "write_file":    "Write",
+    "edit_file":     "Edit",
+    "list_files":    "List",
+    "delete_file":   "Delete",
+    "copy_file":     "Copy",
+    "move_file":     "Move",
+    "get_file_info": "Info",
+    "create_folder": "MkDir",
+    "delete_folder": "RmDir",
+    "list_all":      "Tree",
+    "exec_command":  "Bash",
+}
+
+
+def _tool_label(name: str) -> str:
+    return TOOL_LABELS.get(name, name)
+
+
+def _tool_arg_summary(tool_name: str, args: dict) -> str:
+    """Ringkas argumen tool jadi satu baris bersih: Read(main.py), Bash(ls -la)."""
+    if not args:
+        return ""
+    if tool_name in ("copy_file", "move_file") and "source" in args:
+        dst = args.get("destination", "?")
+        return f"{args['source']} → {dst}"
+    for k in ("command", "filename", "name", "foldername", "source", "path"):
+        if k in args and args[k] not in (None, ""):
+            return str(args[k])
+    return ", ".join(f"{k}={v}" for k, v in args.items())
+
+
+def _result_summary(result: str) -> tuple:
+    """
+    Ringkas hasil tool untuk baris ⎿. Return (teks, is_error).
+    Tampilkan baris pertama yang berarti + jumlah baris sisa.
+    """
+    if result is None:
+        return "(tidak ada output)", False
+    text = str(result).strip()
+    if not text:
+        return "(kosong)", False
+    is_error = text.lower().startswith("error")
+    lines = [l for l in text.split("\n")]
+    first = lines[0].strip()
+    if len(first) > 60:
+        first = first[:59] + "…"
+    extra = len(lines) - 1
+    if extra > 0:
+        first = f"{first}  {Style.GREY_DARK}+{extra} baris{Style.RESET}"
+    return first, is_error
+
+
+def _emit_agent_text(text: str, interrupted: bool = False):
+    """
+    Cetak teks asisten dengan marker ⏺ ala Claude Code.
+    Baris pertama menempel pada marker; lanjutannya diberi margin kiri rapi.
+    """
+    marker = Style.WARN if interrupted else Style.ACCENT
+    if text is None or not text.strip():
+        print(f"\n  {marker}⏺{Style.RESET} {Style.GREY_DARK}(tidak ada jawaban){Style.RESET}")
+        return
+    formatted = format_reply(text)
+    lines = formatted.split("\n")
+    first = lines[0].lstrip()
+    print(f"\n  {marker}⏺{Style.RESET} {first}")
+    for ln in lines[1:]:
+        print(f"  {ln}" if ln.strip() else "")
 
 
 def show_model_narration(round_num, content):
     """
-    Tampilkan narasi/pikiran model sebelum memanggil tools.
-    Hanya dipanggil jika model mengirim content + tool_calls sekaligus.
-    Contoh: "Di folder ini ada file ini, oke saya akan ubah..."
+    Narasi singkat model sebelum/diantara pemanggilan tool.
+    Ditampilkan sebagai teks asisten ber-marker ⏺ (tanpa boks).
     """
     if not content or not content.strip():
         return
-    
-    # Format content
-    formatted = format_reply(content)
-    
-    print(f"""
-  {Style.TEAL}┌─ 🐢  [Round {round_num}] Ruka AI:{Style.RESET} ──────────────────────────────────────┐
-  {Style.TEAL}│{Style.RESET}
-  {Style.TEAL}│{Style.RESET}  {Style.WHITE}{formatted}{Style.RESET}
-  {Style.TEAL}│{Style.RESET}
-  {Style.TEAL}└──────────────────────────────────────────────────────────┘{Style.RESET}""")
+    _emit_agent_text(content)
 
 
-def show_tool_call(round_num, tool_name, args_preview, result_preview):
-    print(f"""
-  {Style.MAGENTA}┌─ ⚙️  Round {round_num} ─────────────────────────────────────────┐
-  │
-  │  {Style.BOLD}🔧 {tool_name}{Style.RESET}{Style.MAGENTA}({Style.DIM}{args_preview}{Style.RESET}{Style.MAGENTA}){Style.RESET}
-  │
-  │  {Style.GREEN}✅ {Style.RESET}{Style.DIM}{result_preview}{Style.RESET}
-  │
-  └────────────────────────────────────────────────────────┘{Style.RESET}""")
+def show_tool_call(tool_name, args, result):
+    """
+    Tampilkan pemanggilan tool ala Claude Code:
+
+        ⏺ Bash(ls -la)
+          ⎿ total 192  +14 baris
+    """
+    label = _tool_label(tool_name)
+    arg_str = _tool_arg_summary(tool_name, args) if isinstance(args, dict) else str(args)
+    if len(arg_str) > 52:
+        arg_str = arg_str[:51] + "…"
+
+    summary, is_error = _result_summary(result)
+    dot = Style.ERR if is_error else Style.OK
+
+    head = f"\n  {dot}⏺{Style.RESET} {Style.BOLD}{label}{Style.RESET}"
+    if arg_str:
+        head += f"{Style.GREY}({Style.RESET}{Style.GREY_LIGHT}{arg_str}{Style.GREY}){Style.RESET}"
+    print(head)
+
+    res_color = Style.ERR if is_error else Style.GREY
+    print(f"    {Style.GREY_DARK}⎿{Style.RESET}  {res_color}{summary}{Style.RESET}")
 
 
 def show_round_info(round_num):
-    print(f"\n  {Style.TEAL}{Style.BOLD}🔄  [Round {round_num}] Ruka AI sedang memproses...{Style.RESET}")
+    # Tidak lagi dipakai — spinner animasi yang menandakan pemrosesan.
+    pass
 
 
 def show_interrupt_notice():
-    print(f"""
-  {Style.YELLOW}{Style.BOLD}┌──────────────────────────────────────────────────────────┐
-  │  ⏸️  INTERRUPT: Proses akan dihentikan setelah round        │
-  │      saat ini selesai. Model akan diberitahu.              │
-  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+    print(f"\n  {Style.WARN}■{Style.RESET}  {Style.WARN}Interupsi diminta{Style.RESET} {Style.GREY}— menyelesaikan round saat ini lalu berhenti…{Style.RESET}")
 
 
 def show_interrupted_reply_header():
-    print(f"\n  {Style.YELLOW}{Style.BOLD}🐢  Ruka AI (terinterupsi):{Style.RESET}")
+    # marker ⏺ ditangani oleh _emit_agent_text(interrupted=True)
+    pass
 
 
 def show_exit(session_name: str = None):
-    save_msg = ""
+    print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.GREY_LIGHT}Sampai jumpa! 🐢{Style.RESET}")
     if session_name:
-        save_msg = f"\n║   💾  Session '{session_name}' tersimpan otomatis.          ║"
-
-    print(f"""
-{Style.GREEN}{Style.BOLD}╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║        👋  Sampai jumpa! Terima kasih sudah menggunakan  👋  ║
-║                    {Style.WHITE}🐢 Ruka AI 🐢{Style.GREEN}                       ║
-║              {Style.DIM}Kura-Kura File & Terminal Agent{Style.GREEN}              ║{save_msg}
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝{Style.RESET}""")
+        print(f"    {Style.GREY_DARK}⎿{Style.RESET}  {Style.GREY}Session {Style.GREY_LIGHT}{session_name}{Style.GREY} tersimpan otomatis.{Style.RESET}")
+    print()
 
 
 def show_error(error_msg):
-    print(f"""
-  {Style.RED}{Style.BOLD}┌──────────────────────────────────────────────────────────┐
-  │  ❌  Terjadi kesalahan                                     │
-  │                                                            │
-  │  {Style.DIM}{error_msg}{Style.RESET}{Style.RED}{Style.BOLD}│
-  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+    print(f"\n  {Style.ERR}⏺{Style.RESET} {Style.ERR}Terjadi kesalahan{Style.RESET}")
+    print(f"    {Style.GREY_DARK}⎿{Style.RESET}  {Style.GREY}{error_msg}{Style.RESET}")
 
 
 def show_retry(error_msg, attempt, max_retries, delay):
-    """Tampilkan pesan retry dengan countdown."""
-    print(f"""
-  {Style.ORANGE}{Style.BOLD}┌──────────────────────────────────────────────────────────┐
-  │  ⚠️  Error pada request ke API                             │
-  │                                                            │
-  │  {Style.DIM}{error_msg}{Style.RESET}{Style.ORANGE}{Style.BOLD}│
-  │                                                            │
-  │  {Style.YELLOW}🔄  Retrying... (attempt {attempt}/{max_retries}, delay {delay}s){Style.RESET}{Style.ORANGE}{Style.BOLD}│
-  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+    """Tampilkan pesan retry — gaya baris tipis ala Claude Code."""
+    print(f"\n  {Style.WARN}⏺{Style.RESET} {Style.WARN}Request gagal{Style.RESET} {Style.GREY}— mencoba lagi {attempt}/{max_retries} dalam {delay}s…{Style.RESET}")
+    print(f"    {Style.GREY_DARK}⎿{Style.RESET}  {Style.GREY}{error_msg}{Style.RESET}")
 
 
 def show_retry_giving_up(error_msg):
     """Tampilkan pesan ketika semua retry sudah habis."""
-    print(f"""
-  {Style.RED}{Style.BOLD}┌──────────────────────────────────────────────────────────┐
-  │  ❌  Semua retry gagal setelah {MAX_RETRIES} percobaan               │
-  │                                                            │
-  │  {Style.DIM}{error_msg}{Style.RESET}{Style.RED}{Style.BOLD}│
-  └──────────────────────────────────────────────────────────┘{Style.RESET}""")
+    print(f"\n  {Style.ERR}⏺{Style.RESET} {Style.ERR}Gagal setelah {MAX_RETRIES} percobaan{Style.RESET}")
+    print(f"    {Style.GREY_DARK}⎿{Style.RESET}  {Style.GREY}{error_msg}{Style.RESET}")
 
 
 def show_thinking():
-    print(f"\n  {Style.GREEN}🐢  Ruka AI sedang berpikir...{Style.RESET}")
+    # Animasi spinner menggantikan teks statis; siklus hidup dikelola di chat().
+    pass
 
 
 def show_reply_header():
-    print(f"\n  {Style.GREEN}{Style.BOLD}🐢  Ruka AI:{Style.RESET}")
+    # marker ⏺ ditangani oleh _emit_agent_text()
+    pass
 
 
 def show_user_prompt(session_name: str = None):
-    label = f"[{session_name}] " if session_name else ""
-    return _get_input(f"\n  {Style.TEAL}{Style.BOLD}👤  {label}Kamu:{Style.RESET} ").strip()
+    # Prompt minimalis ala Claude Code: chevron coral '❯'
+    return _get_input(f"\n{Style.ACCENT}❯{Style.RESET} ").strip()
 
 
 # ============================================================
@@ -1882,58 +2017,31 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 2000,
     last_error = None
 
     for attempt in range(1, max_retries + 1):
+        # Spinner animasi berjalan selama menunggu respons API.
+        _spinner.start()
         try:
             response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=120)
             response.raise_for_status()
             data = response.json()
             if "error" in data:
                 raise Exception(f"OpenRouter error: {data['error']}")
-            if attempt > 1:
-                print(f"\n  {Style.GREEN}✅  Request berhasil pada percobaan ke-{attempt}!{Style.RESET}")
             return data
 
-        except requests.exceptions.HTTPError as e:
-            error_msg = f"HTTP {e.response.status_code}: {e.response.text[:80]}"
-            last_error = e
-            if attempt < max_retries:
-                delay = retry_base_delay * (2 ** (attempt - 1))
-                show_retry(error_msg, attempt, max_retries, delay)
-                time.sleep(delay)
-            else:
-                show_retry_giving_up(error_msg)
-
-        except requests.exceptions.ConnectionError as e:
-            error_msg = f"Connection error: {str(e)[:80]}"
-            last_error = e
-            if attempt < max_retries:
-                delay = retry_base_delay * (2 ** (attempt - 1))
-                show_retry(error_msg, attempt, max_retries, delay)
-                time.sleep(delay)
-            else:
-                show_retry_giving_up(error_msg)
-
-        except requests.exceptions.Timeout as e:
-            error_msg = f"Request timeout: {str(e)[:80]}"
-            last_error = e
-            if attempt < max_retries:
-                delay = retry_base_delay * (2 ** (attempt - 1))
-                show_retry(error_msg, attempt, max_retries, delay)
-                time.sleep(delay)
-            else:
-                show_retry_giving_up(error_msg)
-
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Request error: {str(e)[:80]}"
-            last_error = e
-            if attempt < max_retries:
-                delay = retry_base_delay * (2 ** (attempt - 1))
-                show_retry(error_msg, attempt, max_retries, delay)
-                time.sleep(delay)
-            else:
-                show_retry_giving_up(error_msg)
-
         except Exception as e:
-            error_msg = f"Unexpected error: {str(e)[:80]}"
+            # Hentikan spinner SEBELUM mencetak pesan retry/error.
+            _spinner.stop()
+            # Klasifikasi pesan error agar tetap informatif tanpa duplikasi blok.
+            if isinstance(e, requests.exceptions.HTTPError):
+                error_msg = f"HTTP {e.response.status_code}: {e.response.text[:80]}"
+            elif isinstance(e, requests.exceptions.ConnectionError):
+                error_msg = f"Connection error: {str(e)[:80]}"
+            elif isinstance(e, requests.exceptions.Timeout):
+                error_msg = f"Request timeout: {str(e)[:80]}"
+            elif isinstance(e, requests.exceptions.RequestException):
+                error_msg = f"Request error: {str(e)[:80]}"
+            else:
+                error_msg = f"Unexpected error: {str(e)[:80]}"
+
             last_error = e
             if attempt < max_retries:
                 delay = retry_base_delay * (2 ** (attempt - 1))
@@ -1941,6 +2049,10 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 2000,
                 time.sleep(delay)
             else:
                 show_retry_giving_up(error_msg)
+
+        finally:
+            # Apapun hasilnya, hentikan spinner sebelum mencetak apa pun.
+            _spinner.stop()
 
     raise last_error
 
@@ -2005,18 +2117,15 @@ def process_response(messages: list, data: dict) -> tuple:
             if not tool_calls:
                 return message.get("content", ""), messages, True
             else:
-                # Model masih memanggil tool — eksekusi tapi beri tahu lagi
-                print(f"\n  {Style.BOLD}⚡  [Round {round_num}] Model masih memanggil {len(tool_calls)} tool(s) setelah interrupt:{Style.RESET}")
+                # Model masih memanggil tool — eksekusi lalu paksa jawaban akhir
                 for tc in tool_calls:
                     tool_name = tc["function"]["name"]
                     try:
                         tool_args = json.loads(tc["function"]["arguments"])
                     except json.JSONDecodeError:
                         tool_args = {}
-                    args_preview = ", ".join(f"{k}={repr(v)[:40]}" for k, v in tool_args.items())
                     result = execute_tool(tool_name, tool_args)
-                    result_preview = result[:120] + ("..." if len(result) > 120 else "")
-                    show_tool_call(round_num, tool_name, args_preview, result_preview)
+                    show_tool_call(tool_name, tool_args, result)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
@@ -2043,8 +2152,6 @@ def process_response(messages: list, data: dict) -> tuple:
                 return message.get("content", ""), messages, True
 
         # ── Normal round processing ───────────────────────────────
-        show_round_info(round_num)
-
         choice  = data["choices"][0]
         message = choice["message"]
 
@@ -2063,8 +2170,6 @@ def process_response(messages: list, data: dict) -> tuple:
             return message.get("content", ""), messages, was_interrupted
 
         # ── Eksekusi semua tool dalam round ini ──────────────────
-        print(f"\n  {Style.BOLD}⚡  [Round {round_num}] Model memanggil {len(tool_calls)} tool(s):{Style.RESET}")
-
         for tc in tool_calls:
             tool_name = tc["function"]["name"]
             try:
@@ -2077,8 +2182,7 @@ def process_response(messages: list, data: dict) -> tuple:
                     f"JSON error: {e}. "
                     "Model harus mengirim arguments yang valid dalam format JSON."
                 )
-                result_preview = result[:120] + ("..." if len(result) > 120 else "")
-                show_tool_call(round_num, tool_name, "(invalid json)", result_preview)
+                show_tool_call(tool_name, {}, result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
@@ -2086,11 +2190,9 @@ def process_response(messages: list, data: dict) -> tuple:
                 })
                 continue
 
-            args_preview = ", ".join(f"{k}={repr(v)[:40]}" for k, v in tool_args.items())
             result = execute_tool(tool_name, tool_args)
-            result_preview = result[:120] + ("..." if len(result) > 120 else "")
 
-            show_tool_call(round_num, tool_name, args_preview, result_preview)
+            show_tool_call(tool_name, tool_args, result)
 
             # Jika tool error, tambahkan konteks agar model bisa retry
             if result.startswith("Error:"):
@@ -2207,17 +2309,14 @@ def chat_session(session_name: str = None):
         if loaded_messages is not None:
             messages = loaded_messages
             is_new_session = False
-            print(f"\n  {Style.GREEN}📌  Session '{session_name}' dimuat ({len(messages)} pesan).{Style.RESET}")
         else:
             # Session belum ada — buat baru dengan nama ini
             session_meta = None
             is_new_session = True
-            print(f"\n  {Style.YELLOW}📌  Session '{session_name}' belum ada. Membuat session baru...{Style.RESET}")
     else:
         # Tidak ada nama — generate otomatis
         session_name = _generate_session_name()
         is_new_session = True
-        print(f"\n  {Style.YELLOW}📌  Membuat session baru: '{session_name}'{Style.RESET}")
 
     # ── Inisialisasi messages dengan system prompt ─────────────
     if not messages:
@@ -2230,7 +2329,7 @@ def chat_session(session_name: str = None):
 
     # ── Tampilan awal ──────────────────────────────────────────
     ruka_print()
-    show_banner(session_name if not is_new_session or session_name else None, session_meta)
+    show_banner(session_name, session_meta, is_new=is_new_session)
     show_examples()
 
     # Mulai input reader thread sekali di awal
@@ -2256,6 +2355,16 @@ def chat_session(session_name: str = None):
             show_exit(session_name)
             break
 
+        if user_input.lower() in ("/help", "/?"):
+            show_help()
+            continue
+
+        if user_input.lower() in ("/clear", "/cls"):
+            # Bersihkan layar lalu tampilkan ulang sapaan ringkas
+            os.system("clear" if os.name != "nt" else "cls")
+            ruka_print()
+            continue
+
         if user_input.lower() == "/sessions":
             show_session_list()
             continue
@@ -2270,7 +2379,7 @@ def chat_session(session_name: str = None):
                     "content": get_system_prompt(session_name)
                 }
             ]
-            print(f"\n  {Style.GREEN}📌  Session baru dimulai: '{session_name}'{Style.RESET}")
+            print(f"\n  {Style.OK}✻{Style.RESET} {Style.GREY_LIGHT}Session baru dimulai:{Style.RESET} {Style.ACCENT}{session_name}{Style.RESET}")
             continue
 
         if user_input.lower() == "/history":
@@ -2280,24 +2389,34 @@ def chat_session(session_name: str = None):
         if user_input.lower().startswith("/delete-session"):
             parts = user_input.split(maxsplit=1)
             if len(parts) < 2:
-                print(f"\n  {Style.YELLOW}⚠️  Gunakan: /delete-session <nama>{Style.RESET}")
+                print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/delete-session <nama>{Style.RESET}")
             else:
                 target_name = parts[1].strip()
                 result = delete_session(target_name)
-                print(f"\n  {Style.GREEN if 'berhasil' in result.lower() else Style.RED}{result}{Style.RESET}")
+                ok = "berhasil" in result.lower()
+                dot = Style.OK if ok else Style.ERR
+                print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
             continue
 
         if user_input.lower().startswith("/rename-session"):
             parts = user_input.split(maxsplit=2)
             if len(parts) < 3:
-                print(f"\n  {Style.YELLOW}⚠️  Gunakan: /rename-session <lama> <baru>{Style.RESET}")
+                print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/rename-session <lama> <baru>{Style.RESET}")
             else:
                 old_name = parts[1].strip()
                 new_name = parts[2].strip()
                 result = rename_session(old_name, new_name)
                 if old_name == session_name:
                     session_name = new_name
-                print(f"\n  {Style.GREEN if 'berhasil' in result.lower() else Style.RED}{result}{Style.RESET}")
+                ok = "berhasil" in result.lower()
+                dot = Style.OK if ok else Style.ERR
+                print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+            continue
+
+        # ── Slash command tak dikenal → jangan kirim ke model ───
+        if user_input.startswith("/"):
+            cmd = user_input.split()[0]
+            print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Perintah {Style.GREY_LIGHT}{cmd}{Style.GREY} tidak dikenal. Ketik {Style.GREY_LIGHT}/help{Style.GREY} untuk daftar perintah.{Style.RESET}")
             continue
 
         # ── Normal chat flow ────────────────────────────────────
@@ -2309,16 +2428,11 @@ def chat_session(session_name: str = None):
             data = chat(messages)
             reply, messages, was_interrupted = process_response(messages, data)
 
-            if was_interrupted:
-                show_interrupted_reply_header()
-            else:
-                show_reply_header()
-
-            formatted_reply = format_reply(reply)
-            print(f"  {formatted_reply}")
+            # Jawaban akhir asisten dengan marker ⏺ ala Claude Code
+            _emit_agent_text(reply, interrupted=was_interrupted)
 
             if was_interrupted:
-                print(f"\n  {Style.YELLOW}⏸️  Sesi agent diinterupsi. Kembali ke prompt utama.{Style.RESET}")
+                print(f"\n  {Style.GREY}■ Sesi agent diinterupsi. Kembali ke prompt utama.{Style.RESET}")
 
             # Auto-save setelah setiap exchange
             save_session(session_name, messages)
@@ -2374,7 +2488,8 @@ if __name__ == "__main__":
         else:
             # Single prompt mode (backward compatibility)
             prompt = " ".join(sys.argv[1:])
-            print(f"Prompt: {prompt}\n")
+            _start_input_reader()
+            print(f"\n{Style.ACCENT}❯{Style.RESET} {Style.GREY_LIGHT}{prompt}{Style.RESET}")
             msgs = [
                 {
                     "role": "system",
@@ -2384,11 +2499,11 @@ if __name__ == "__main__":
             ]
             try:
                 data = chat(msgs)
-                reply, _, _ = process_response(msgs, data)
-                formatted_reply = format_reply(reply)
-                print(f"Jawaban:\n{formatted_reply}")
+                reply, _, was_interrupted = process_response(msgs, data)
+                _emit_agent_text(reply, interrupted=was_interrupted)
+                print()
             except Exception as e:
-                print(f"Error: {e}")
+                show_error(str(e)[:80])
     else:
         # Mode interaktif tanpa nama session → auto-generate
         chat_session()
