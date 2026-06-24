@@ -33,8 +33,13 @@ HEADERS = {
 # ============================================================
 
 # Direktori kerja = folder tempat main.py berada
+# Bisa di-override dari CLI: python main.py <workspace_path> <session_name>
 # JANGAN ubah ini kecuali tahu apa yang dilakukan
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Path ke folder tempat main.py berada — dipakai untuk akses SKILL/ dan file internal
+# Ini TIDAK PERNAH berubah meskipun workspace user berbeda
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Folder untuk menyimpan sesi chat
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")

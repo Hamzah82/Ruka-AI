@@ -5,18 +5,20 @@ mengelola folder, serta menjalankan perintah terminal (bash) di local device.
 Output AI diformat dari markdown ke styled terminal text.
 
 Session Management:
-  python main.py              → session baru dengan nama timestamp
-  python main.py <namaSesi>   → load atau buat sesi dengan nama tertentu
-  python main.py listSessions → tampilkan daftar semua sesi (CLI)
-  python main.py deleteSession <nama> → hapus sesi tertentu (CLI)
+  python main.py                          → session baru dengan nama timestamp
+  python main.py <namaSesi>               → load atau buat sesi dengan nama tertentu
+  python main.py <workspacePath>           → session baru di workspace tertentu
+  python main.py <workspacePath> <namaSesi> → session tertentu di workspace tertentu
+  python main.py listSessions              → tampilkan daftar semua sesi (CLI)
+  python main.py deleteSession <nama>      → hapus sesi tertentu (CLI)
   python main.py renameSession <lama> <baru> → rename sesi (CLI)
-  python main.py clearSessions → hapus semua session tanpa nama (CLI)
-  python main.py searchSessions <keyword> → cari session berdasarkan nama (CLI)
-  /sessions                  → tampilkan daftar semua sesi (slash command)
-  /new                       → mulai sesi baru (slash command)
-  /history                   → tampilkan riwayat chat sesi saat ini (slash command)
-  /delete-session <nama>     → hapus sesi tertentu (slash command)
-  /rename-session <lama> <baru> → rename sesi (slash command)
+  python main.py clearSessions             → hapus semua session tanpa nama (CLI)
+  python main.py searchSessions <keyword>   → cari session berdasarkan nama (CLI)
+  /sessions                               → tampilkan daftar semua sesi (slash command)
+  /new                                    → mulai sesi baru (slash command)
+  /history                                → tampilkan riwayat chat sesi saat ini (slash command)
+  /delete-session <nama>                  → hapus sesi tertentu (slash command)
+  /rename-session <lama> <baru>           → rename sesi (slash command)
 """
 
 import os
@@ -46,6 +48,7 @@ from config import (
     API_URL,
     HEADERS,
     BASE_DIR,
+    SCRIPT_DIR,
     SESSIONS_DIR,
     DEFAULT_CMD_TIMEOUT,
     MAX_RETRIES,
@@ -990,6 +993,8 @@ def show_help():
     _help_section("Penggunaan")
     _help_row("python main.py", "Mode interaktif (session baru otomatis)")
     _help_row("python main.py <namaSesi>", "Load atau buat session bernama")
+    _help_row("python main.py <path> <namaSesi>", "Session di workspace tertentu")
+    _help_row("python main.py <path>", "Session baru di workspace tertentu")
     _help_row("python main.py \"<prompt>\"", "Mode prompt tunggal (langsung jawab)")
 
     _help_section("Slash command (dalam sesi)")
@@ -2343,7 +2348,19 @@ def get_system_prompt(session_name: str = None) -> str:
         "   - Daftar tool yang TIDAK ADA (jangan panggil)\n"
         "Setelah membaca skills.md, kamu akan memahami seluruh capabilities "
         "dan constraints tubuhmu sebelum mulai berinteraksi dengan user.\n"
-        "══════════════════════════════════════════════════════════════"
+        "══════════════════════════════════════════════════════════════\n"
+        "\n"
+        "📌 CATATAN PENTING TENTANG WORKSPACE & SKILL:\n"
+        "Ketika user menjalankan dengan 'python main.py <workspace_path> <session_name>',\n"
+        "BASE_DIR (direktori kerja) akan berubah ke workspace path user.\n"
+        "Namua SEMUA file di folder SKILL/ SELALU berada di folder tempat main.py berada.\n"
+        "Gunakan path absolut '" + SCRIPT_DIR + "/SKILL/<nama_file>' untuk membaca\n"
+        "file apapun di folder SKILL (skills.md, pptSkill.md, browsingSkill.md, dll).\n"
+        "JANGAN gunakan path relatif 'SKILL/<nama_file>' karena BASE_DIR mungkin\n"
+        "sudah berubah ke workspace user, sehingga path SKILL jadi salah.\n"
+        "Contoh: read_file('" + os.path.join(SCRIPT_DIR, "SKILL/skills.md") + "')\n"
+        "        read_file('" + os.path.join(SCRIPT_DIR, "SKILL/pptSkill.md") + "')\n"
+        "        read_file('" + os.path.join(SCRIPT_DIR, "SKILL/browsingSkill.md") + "')"
         + session_info
     )
 
@@ -2515,40 +2532,80 @@ if __name__ == "__main__":
     # Pastikan folder sessions ada
     _ensure_sessions_dir()
 
+    # ── Parse CLI arguments ──────────────────────────────────
+    # Format: python main.py [workspace_path] [session_name]
+    #   - python main.py                        → workspace = folder main.py, session auto
+    #   - python main.py /path/to/workspace      → workspace = path, session auto
+    #   - python main.py /path/to/workspace nama → workspace = path, session = nama
+    #   - python main.py nama                   → workspace = folder main.py, session = nama
+    #   - CLI commands (listSessions, dll)       → tetap jalan seperti biasa
+
+    # Deteksi apakah argumen adalah CLI command (bukan path/session)
+    cli_commands = {
+        "help", "--help", "-h",
+        "listSessions", "deleteSession", "renameSession",
+        "clearSessions", "searchSessions",
+    }
+
     if len(sys.argv) > 1:
         arg = sys.argv[1]
 
-        # Cek apakah argumen adalah perintah session
+        # ── CLI commands (jalan di workspace apapun) ────────
         if arg in ("help", "--help", "-h"):
-            # Mode: tampilkan help
             show_help()
         elif arg == "listSessions":
-            # Mode: tampilkan daftar session
             show_session_list()
         elif arg == "deleteSession" and len(sys.argv) > 2:
-            # Mode: hapus session dari CLI
             target = sys.argv[2]
             result = delete_session(target)
             print(result)
         elif arg == "renameSession" and len(sys.argv) > 3:
-            # Mode: rename session dari CLI
             old_name = sys.argv[2]
             new_name = sys.argv[3]
             result = rename_session(old_name, new_name)
             print(result)
         elif arg == "clearSessions":
-            # Mode: hapus semua session auto-generated (tanpa nama)
             result = clear_sessions()
             print(result)
         elif arg == "searchSessions" and len(sys.argv) > 2:
-            # Mode: cari session berdasarkan keyword
             keyword = " ".join(sys.argv[2:])
             result = search_sessions(keyword)
             print(result)
-        elif not arg.startswith("/"):
-            # Mode: session dengan nama tertentu
-            session_name = arg
-            chat_session(session_name)
+
+        # ── Workspace path + optional session name ──────────
+        elif not arg.startswith("-"):
+            # Cek apakah argumen pertama adalah path atau nama session
+            # Path absolut/relatif yang bukan CLI command → treat sebagai workspace
+            potential_path = os.path.abspath(arg)
+            potential_script_dir = os.path.dirname(potential_path)
+
+            # Heuristic: jika argumen adalah folder yang ATAU berisi main.py → workspace
+            # Jika tidak → treat sebagai nama session (backward compat)
+            if os.path.isdir(potential_path):
+                # User memberikan path workspace
+                workspace_path = potential_path
+                session_name = None
+
+                # Cek apakah ada argumen kedua sebagai nama session
+                if len(sys.argv) > 2 and not sys.argv[2].startswith("-"):
+                    session_name = sys.argv[2]
+
+                # Override BASE_DIR ke workspace baru
+                import config
+                config.BASE_DIR = workspace_path
+                config.SESSIONS_DIR = os.path.join(workspace_path, "sessions")
+
+                # Pastikan folder sessions ada di workspace baru
+                _ensure_sessions_dir()
+
+                if session_name:
+                    chat_session(session_name)
+                else:
+                    chat_session()
+            else:
+                # Bukan folder → treat sebagai nama session (backward compat)
+                session_name = arg
+                chat_session(session_name)
         else:
             # Single prompt mode (backward compatibility)
             prompt = " ".join(sys.argv[1:])
