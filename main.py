@@ -1327,10 +1327,20 @@ def show_user_prompt(session_name: str = None):
 def _safe_path(name: str) -> str | None:
     """
     Mengembalikan path absolut yang aman, atau None jika path traversal terdeteksi.
+
+    Mendukung dua mode:
+    - Path absolut (contoh: /home/user/RukaAI/SKILL/skills.md) → pakai langsung
+    - Path relatif (contoh: catatan.txt) → gabungkan dengan BASE_DIR
+
+    Path traversal dicegah dengan memastikan hasil akhir masih dalam BASE_DIR
+    atau SCRIPT_DIR (folder main.py, untuk akses SKILL/ dan file internal).
     """
-    path = os.path.join(config.BASE_DIR, name)
-    abs_path = os.path.abspath(path)
-    if not abs_path.startswith(config.BASE_DIR):
+    if os.path.isabs(name):
+        abs_path = os.path.abspath(name)
+    else:
+        abs_path = os.path.abspath(os.path.join(config.BASE_DIR, name))
+    # Izinkan akses ke workspace user (BASE_DIR) dan folder main.py (SCRIPT_DIR)
+    if not (abs_path.startswith(config.BASE_DIR) or abs_path.startswith(config.SCRIPT_DIR)):
         return None
     return abs_path
 
