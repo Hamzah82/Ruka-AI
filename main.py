@@ -33,6 +33,7 @@ import subprocess
 import threading
 import queue
 import unicodedata
+import readline
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -86,6 +87,16 @@ def _input_reader():
 
 def _start_input_reader():
     """Mulai thread input reader (hanya dipanggil sekali di awal)."""
+    # Konfigurasi readline untuk arrow key & history
+    readline.set_history_length(1000)
+    # Parse readline config agar arrow key & navigasi bekerja
+    readline.read_init_file()
+    # Set supaya readline handle tab completion (opsional, bisa di-disable)
+    readline.set_completer(None)
+    readline.parse_and_bind('tab: complete')
+    # Disable supaya ^W tidak pakai word delimiter yang aneh
+    readline.parse_and_bind('set disable-completion on')
+
     global _input_thread
     _input_running.set()
     _input_thread = threading.Thread(target=_input_reader, daemon=True)
