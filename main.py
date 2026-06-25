@@ -1945,7 +1945,14 @@ def show_user_prompt(session_name: str = None):
     # Saat footer mengambang aktif, prompt dimiliki footer; tampilkan hint idle.
     if _footer_active():
         _footer.set_idle()
-    return _get_input(f"\n{Style.ACCENT}❯{Style.RESET} ").strip()
+    line = _get_input(f"\n{Style.ACCENT}❯{Style.RESET} ")
+    text = line.strip()
+    # Mode footer: input hidup di footer & dikosongkan saat Enter, sehingga
+    # tidak ter-echo otomatis (beda dengan readline di mode linear). Echo
+    # manual ke area konten agar prompt tetap terlihat di scrollback chat.
+    if _footer_active() and text:
+        print(f"\n  {Style.ACCENT}❯{Style.RESET} {Style.GREY_LIGHT}{text}{Style.RESET}")
+    return text
 
 
 # ============================================================
