@@ -964,6 +964,17 @@ def _format_duration(secs: float) -> str:
     return f"{h}j {m}m" if m else f"{h}j"
 
 
+def _format_tokens(n: int) -> str:
+    """
+    Format jumlah token jadi ringkas & manusiawi: '850', '2.3k', '13.2k'.
+    Contoh: 850 → '850', 2300 → '2.3k', 13245 → '13.2k'.
+    """
+    n = max(0, int(n))
+    if n < 1000:
+        return str(n)
+    return f"{n / 1000:.1f}k"
+
+
 class Spinner:
     """
     Spinner animasi satu-baris ala Claude Code:
@@ -994,20 +1005,39 @@ class Spinner:
         self._running = threading.Event()
         self._label = None
         self._turn_start_ts = 0.0   # awal giliran (di-reset hanya oleh begin_turn)
+        self._turn_tokens = 0       # akumulasi token giliran (di-reset oleh begin_turn)
         self._enabled = sys.stdout.isatty()
 
     def begin_turn(self):
-        """Tandai awal giliran baru — titik nol timer. Dipanggil sekali per prompt user."""
+        """Tandai awal giliran baru — titik nol timer & token. Dipanggil sekali per prompt user."""
         self._turn_start_ts = time.time()
+        self._turn_tokens = 0
 
     def end_turn(self) -> float:
-        """Hentikan animasi (jika ada) dan kembalikan total durasi giliran (detik)."""
+        """Hentikan animasi (jika ada) dan kembalikan total durasi giliran (detik).
+
+        Catatan: token giliran TIDAK di-reset di sini agar masih bisa dibaca
+        via `turn_tokens` untuk ringkasan setelah jawaban akhir. Reset terjadi
+        pada begin_turn() berikutnya.
+        """
         self.stop()
         if not self._turn_start_ts:
             return 0.0
         elapsed = time.time() - self._turn_start_ts
         self._turn_start_ts = 0.0
         return elapsed
+
+    def add_tokens(self, n: int):
+        """Tambahkan token dari satu respons API ke akumulasi giliran."""
+        try:
+            self._turn_tokens += int(n)
+        except (TypeError, ValueError):
+            pass
+
+    @property
+    def turn_tokens(self) -> int:
+        """Total token yang terpakai pada giliran berjalan (atau giliran terakhir)."""
+        return self._turn_tokens
 
     def start(self, label: str = None):
         """Mulai animasi. `label` tetap jika diberikan; jika None, kata berganti otomatis."""
@@ -1033,10 +1063,17 @@ class Spinner:
             else:
                 # ganti kata kerja tiap ~3.5 detik
                 word = self.WORDS[int(elapsed // 3.5) % len(self.WORDS)]
+            # Token usage giliran (akumulasi dari respons API yang sudah kembali).
+            # Hanya tampil setelah ada token (mis. mulai round ke-2), agar round
+            # pertama tidak menampilkan "0".
+            tok = (
+                f" • {_format_tokens(self._turn_tokens)}"
+                if self._turn_tokens > 0 else ""
+            )
             content = (
                 f"{Style.ACCENT}{frame}{Style.RESET}  "
                 f"{Style.GREY_LIGHT}{word}…{Style.RESET} "
-                f"{Style.GREY}({_format_duration(elapsed)} · q untuk interupsi){Style.RESET}"
+                f"{Style.GREY}({_format_duration(elapsed)}{tok} · q untuk interupsi){Style.RESET}"
             )
             if _footer_active():
                 # Footer mengambang: tulis ke baris status (bukan inline \r).
@@ -1938,14 +1975,15 @@ def _emit_agent_text(text: str, interrupted: bool = False):
         print(f"  {ln}" if ln.strip() else "")
 
 
-def show_turn_summary(duration_secs: float):
+def show_turn_summary(duration_secs: float, total_tokens: int = 0):
     """
-    Ringkasan kecil & redup setelah jawaban akhir: total durasi giliran.
-    Contoh:  ⎿ selesai dalam 12s
+    Ringkasan kecil & redup setelah jawaban akhir: total durasi & token giliran.
+    Contoh:  ⎿ selesai dalam 12s | token : 13.2k
     """
     if duration_secs <= 0:
         return
-    print(f"\n  {Style.GREY_DARK}⎿ selesai dalam {_format_duration(duration_secs)}{Style.RESET}")
+    tok = f" | token : {_format_tokens(total_tokens)}" if total_tokens > 0 else ""
+    print(f"\n  {Style.GREY_DARK}⎿ selesai dalam {_format_duration(duration_secs)}{tok}{Style.RESET}")
 
 
 def show_model_narration(round_num, content):
@@ -2815,6 +2853,11 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 2000,
             data = response.json()
             if "error" in data:
                 raise Exception(f"OpenRouter error: {data['error']}")
+            # Akumulasi token giliran dari field usage (format OpenAI/OpenRouter).
+            # Pakai total_tokens (prompt + completion) = token yang benar-benar
+            # diproses pada panggilan ini; dijumlah lintas round = total giliran.
+            usage = data.get("usage") or {}
+            _spinner.add_tokens(usage.get("total_tokens", 0))
             return data
 
         except Exception as e:
@@ -3263,8 +3306,8 @@ def chat_session(session_name: str = None):
                 if was_interrupted:
                     print(f"\n  {Style.GREY}■ Sesi agent diinterupsi. Kembali ke prompt utama.{Style.RESET}")
 
-                # Ringkasan kecil & redup: berapa lama giliran ini berjalan
-                show_turn_summary(turn_secs)
+                # Ringkasan kecil & redup: berapa lama giliran ini berjalan + token
+                show_turn_summary(turn_secs, _spinner.turn_tokens)
 
                 # Auto-save setelah setiap exchange
                 save_session(session_name, messages)
@@ -3378,7 +3421,7 @@ if __name__ == "__main__":
                 reply, _, was_interrupted = process_response(msgs, data)
                 turn_secs = _spinner.end_turn()
                 _emit_agent_text(reply, interrupted=was_interrupted)
-                show_turn_summary(turn_secs)
+                show_turn_summary(turn_secs, _spinner.turn_tokens)
                 print()
             except Exception as e:
                 _spinner.end_turn()
