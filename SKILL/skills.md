@@ -21,9 +21,6 @@
 - [11. Browsing & Web Scraping](#11-browsing--web-scraping)
 - [12. Vercel CLI Deploy](#12-vercel-cli-deploy)
 - [13. Email via msmtp](#13-email-via-msmtp)
-- [10. Browsing & Web Scraping](#10-browsing--web-scraping)
-- [11. Vercel CLI Deploy](#11-vercel-cli-deploy)
-- [12. Email via msmtp](#12-email-via-msmtp)
 
 ---
 
