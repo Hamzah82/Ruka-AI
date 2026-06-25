@@ -95,7 +95,7 @@ BINARY_SNIFF_BYTES = 8192
 # non-ASCII/Indonesia) dan TIDAK menghitung schema TOOLS + system + completion
 # yang juga memakan window → dibuat KONSERVATIF dengan margin. Tunable.
 MAX_HISTORY_TOKENS = 700_000     # ambang estimasi token (char/4) riwayat yang DIKIRIM (1M context)
-KEEP_RECENT_MESSAGES = 30        # lantai keras: minimal pesan terbaru dipertahankan
+KEEP_RECENT_MESSAGES = 1_000_000 # lantai keras: minimal pesan terbaru dipertahankan
 HISTORY_TRIM_NOTICE = True       # tampilkan notice 1 baris (sekali per giliran) saat trim
 
 # ============================================================
