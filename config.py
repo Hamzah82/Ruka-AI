@@ -76,14 +76,14 @@ RETRY_BASE_DELAY = 5
 # Nilai di sini tunable tanpa menyentuh main.py.
 
 # read_file: batas baris & karakter untuk pembacaan penuh (tanpa offset/limit).
-MAX_READ_LINES = 2000
-MAX_READ_CHARS = 100_000
+MAX_READ_LINES = 20_000
+MAX_READ_CHARS = 1_000_000
 
 # exec_command: batas karakter stdout & stderr (masing-masing) sebelum di-return.
-MAX_EXEC_OUTPUT_CHARS = 20_000
+MAX_EXEC_OUTPUT_CHARS = 200_000
 
 # Jumlah byte awal yang disampel untuk mendeteksi file biner di read_file.
-BINARY_SNIFF_BYTES = 4096
+BINARY_SNIFF_BYTES = 8192
 
 # ============================================================
 # HISTORY / CONTEXT WINDOW — hard-trim riwayat sebelum kirim API
@@ -94,8 +94,8 @@ BINARY_SNIFF_BYTES = 4096
 # Catatan ambang: estimasi token memakai char/4 (cenderung UNDER-estimate teks
 # non-ASCII/Indonesia) dan TIDAK menghitung schema TOOLS + system + completion
 # yang juga memakan window → dibuat KONSERVATIF dengan margin. Tunable.
-MAX_HISTORY_TOKENS = 9_000       # ambang estimasi token (char/4) riwayat yang DIKIRIM
-KEEP_RECENT_MESSAGES = 12        # lantai keras: minimal pesan terbaru dipertahankan
+MAX_HISTORY_TOKENS = 700_000     # ambang estimasi token (char/4) riwayat yang DIKIRIM (1M context)
+KEEP_RECENT_MESSAGES = 30        # lantai keras: minimal pesan terbaru dipertahankan
 HISTORY_TRIM_NOTICE = True       # tampilkan notice 1 baris (sekali per giliran) saat trim
 
 # ============================================================

@@ -3370,7 +3370,7 @@ def _trim_history(messages: list, max_tokens: int = None, keep_recent: int = Non
     return trimmed, len(messages) - len(trimmed)
 
 
-def chat(messages: list, temperature: float = 0.7, max_tokens: int = 2000,
+def chat(messages: list, temperature: float = 0.7, max_tokens: int = 8192,
          max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY) -> dict:
     # Hard-trim riwayat HANYA untuk payload yang dikirim (transkrip pemanggil &
     # save_session tetap utuh). Notice maksimum sekali per giliran.
@@ -3485,7 +3485,7 @@ def process_response(messages: list, data: dict) -> tuple:
             })
             show_thinking()
             try:
-                data = chat(messages, temperature=0.7, max_tokens=2000)
+                data = chat(messages, temperature=0.7, max_tokens=8192)
             except Exception as e:
                 error_msg = f"Error saat interrupt: {e}"
                 return error_msg, messages, True
@@ -3530,7 +3530,7 @@ def process_response(messages: list, data: dict) -> tuple:
                 })
                 show_thinking()
                 try:
-                    data = chat(messages, temperature=0.7, max_tokens=2000)
+                    data = chat(messages, temperature=0.7, max_tokens=8192)
                 except Exception as e:
                     return f"Error saat interrupt: {e}", messages, True
                 choice = data["choices"][0]
@@ -3613,14 +3613,14 @@ def process_response(messages: list, data: dict) -> tuple:
             })
             show_thinking()
             try:
-                data = chat(messages, temperature=0.7, max_tokens=2000)
+                data = chat(messages, temperature=0.7, max_tokens=8192)
             except Exception as e:
                 return f"Error saat interrupt: {e}", messages, True
             continue
 
         # ── Panggil model lagi dengan semua hasil tool ───────────
         show_thinking()
-        data = chat(messages, temperature=0.7, max_tokens=2000)
+        data = chat(messages, temperature=0.7, max_tokens=8192)
 
 
 # ============================================================
