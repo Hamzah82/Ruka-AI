@@ -122,11 +122,12 @@ class FooterUI:
     """
     Mengelola footer mengambang di bawah layar memakai scroll region ANSI.
 
-    Layout (1-indexed, H = tinggi terminal):
-        baris H-2 : garis pemisah
-        baris H-1 : status/spinner (saat memproses) atau hint (saat idle)
-        baris H   : "❯ <input>" dengan kursor di dalamnya
-    Region scroll = baris 1..H-3 — semua output AI bergulir di sini.
+    Layout (1-indexed, H = tinggi terminal, L = jumlah baris input):
+        baris H-1-L      : garis pemisah
+        baris H-L        : status/spinner (saat memproses) atau hint (saat idle)
+        baris H-L+1 .. H : "❯ <input>" — DI-WRAP ke L baris bila panjang
+    Region scroll = baris 1..H-(2+L) — semua output AI bergulir di sini.
+    Footer tinggi-variabel: L tumbuh saat input wrap, menyusut saat memendek.
 
     Aturan anti-bug:
       • SATU RLock menjaga setiap penulisan ke stdout (3 penulis: main/print,
@@ -137,7 +138,7 @@ class FooterUI:
         sehingga tidak ada drift kursor antar-thread.
     """
 
-    RESERVED = 3  # jumlah baris yang dipesan di bawah
+    RESERVED = 3  # baris dasar: pemisah + status + 1 baris input
 
     def __init__(self):
         self.lock = threading.RLock()
@@ -147,6 +148,9 @@ class FooterUI:
         self._status = ""
         self._buffer = ""
         self._cursor = 0
+        # Jumlah baris footer SAAT INI (tinggi-variabel: tumbuh saat input wrap
+        # ke beberapa baris). Selalu = 2 (pemisah+status) + jumlah baris input.
+        self._reserved = self.RESERVED
         self._resized = False
         self._real = sys.stdout
         self._prev_stdout = None
@@ -205,12 +209,13 @@ class FooterUI:
             return False
 
         with self.lock:
-            # Pesan RESERVED baris di bawah untuk footer.
-            self._emit("\n" * self.RESERVED)
+            self._reserved = self.RESERVED
+            # Pesan baris dasar di bawah untuk footer.
+            self._emit("\n" * self._reserved)
             self._emit("\033[?2004h")                      # bracketed paste on
             self._set_region()
             # Seed posisi konten di baris konten terbawah (chat: terbaru di bawah).
-            self._emit(f"\033[{self.H - self.RESERVED};1H")
+            self._emit(f"\033[{self.H - self._reserved};1H")
             self._emit("\0337")                            # simpan posisi konten
             self._render_locked()
             self.armed = True
@@ -268,7 +273,7 @@ class FooterUI:
             pass
 
     def _set_region(self):
-        self._emit(f"\033[1;{self.H - self.RESERVED}r")
+        self._emit(f"\033[1;{self.H - self._reserved}r")
 
     # ── Output AI → region di atas footer ────────────────────
     def write_output(self, text: str):
@@ -310,57 +315,130 @@ class FooterUI:
             i += 1
         return "".join(out)
 
-    def _input_view(self):
-        """Return (display_text, cursor_col) untuk baris input — geser horizontal."""
-        text_cols = max(1, self.W - 3)        # sisakan kolom untuk "❯ " + 1 aman
+    def _wrap_input(self):
+        """
+        Pecah buffer input jadi beberapa baris (wrap berdasarkan lebar tampil,
+        sadar lebar-ganda) — BUKAN geser horizontal. Setiap baris muat dalam
+        (W-3) kolom. Return (lines, cursor_row, cursor_col_dalam_teks).
+        """
+        text_cols = max(1, self.W - 3)         # kolom teks per baris (prefix 2 kol)
         buf = self._buffer
+        lines = []
+        seg = []
+        seg_w = 0
+        counts = []                            # jumlah karakter tiap baris selesai
+        for ch in buf:
+            w = self._char_w(ch)
+            if seg and seg_w + w > text_cols:
+                lines.append("".join(seg))
+                counts.append(len(seg))
+                seg = []
+                seg_w = 0
+            seg.append(ch)
+            seg_w += w
+        lines.append("".join(seg))
+        counts.append(len(seg))
+
+        # Posisi kursor → (baris, kolom teks)
         cur = max(0, min(self._cursor, len(buf)))
-        widths = [self._char_w(c) for c in buf]
-        # Geser jendela agar kursor selalu terlihat (kursor menempel kanan).
-        start = 0
-        while sum(widths[start:cur]) > text_cols - 1 and start < cur:
-            start += 1
-        disp = []
-        w = 0
-        i = start
-        while i < len(buf):
-            cw = widths[i]
-            if w + cw > text_cols:
-                break
-            disp.append(buf[i])
-            w += cw
-            i += 1
-        cursor_col = 3 + sum(widths[start:cur])
-        if cursor_col > self.W:
-            cursor_col = self.W
-        return "".join(disp), cursor_col
+        row = 0
+        rem = cur
+        while row < len(counts) and rem > counts[row]:
+            rem -= counts[row]
+            row += 1
+        if row >= len(lines):
+            row = len(lines) - 1
+            rem = counts[row] if counts else 0
+        col = sum(self._char_w(c) for c in lines[row][:rem])
+        # Jika kursor tepat di ujung baris penuh → pindah ke awal baris berikut.
+        if col >= text_cols and rem == len(lines[row]):
+            if row + 1 < len(lines):
+                row += 1
+                col = 0
+            elif cur == len(buf):
+                lines.append("")
+                row += 1
+                col = 0
+        return lines, row, col
+
+    def _resize_reserved(self, new_reserved: int):
+        """
+        Ubah jumlah baris footer (tinggi-variabel). Saat tumbuh, konten digulung
+        ke atas agar tidak tertutup; posisi konten (slot DECSC) dikoreksi.
+        Pemanggil HARUS memegang lock.
+        """
+        old = self._reserved
+        delta = new_reserved - old
+        if delta == 0:
+            return
+        if delta > 0:
+            # Bersihkan baris footer lama agar tidak jadi "sampah" konten saat scroll.
+            for r in range(self.H - old + 1, self.H + 1):
+                self._emit(f"\033[{r};1H\033[2K")
+            self._emit("\033[r")                       # region penuh sementara
+            self._emit(f"\033[{self.H};1H")            # baris terbawah
+            self._emit("\n" * delta)                   # gulung seluruh layar naik
+            # Posisi konten ikut naik delta → koreksi slot simpan.
+            self._emit("\0338")                        # ke posisi konten (basi, delta kebawah)
+            self._emit(f"\033[{delta}A")               # naik delta → posisi benar
+            self._emit("\0337")                        # simpan ulang
+            self._reserved = new_reserved
+            self._set_region()
+        else:
+            # Menyusut: perluas region ke bawah, bersihkan baris footer lama
+            # yang kini jadi area konten.
+            self._reserved = new_reserved
+            self._set_region()
+            for r in range(self.H - old + 1, self.H - new_reserved + 1):
+                self._emit(f"\033[{r};1H\033[2K")
 
     def _render_locked(self):
-        """Gambar 3 baris footer secara absolut. Pemanggil memegang lock."""
+        """
+        Gambar footer (tinggi-variabel) secara absolut. Pemanggil memegang lock.
+        Input panjang DI-WRAP ke beberapa baris (footer tumbuh ke atas), bukan
+        digeser horizontal.
+        """
         if not (self.armed or self._fd is not None):
             return
         if self.H < self.RESERVED + 1:
             return
-        sep_row = self.H - 2
-        status_row = self.H - 1
-        input_row = self.H
 
+        lines, crow, ccol = self._wrap_input()
+        # Batasi tinggi input agar selalu sisa >=2 baris konten (reserved<=H-2).
+        cap = max(1, self.H - 4)
+        if len(lines) > cap:
+            drop = len(lines) - cap
+            lines = lines[drop:]
+            crow = max(0, crow - drop)
+        L = len(lines)
+
+        new_reserved = 2 + L
+        if new_reserved != self._reserved:
+            self._resize_reserved(new_reserved)
+
+        sep_row = self.H - 1 - L
+        status_row = self.H - L
         sep = self._truncate(_rule(self.W), self.W)
         status = self._truncate("  " + (self._status or ""), self.W)
-        view, cursor_col = self._input_view()
-        prompt_line = f"{Style.ACCENT}❯{Style.RESET} " + view
-
+        text_cols = max(1, self.W - 3)
         R = Style.RESET
-        buf = []
-        buf.append("\033[?25l")                 # hide cursor
-        buf.append("\033[?7l")                  # autowrap off (anti corner-scroll)
-        buf.append(f"\033[{sep_row};1H\033[2K{sep}{R}")
-        buf.append(f"\033[{status_row};1H\033[2K{status}{R}")
-        buf.append(f"\033[{input_row};1H\033[2K{prompt_line}{R}")
-        buf.append(f"\033[{input_row};{cursor_col}H")  # kursor di baris input
-        buf.append("\033[?7h")                  # autowrap on lagi
-        buf.append("\033[?25h")                 # show cursor
-        self._emit("".join(buf))
+
+        out = ["\033[?25l", "\033[?7l"]         # hide cursor, autowrap off
+        out.append(f"\033[{sep_row};1H\033[2K{sep}{R}")
+        out.append(f"\033[{status_row};1H\033[2K{status}{R}")
+        for i, ln in enumerate(lines):
+            row = self.H - L + 1 + i
+            prefix = f"{Style.ACCENT}❯{R} " if i == 0 else "  "
+            body = self._truncate(ln, text_cols)
+            out.append(f"\033[{row};1H\033[2K{prefix}{body}{R}")
+        # Kursor di posisi (baris,kolom) hasil wrap; teks mulai kolom 3.
+        crow = max(0, min(crow, L - 1))
+        cur_row = self.H - L + 1 + crow
+        cur_col = min(3 + ccol, self.W)
+        out.append(f"\033[{cur_row};{cur_col}H")
+        out.append("\033[?7h")                  # autowrap on lagi
+        out.append("\033[?25h")                 # show cursor
+        self._emit("".join(out))
 
     # ── API publik (dipanggil spinner / editor) ──────────────
     def set_status(self, text: str):
@@ -384,6 +462,7 @@ class FooterUI:
         with self.lock:
             if not self.armed:
                 return
+            self._reserved = self.RESERVED    # kembali ke tinggi dasar
             self._emit("\033[r")              # reset region sementara
             self._emit("\033[2J\033[H")       # bersihkan layar
             self._set_region()
@@ -406,8 +485,9 @@ class FooterUI:
             self._read_size()
             if not self._size_ok():
                 return
+            self._reserved = self.RESERVED    # reset tinggi; render akan tumbuhkan lagi
             self._set_region()
-            self._emit(f"\033[{self.H - self.RESERVED};1H")
+            self._emit(f"\033[{self.H - self._reserved};1H")
             self._emit("\0337")
             self._render_locked()
 
