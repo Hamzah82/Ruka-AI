@@ -17,7 +17,7 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Interupsi Real-Time** — Tekan `q` kapan saja untuk menghentikan proses yang sedang berjalan
 - **Markdown to Terminal Formatter** — Output AI diformat dari markdown ke styled terminal text yang rapi (header, list, code block, tabel)
 - **Retry dengan Exponential Backoff** — Otomatis retry hingga 5 kali jika request ke API gagal
-- **Keamanan Terintegrasi** — Path traversal protection dan pemblokiran perintah berbahaya
+- **Lapisan Keamanan Best-Effort** — Pembatasan path (realpath+commonpath ke BASE_DIR/SCRIPT_DIR), denylist perintah destruktif (best-effort, **bukan sandbox**), scrub API key dari env subprocess, dan cap output. Lihat bagian [Keamanan](#-keamanan) untuk model ancaman
 - **Unlimited Rounds** — Tidak ada batas maksimum round per sesi
 - **Workspace = Folder Pemanggil** — Workspace otomatis mengikuti folder tempat kamu menjalankan perintah (cwd). Pasang alias `ruka` lewat `install.sh`, lalu `cd` ke folder mana pun dan ketik `ruka`. Bisa juga di-override dengan `python main.py <path> <namaSesi>`. Folder `SKILL/`, `sessions/`, dan `.env` selalu diakses dari folder instalasi
 
