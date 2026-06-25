@@ -2271,7 +2271,9 @@ TOOLS = [
             "name": "read_file",
             "description": (
                 "Membaca isi file teks dari direktori kerja. "
-                "Gunakan ini ketika user meminta membaca, melihat, atau menganalisis isi file."
+                "Gunakan ini ketika user meminta membaca, melihat, atau menganalisis isi file. "
+                "Untuk file besar, gunakan offset & limit untuk membaca rentang baris; "
+                "bila tak diisi, file dibaca dari awal dengan batas aman dan diberi penanda bila terpotong."
             ),
             "parameters": {
                 "type": "object",
@@ -2279,6 +2281,18 @@ TOOLS = [
                     "filename": {
                         "type": "string",
                         "description": "Nama file yang ingin dibaca, misalnya 'catatan.txt' atau 'data.json'."
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Opsional. Nomor baris awal (mulai dari 1). Default 1."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Opsional. Jumlah baris yang dibaca mulai dari offset."
+                    },
+                    "line_numbers": {
+                        "type": "boolean",
+                        "description": "Opsional (default false). Tampilkan nomor baris asli di depan tiap baris."
                     }
                 },
                 "required": ["filename"]
@@ -2590,7 +2604,48 @@ TOOLS = [
 # IMPLEMENTASI TOOLS (dieksekusi secara lokal)
 # ============================================================
 
-def tool_read_file(filename: str) -> str:
+def _truncate_text(text: str, max_chars: int, at_line_boundary: bool = False) -> tuple:
+    """
+    Potong `text` ke maksimal `max_chars` KARAKTER (bukan byte, agar codepoint
+    UTF-8 tak terbelah). Mengembalikan (teks_terpotong, was_truncated).
+    Bila at_line_boundary=True, potong di newline terakhir yang muat agar baris
+    tetap utuh. Penanda terpotong disusun oleh pemanggil (saran beda per konteks).
+    """
+    if len(text) <= max_chars:
+        return text, False
+    cut = text[:max_chars]
+    if at_line_boundary:
+        nl = cut.rfind("\n")
+        if nl > 0:
+            cut = cut[:nl]
+    return cut, True
+
+
+def _looks_binary(path: str, sniff: int = None) -> bool:
+    """
+    Deteksi file biner via SAMPEL byte awal: biner bila ada NUL byte (b'\\x00')
+    atau proporsi byte kontrol non-teks tinggi. TIDAK memakai non-ASCII sebagai
+    sinyal — file UTF-8 (Indonesia/emoji) tetap dianggap teks.
+    """
+    if sniff is None:
+        sniff = config.BINARY_SNIFF_BYTES
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(sniff)
+    except OSError:
+        return False
+    if not chunk:
+        return False
+    if b"\x00" in chunk:
+        return True
+    # Byte teks lazim: tab(9), LF(10), CR(13), dan >=32. Byte kontrol lain
+    # dianggap indikasi biner bila proporsinya tinggi.
+    text_control = {9, 10, 13}
+    nontext = sum(1 for b in chunk if b < 32 and b not in text_control)
+    return nontext / len(chunk) > 0.30
+
+
+def tool_read_file(filename: str, offset: int = 1, limit: int = None, line_numbers: bool = False) -> str:
     path = _safe_path(filename)
     if path is None:
         return "Error: Akses ditolak. Path harus berada di direktori kerja."
@@ -2598,12 +2653,63 @@ def tool_read_file(filename: str) -> str:
         return f"Error: File '{filename}' tidak ditemukan."
     if not os.path.isfile(path):
         return f"Error: '{filename}' bukan file."
+
+    if _looks_binary(path):
+        size = os.path.getsize(path)
+        return (
+            f"Error: File '{filename}' terdeteksi biner ({_format_size(size)}); "
+            f"read_file hanya untuk teks. Gunakan exec_command (mis. file/xxd/hexdump) bila perlu."
+        )
+
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
-        return content if content else "(file kosong)"
     except Exception as e:
         return f"Error membaca file: {e}"
+
+    if content == "":
+        return "(file kosong)"
+
+    lines = content.splitlines()
+    total = len(lines)
+
+    # Fast path: tanpa parameter & muat dalam batas → kembalikan apa adanya
+    # (kompatibilitas penuh dengan perilaku lama, termasuk newline akhir).
+    no_params = offset <= 1 and limit is None and not line_numbers
+    if no_params and len(content) <= config.MAX_READ_CHARS and total <= config.MAX_READ_LINES:
+        return content
+
+    # offset 1-based; klem ke 1 bila <1.
+    start = max(offset, 1) - 1
+    if start >= total:
+        return f"Error: offset {offset} di luar rentang (file hanya punya {total} baris)."
+
+    eff_limit = limit if (limit is not None and limit > 0) else config.MAX_READ_LINES
+    end = min(start + eff_limit, total)
+    chunk = lines[start:end]
+
+    if line_numbers:
+        width = len(str(end))
+        # Penomoran memakai posisi ASLI di file (start+1..), bukan 1..limit.
+        body = "\n".join(f"{i:>{width}}  {ln}" for i, ln in enumerate(chunk, start=start + 1))
+    else:
+        body = "\n".join(chunk)
+
+    # Cap karakter (potong di batas baris) sebagai pengaman kedua.
+    body, char_truncated = _truncate_text(body, config.MAX_READ_CHARS, at_line_boundary=True)
+
+    shown = body.count("\n") + 1 if body else 0
+    last_shown = start + shown
+    # Penanda hanya saat CAP memaksa potong (bukan saat model sengaja meminta
+    # window via limit eksplisit yang sudah dihormati penuh).
+    explicit_limit = limit is not None and limit > 0
+    if char_truncated or (not explicit_limit and end < total):
+        body += (
+            f"\n\n[...output dipotong — menampilkan baris {start + 1}-{last_shown} dari {total}; "
+            f"lanjut dengan offset={last_shown + 1} (opsional limit) atau pakai grep untuk bagian spesifik]"
+        )
+
+    return body if body else "(file kosong)"
 
 
 def tool_write_file(filename: str, content: str) -> str:
@@ -2952,13 +3058,24 @@ def tool_exec_command(command: str, timeout: int = 60) -> str:
                 env=_scrubbed_env(),
             )
 
+        cap = config.MAX_EXEC_OUTPUT_CHARS
         output_parts = []
 
         if result.stdout:
-            output_parts.append(result.stdout)
+            out, trunc = _truncate_text(result.stdout, cap)
+            if trunc:
+                out += (
+                    f"\n[...stdout dipotong, batas {cap} char; gunakan grep/head/tail "
+                    f"atau alihkan ke file lalu read_file dengan offset/limit]"
+                )
+            output_parts.append(out)
         if result.stderr:
-            output_parts.append(f"[stderr] {result.stderr}")
+            err, trunc = _truncate_text(result.stderr, cap)
+            if trunc:
+                err += f"\n[...stderr dipotong, batas {cap} char]"
+            output_parts.append(f"[stderr] {err}")
 
+        # Exit code ditambahkan SETELAH capping → tak pernah ikut terpotong.
         if result.returncode != 0:
             output_parts.append(f"\n[Exit code: {result.returncode}]")
 
@@ -2979,7 +3096,12 @@ def tool_exec_command(command: str, timeout: int = 60) -> str:
 
 def execute_tool(name: str, arguments: dict) -> str:
     if name == "read_file":
-        result = tool_read_file(arguments["filename"])
+        result = tool_read_file(
+            arguments["filename"],
+            arguments.get("offset", 1),
+            arguments.get("limit"),
+            arguments.get("line_numbers", False),
+        )
     elif name == "write_file":
         result = tool_write_file(arguments["filename"], arguments["content"])
     elif name == "edit_file":
