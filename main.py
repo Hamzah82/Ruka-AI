@@ -2352,6 +2352,15 @@ TOOLS = [
                             "Untuk 'append': ditambahkan di akhir file. "
                             "Untuk 'prepend': ditambahkan di awal file."
                         )
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": (
+                            "Opsional (default false), hanya untuk operation='replace'. "
+                            "Jika old_text muncul lebih dari sekali, set true untuk "
+                            "mengganti SEMUA kemunculan. Bila false dan old_text ambigu "
+                            "(muncul >1x), edit ditolak dan kamu diminta memperunik old_text."
+                        )
                     }
                 },
                 "required": ["filename", "operation", "new_text"]
@@ -2612,7 +2621,7 @@ def tool_write_file(filename: str, content: str) -> str:
         return f"Error menulis file: {e}"
 
 
-def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str = None) -> str:
+def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str = None, replace_all: bool = False) -> str:
     """
     Mengedit isi file teks yang sudah ada.
     
@@ -2637,11 +2646,24 @@ def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str =
         if operation == "replace":
             if old_text is None:
                 return "Error: Parameter 'old_text' diperlukan untuk operasi 'replace'."
-            if old_text not in current_content:
+            if old_text == "":
+                return "Error: Parameter 'old_text' tidak boleh string kosong untuk operasi 'replace'."
+            count = current_content.count(old_text)
+            if count == 0:
                 return f"Error: Teks '{old_text[:50]}{'...' if len(old_text) > 50 else ''}' tidak ditemukan dalam file '{filename}'."
-            new_content = current_content.replace(old_text, new_text, 1)
+            if count > 1 and not replace_all:
+                return (
+                    f"Error: Teks '{old_text[:50]}{'...' if len(old_text) > 50 else ''}' "
+                    f"ditemukan {count}x dalam file '{filename}' (ambigu). "
+                    f"Sertakan konteks lebih unik di old_text agar cocok tepat 1x, "
+                    f"atau set replace_all=true untuk mengganti SEMUA kemunculan."
+                )
+            n = count if replace_all else 1
+            new_content = current_content.replace(old_text, new_text, n)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(new_content)
+            if replace_all and count > 1:
+                return f"File '{filename}' berhasil diedit (replace_all: {count}x '{old_text[:30]}...' → '{new_text[:30]}...')."
             return f"File '{filename}' berhasil diedit (replace: '{old_text[:30]}...' → '{new_text[:30]}...')."
         
         elif operation == "append":
@@ -2964,7 +2986,8 @@ def execute_tool(name: str, arguments: dict) -> str:
         operation = arguments["operation"]
         new_text = arguments["new_text"]
         old_text = arguments.get("old_text")
-        result = tool_edit_file(arguments["filename"], operation, new_text, old_text)
+        replace_all = arguments.get("replace_all", False)
+        result = tool_edit_file(arguments["filename"], operation, new_text, old_text, replace_all)
     elif name == "list_files":
         result = tool_list_files()
     elif name == "delete_file":
