@@ -68,6 +68,24 @@ MAX_RETRIES = 5
 RETRY_BASE_DELAY = 5
 
 # ============================================================
+# OUTPUT LIMITS — batasi volume output tool ke message history
+# ============================================================
+# Output tool masuk ke riwayat percakapan & dikirim ULANG tiap round agentic,
+# sehingga output besar (cat file besar, find /) cepat meledakkan token & bisa
+# memicu "context length exceeded" — terutama untuk model konteks-kecil.
+# Nilai di sini tunable tanpa menyentuh main.py.
+
+# read_file: batas baris & karakter untuk pembacaan penuh (tanpa offset/limit).
+MAX_READ_LINES = 2000
+MAX_READ_CHARS = 100_000
+
+# exec_command: batas karakter stdout & stderr (masing-masing) sebelum di-return.
+MAX_EXEC_OUTPUT_CHARS = 20_000
+
+# Jumlah byte awal yang disampel untuk mendeteksi file biner di read_file.
+BINARY_SNIFF_BYTES = 4096
+
+# ============================================================
 # SECURITY — BLOCKED COMMANDS
 # ============================================================
 # Perintah yang TIDAK BOLEH dijalankan oleh agent.
