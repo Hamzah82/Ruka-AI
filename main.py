@@ -899,8 +899,23 @@ class Style:
 # UI HELPER — primitif tampilan ala Claude Code
 # ============================================================
 
-# Lebar konten standar untuk panel & garis
-UI_WIDTH = 64
+# Lebar konten panel & garis — DINAMIS mengikuti terminal, di-clamp agar terbaca
+# di Termux (sempit) dan tak meraksasa di monitor lebar.
+UI_WIDTH_MIN = 40   # batas bawah keterbacaan boks/tabel
+UI_WIDTH_MAX = 100  # batas atas (≈ tampilan lama di terminal lebar)
+
+
+def _term_cols(fallback: int = 80) -> int:
+    """
+    Lebar terminal NYATA saat ini, di-clamp ke [UI_WIDTH_MIN..UI_WIDTH_MAX].
+    Memakai shutil.get_terminal_size (sama seperti FooterUI) yang fail-safe:
+    tanpa TTY / COLUMNS kosong → fallback (default 80).
+    """
+    try:
+        cols = shutil.get_terminal_size(fallback=(fallback, 24)).columns
+    except Exception:
+        cols = fallback
+    return max(UI_WIDTH_MIN, min(UI_WIDTH_MAX, cols))
 
 _ANSI_RE = re.compile(r'\033\[[0-9;]*m')
 
@@ -924,18 +939,22 @@ def _visible_len(text: str) -> int:
     return width
 
 
-def _rule(width: int = UI_WIDTH, color: str = Style.GREY_DARK, char: str = "─") -> str:
-    """Garis horizontal tipis."""
+def _rule(width: int | None = None, color: str = Style.GREY_DARK, char: str = "─") -> str:
+    """Garis horizontal tipis. width=None → ikut lebar terminal."""
+    if width is None:
+        width = _term_cols() - 4
     return f"{color}{char * width}{Style.RESET}"
 
 
-def _box(lines, color=Style.GREY_DARK, pad=1, width=UI_WIDTH):
+def _box(lines, color=Style.GREY_DARK, pad=1, width=None):
     """
     Bungkus daftar baris dalam panel rounded-corner ala Claude Code.
     Tiap elemen `lines` boleh mengandung kode ANSI; lebar dihitung dari teks
     tampak sehingga border tetap rata.
     Mengembalikan string multi-baris siap di-print.
     """
+    if width is None:
+        width = _term_cols() - 4
     inner = width - (pad * 2)
     out = [f"{color}╭{'─' * width}╮{Style.RESET}"]
     for ln in lines:
@@ -1155,11 +1174,16 @@ class TerminalFormatter:
     blockquotes, horizontal rules, links, dan tabel.
     """
 
-    # Lebar default terminal
+    # Lebar fallback terminal (dipakai _term_width() bila get_terminal_size gagal)
     TERM_WIDTH = 70
 
     # Bullet styles untuk nested lists
     BULLETS = ["•", "◦", "▪", "▫", "→"]
+
+    @classmethod
+    def _term_width(cls) -> int:
+        """Lebar terminal dinamis untuk separator/rule; fallback ke TERM_WIDTH."""
+        return _term_cols(fallback=cls.TERM_WIDTH)
     NUMBER_WIDTH = 4
 
     @classmethod
@@ -1218,7 +1242,7 @@ class TerminalFormatter:
             if re.match(r'^#\s+', stripped) and not re.match(r'^##\s+', stripped):
                 title = re.sub(r'^#\s+', '', stripped)
                 title = cls._strip_inline_md(title)
-                width = cls.TERM_WIDTH - 4
+                width = cls._term_width() - 4
                 padded = f"  {Style.ACCENT}{Style.BOLD}{title}{Style.RESET}"
                 result.append(padded)
                 result.append(f"  {Style.GREY_DARK}{'─' * width}{Style.RESET}")
@@ -1413,7 +1437,7 @@ class TerminalFormatter:
     @classmethod
     def _format_horizontal_rules(cls, text: str) -> str:
         def replace_hr(match):
-            return f"\n  {Style.DIM}{'─' * (cls.TERM_WIDTH - 4)}{Style.RESET}\n"
+            return f"\n  {Style.DIM}{'─' * (cls._term_width() - 4)}{Style.RESET}\n"
         return re.sub(r'^\s*[-*_]{3,}\s*$', replace_hr, text, flags=re.MULTILINE)
 
     # ── Inline Formatting ────────────────────────────────────
