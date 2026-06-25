@@ -966,13 +966,30 @@ def _format_duration(secs: float) -> str:
 
 def _format_tokens(n: int) -> str:
     """
-    Format jumlah token jadi ringkas & manusiawi: '850', '2.3k', '13.2k'.
-    Contoh: 850 → '850', 2300 → '2.3k', 13245 → '13.2k'.
+    Format jumlah token ringkas dengan huruf KAPITAL:
+      - < 1000     → angka apa adanya ('850')
+      - ribuan (K) → 1 desimal       ('13.2K')
+      - jutaan (M) → 2 desimal       ('1.25M')
     """
     n = max(0, int(n))
     if n < 1000:
         return str(n)
-    return f"{n / 1000:.1f}k"
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}K"
+    return f"{n / 1_000_000:.2f}M"
+
+
+def _format_tokens_counter(n: int) -> str:
+    """
+    Format token untuk counter berpikir (realtime): angka PENUH dengan pemisah
+    ribuan + label ' Token' (mis. '13,452 Token').
+
+    Sengaja TIDAK diringkas ke K/M: format ringkas (langkah 0.1K = 100 token)
+    membuat counter tampak "diam" di range ribuan. Angka penuh berubah tiap
+    token sehingga terasa realtime. Ringkasan akhir tetap ringkas via
+    _format_tokens() ('13.2K' / '1.25M').
+    """
+    return f"{max(0, int(n)):,} Token"
 
 
 class Spinner:
@@ -1005,13 +1022,15 @@ class Spinner:
         self._running = threading.Event()
         self._label = None
         self._turn_start_ts = 0.0   # awal giliran (di-reset hanya oleh begin_turn)
-        self._turn_tokens = 0       # akumulasi token giliran (di-reset oleh begin_turn)
+        self._turn_tokens = 0       # token EXACT terkumpul dari round yang sudah selesai
+        self._live_chars = 0        # estimasi REALTIME: karakter output round berjalan
         self._enabled = sys.stdout.isatty()
 
     def begin_turn(self):
         """Tandai awal giliran baru — titik nol timer & token. Dipanggil sekali per prompt user."""
         self._turn_start_ts = time.time()
         self._turn_tokens = 0
+        self._live_chars = 0
 
     def end_turn(self) -> float:
         """Hentikan animasi (jika ada) dan kembalikan total durasi giliran (detik).
@@ -1028,16 +1047,33 @@ class Spinner:
         return elapsed
 
     def add_tokens(self, n: int):
-        """Tambahkan token dari satu respons API ke akumulasi giliran."""
+        """Tambah token EXACT (dari field usage) saat satu round API selesai."""
         try:
             self._turn_tokens += int(n)
         except (TypeError, ValueError):
             pass
 
+    def add_live_chars(self, c: int):
+        """Tambah karakter output yang baru di-stream → estimasi token realtime naik."""
+        self._live_chars += c
+
+    def reset_live(self):
+        """Nolkan estimasi realtime (dipanggil setelah token EXACT round difold)."""
+        self._live_chars = 0
+
+    def estimate_live_tokens(self) -> int:
+        """Estimasi token dari karakter output yang sudah di-stream (~4 char/token)."""
+        return self._live_chars // 4
+
     @property
     def turn_tokens(self) -> int:
-        """Total token yang terpakai pada giliran berjalan (atau giliran terakhir)."""
+        """Total token EXACT giliran (dipakai untuk ringkasan akhir)."""
         return self._turn_tokens
+
+    @property
+    def display_tokens(self) -> int:
+        """Token yang ditampilkan realtime: EXACT terkumpul + estimasi output berjalan."""
+        return self._turn_tokens + self.estimate_live_tokens()
 
     def start(self, label: str = None):
         """Mulai animasi. `label` tetap jika diberikan; jika None, kata berganti otomatis."""
@@ -1063,12 +1099,13 @@ class Spinner:
             else:
                 # ganti kata kerja tiap ~3.5 detik
                 word = self.WORDS[int(elapsed // 3.5) % len(self.WORDS)]
-            # Token usage giliran (akumulasi dari respons API yang sudah kembali).
-            # Hanya tampil setelah ada token (mis. mulai round ke-2), agar round
-            # pertama tidak menampilkan "0".
+            # Token usage REALTIME: token EXACT round selesai + estimasi output
+            # yang sedang di-stream. Naik hidup saat model menghasilkan teks.
+            # Hanya tampil setelah ada token, agar awal round tak menampilkan "0".
+            live_tokens = self.display_tokens
             tok = (
-                f" • {_format_tokens(self._turn_tokens)}"
-                if self._turn_tokens > 0 else ""
+                f" · {_format_tokens_counter(live_tokens)}"
+                if live_tokens > 0 else ""
             )
             content = (
                 f"{Style.ACCENT}{frame}{Style.RESET}  "
@@ -2832,6 +2869,92 @@ def execute_tool(name: str, arguments: dict) -> str:
 # FUNGSI API (DENGAN RETRY)
 # ============================================================
 
+def _consume_stream(response) -> dict:
+    """
+    Konsumsi respons streaming SSE (format OpenAI/OpenRouter) dan susun ulang
+    menjadi dict berbentuk SAMA seperti respons non-stream, agar process_response
+    tidak perlu diubah:
+
+        {"choices": [{"message": {...}, "finish_reason": ...}], "usage": {...}}
+
+    Selama streaming, tiap potongan teks/argument tool di-hitung sebagai estimasi
+    token REALTIME ke spinner — sehingga counter token menanjak hidup saat model
+    sedang menghasilkan jawaban (bukan hanya melompat di akhir round).
+    """
+    content_parts = []
+    tool_calls = {}      # index → {"id","type","function":{"name","arguments"}}
+    finish_reason = None
+    usage = None
+    role = "assistant"
+
+    for raw in response.iter_lines(decode_unicode=True):
+        if not raw:
+            continue
+        # SSE: hanya baris "data:" yang berisi payload. Lewati komentar keep-alive
+        # (mis. ": OPENROUTER PROCESSING") dan baris lain.
+        if not raw.startswith("data:"):
+            continue
+        chunk_str = raw[5:].strip()
+        if chunk_str == "[DONE]":
+            break
+        try:
+            chunk = json.loads(chunk_str)
+        except json.JSONDecodeError:
+            continue
+
+        if chunk.get("error"):
+            return {"error": chunk["error"]}
+        if chunk.get("usage"):
+            usage = chunk["usage"]
+
+        choices = chunk.get("choices") or []
+        if not choices:
+            continue
+        ch = choices[0]
+        delta = ch.get("delta") or {}
+
+        if delta.get("role"):
+            role = delta["role"]
+
+        piece = delta.get("content")
+        if piece:
+            content_parts.append(piece)
+            _spinner.add_live_chars(len(piece))
+
+        for tc in (delta.get("tool_calls") or []):
+            idx = tc.get("index", 0)
+            slot = tool_calls.setdefault(
+                idx,
+                {"id": None, "type": "function",
+                 "function": {"name": "", "arguments": ""}},
+            )
+            if tc.get("id"):
+                slot["id"] = tc["id"]
+            if tc.get("type"):
+                slot["type"] = tc["type"]
+            fn = tc.get("function") or {}
+            if fn.get("name"):
+                slot["function"]["name"] += fn["name"]
+            if fn.get("arguments"):
+                slot["function"]["arguments"] += fn["arguments"]
+                _spinner.add_live_chars(len(fn["arguments"]))
+
+        if ch.get("finish_reason"):
+            finish_reason = ch["finish_reason"]
+
+    # ── Susun ulang message akhir (bentuk identik respons non-stream) ──
+    message = {"role": role}
+    text = "".join(content_parts)
+    message["content"] = text if text else None
+    if tool_calls:
+        message["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]
+
+    data = {"choices": [{"message": message, "finish_reason": finish_reason}]}
+    if usage:
+        data["usage"] = usage
+    return data
+
+
 def chat(messages: list, temperature: float = 0.7, max_tokens: int = 2000,
          max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY) -> dict:
     payload = {
@@ -2840,6 +2963,10 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 2000,
         "tools": TOOLS,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        # Streaming → token bisa dihitung realtime saat respons mengalir.
+        "stream": True,
+        "stream_options": {"include_usage": True},  # kompat OpenAI
+        "usage": {"include": True},                 # param native OpenRouter
     }
 
     last_error = None
@@ -2847,20 +2974,25 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 2000,
     for attempt in range(1, max_retries + 1):
         # Spinner animasi berjalan selama menunggu respons API.
         _spinner.start()
+        _spinner.reset_live()  # estimasi output round ini mulai dari nol
         try:
-            response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=120)
+            response = requests.post(API_URL, headers=HEADERS, json=payload,
+                                     timeout=120, stream=True)
             response.raise_for_status()
-            data = response.json()
+            data = _consume_stream(response)
             if "error" in data:
                 raise Exception(f"OpenRouter error: {data['error']}")
-            # Akumulasi token giliran dari field usage (format OpenAI/OpenRouter).
-            # Pakai total_tokens (prompt + completion) = token yang benar-benar
-            # diproses pada panggilan ini; dijumlah lintas round = total giliran.
+            # Fold token EXACT round ini ke total giliran. total_tokens (prompt +
+            # completion) = token yang benar-benar diproses; dijumlah lintas round
+            # = total giliran. Jika provider tak kirim usage, pakai estimasi output.
             usage = data.get("usage") or {}
-            _spinner.add_tokens(usage.get("total_tokens", 0))
+            total = usage.get("total_tokens")
+            _spinner.add_tokens(total if total else _spinner.estimate_live_tokens())
+            _spinner.reset_live()
             return data
 
         except Exception as e:
+            _spinner.reset_live()
             # Hentikan spinner SEBELUM mencetak pesan retry/error.
             _spinner.stop()
             # Klasifikasi pesan error agar tetap informatif tanpa duplikasi blok.
