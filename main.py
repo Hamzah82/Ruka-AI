@@ -2811,6 +2811,40 @@ def tool_list_all(max_depth: int = 3) -> str:
         return f"Error membaca struktur direktori: {e}"
 
 
+# Variabel lingkungan yang TIDAK boleh diturunkan ke subprocess yang dijalankan
+# model (mis. lewat `printenv`/`env`). Denylist BERTARGET dengan nama EKSAK —
+# sengaja BUKAN pola KEY/TOKEN/SECRET agar tidak ikut membuang variabel sah milik
+# user (SSH_AUTH_SOCK, GPG_TTY, KEYBOARD_LAYOUT, dsb.).
+_SENSITIVE_ENV_VARS = frozenset({
+    "OPENROUTER_API_KEY",   # dipakai Ruka (config.py:14, .env)
+    # Pengaman ke depan — nama eksak rahasia umum, BUKAN pola substring:
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_KEY",
+    "HF_TOKEN", "HUGGINGFACE_TOKEN", "HUGGING_FACE_HUB_TOKEN",
+    "GROQ_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+})
+
+
+def _scrubbed_env() -> dict:
+    """
+    Salinan os.environ untuk subprocess dengan rahasia Ruka DIBUANG agar model
+    tak bisa membacanya via `printenv`/`env`. PATH/HOME/LANG/PREFIX(Termux)/dll
+    tetap utuh supaya perintah user normal tidak rusak. os.environ proses Ruka
+    TIDAK dimutasi (memakai .copy()).
+    """
+    env = os.environ.copy()
+    for var in _SENSITIVE_ENV_VARS:
+        env.pop(var, None)
+    # Jaring tambahan: buang variabel APAPUN yang nilainya PERSIS == API key Ruka
+    # (menangkap key yang di-set lewat nama alias non-standar). Guard len>=8
+    # mencegah false-positive massal bila key kebetulan sangat pendek/kosong.
+    secret = config.OPENROUTER_API_KEY
+    if secret and len(secret) >= 8:
+        for k in list(env.keys()):
+            if env.get(k) == secret:
+                env.pop(k, None)
+    return env
+
+
 def tool_exec_command(command: str, timeout: int = 60) -> str:
     block_reason = _is_command_blocked(command)
     if block_reason:
@@ -2827,7 +2861,7 @@ def tool_exec_command(command: str, timeout: int = 60) -> str:
                 text=True,
                 timeout=timeout,
                 cwd=config.BASE_DIR,
-                env=os.environ.copy(),
+                env=_scrubbed_env(),
             )
         else:
             result = subprocess.run(
@@ -2838,7 +2872,7 @@ def tool_exec_command(command: str, timeout: int = 60) -> str:
                 text=True,
                 timeout=timeout,
                 cwd=config.BASE_DIR,
-                env=os.environ.copy(),
+                env=_scrubbed_env(),
             )
 
         output_parts = []
