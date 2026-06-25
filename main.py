@@ -1025,6 +1025,7 @@ class Spinner:
         self._turn_start_ts = 0.0   # awal giliran (di-reset hanya oleh begin_turn)
         self._turn_tokens = 0       # token EXACT terkumpul dari round yang sudah selesai
         self._live_chars = 0        # estimasi REALTIME: karakter output round berjalan
+        self._trim_notice_shown = False  # notice pangkas riwayat: cetak sekali per giliran
         self._enabled = sys.stdout.isatty()
 
     def begin_turn(self):
@@ -1032,6 +1033,7 @@ class Spinner:
         self._turn_start_ts = time.time()
         self._turn_tokens = 0
         self._live_chars = 0
+        self._trim_notice_shown = False
 
     def end_turn(self) -> float:
         """Hentikan animasi (jika ada) dan kembalikan total durasi giliran (detik).
@@ -2076,6 +2078,17 @@ def show_turn_summary(duration_secs: float, total_tokens: int = 0):
         return
     tok = f" | token : {_format_tokens(total_tokens)}" if total_tokens > 0 else ""
     print(f"\n  {Style.GREY_DARK}⎿ selesai dalam {_format_duration(duration_secs)}{tok}{Style.RESET}")
+
+
+def show_trim_notice(dropped: int, est_tokens: int):
+    """
+    Notice satu baris (sekali per giliran) saat riwayat dipangkas untuk payload
+    API. Transkrip penuh tetap utuh di memori & sesi — hanya yang DIKIRIM diciutkan.
+    """
+    print(
+        f"\n  {Style.GREY_DARK}⎿ riwayat dipangkas: {dropped} pesan lama dibuang dari konteks "
+        f"(~{_format_tokens(est_tokens)} token dikirim){Style.RESET}"
+    )
 
 
 def show_model_narration(round_num, content):
@@ -3233,11 +3246,118 @@ def _consume_stream(response) -> dict:
     return data
 
 
+def _estimate_tokens(messages: list) -> int:
+    """
+    Estimasi kasar token riwayat (char/4, konsisten dengan counter Spinner).
+    Sengaja sederhana & tanpa dependency; cenderung UNDER-estimate teks non-ASCII.
+    """
+    total = 0
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, str):
+            total += len(c)
+        for tc in (m.get("tool_calls") or []):
+            fn = tc.get("function") or {}
+            total += len(fn.get("name") or "") + len(fn.get("arguments") or "")
+        total += 16  # overhead per-pesan (role/pembungkus)
+    return total // 4
+
+
+def _drop_orphan_tools(messages: list) -> list:
+    """
+    Jaring pengaman integritas pasangan tool-call (cegah API 400) untuk riwayat
+    tak rapi (sesi lama / diedit manual). DUA ARAH:
+    - buang pesan 'tool' yang tool_call_id-nya tak dideklarasikan assistant; dan
+    - buang assistant ber-tool_calls yang TIDAK semua id-nya dijawab pesan 'tool'.
+    Pesan system/user tak disentuh. Di alur normal tak pernah aktif (segmen utuh).
+    """
+    answered = {m["tool_call_id"] for m in messages
+                if m.get("role") == "tool" and m.get("tool_call_id")}
+    out, declared = [], set()
+    for m in messages:
+        role = m.get("role")
+        if role == "assistant":
+            tcs = m.get("tool_calls") or []
+            if tcs:
+                ids = [tc.get("id") for tc in tcs if tc.get("id")]
+                if ids and all(i in answered for i in ids):
+                    declared.update(ids)
+                    out.append(m)
+                # else: assistant dengan tool_calls tak-terjawab → buang (dangling)
+            else:
+                out.append(m)
+        elif role == "tool":
+            if m.get("tool_call_id") in declared:
+                out.append(m)
+            # else: tool yatim → buang
+        else:
+            out.append(m)
+    return out
+
+
+def _trim_history(messages: list, max_tokens: int = None, keep_recent: int = None) -> tuple:
+    """
+    Hard-trim DETERMINISTIK untuk PAYLOAD API — TIDAK memutasi input.
+    Buang SEGMEN tertua (segmen = blok mulai role=='user' hingga 'user' berikutnya;
+    interrupt bisa membuka segmen baru di tengah giliran), pertahankan pesan system
+    di depan & minimal `keep_recent` pesan terbaru. Returns (messages_baru, dibuang).
+
+    Karena pembuangan SELALU dari kepala & boundary di 'user', pasangan
+    assistant(tool_calls)↔tool tak pernah terputus. Hasil TIDAK dijamin <=
+    max_tokens bila lantai keep_recent / sisa 1 segmen menghalangi (lebih baik
+    kirim sedikit kelebihan daripada merusak riwayat). OUTPUT LIMITS = lapis-1.
+    """
+    if max_tokens is None:
+        max_tokens = config.MAX_HISTORY_TOKENS
+    if keep_recent is None:
+        keep_recent = config.KEEP_RECENT_MESSAGES
+    if _estimate_tokens(messages) <= max_tokens:
+        return messages, 0
+
+    # Prefix system (tak pernah dibuang).
+    i = 0
+    head = []
+    while i < len(messages) and messages[i].get("role") == "system":
+        head.append(messages[i])
+        i += 1
+    body = messages[i:]
+
+    # Pecah body jadi segmen (boundary: role == 'user').
+    segments, cur = [], []
+    for m in body:
+        if m.get("role") == "user" and cur:
+            segments.append(cur)
+            cur = []
+        cur.append(m)
+    if cur:
+        segments.append(cur)
+
+    # Buang segmen dari KEPALA selama: >1 segmen, masih di atas ambang, & tak
+    # melanggar lantai keep_recent.
+    while len(segments) > 1:
+        if _estimate_tokens(head + [m for s in segments for m in s]) <= max_tokens:
+            break
+        remaining = sum(len(s) for s in segments)
+        if remaining - len(segments[0]) < keep_recent:
+            break
+        segments.pop(0)
+
+    trimmed = _drop_orphan_tools(head + [m for s in segments for m in s])
+    return trimmed, len(messages) - len(trimmed)
+
+
 def chat(messages: list, temperature: float = 0.7, max_tokens: int = 2000,
          max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY) -> dict:
+    # Hard-trim riwayat HANYA untuk payload yang dikirim (transkrip pemanggil &
+    # save_session tetap utuh). Notice maksimum sekali per giliran.
+    sent, dropped = _trim_history(messages)
+    if dropped and config.HISTORY_TRIM_NOTICE and not _spinner._trim_notice_shown:
+        show_trim_notice(dropped, _estimate_tokens(sent))
+        _spinner._trim_notice_shown = True
+
     payload = {
         "model": MODEL,
-        "messages": messages,
+        "messages": sent,
         "tools": TOOLS,
         "temperature": temperature,
         "max_tokens": max_tokens,
