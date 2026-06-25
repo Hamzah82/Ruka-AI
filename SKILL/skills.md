@@ -169,9 +169,10 @@ Setiap percakapan (messages) disimpan otomatis setelah setiap exchange.
 - `operation` (string, required) — Mode operasi: `"replace"`, `"append"`, atau `"prepend"`
 - `new_text` (string, required) — Teks baru yang akan dimasukkan
 - `old_text` (string, optional) — Teks lama yang akan diganti (hanya untuk `operation="replace"`)
+- `replace_all` (boolean, optional, default false) — Hanya untuk `replace`. Jika `old_text` muncul >1x, set `true` untuk mengganti SEMUA kemunculan; bila `false` dan ambigu, edit DITOLAK
 
 **Mode operasi:**
-- `replace` — Mengganti `old_text` dengan `new_text` (hanya kemunculan pertama)
+- `replace` — Mengganti `old_text` dengan `new_text`. Bila `old_text` unik (tepat 1x) → diganti; bila ambigu (>1x) → DITOLAK kecuali `replace_all=true` (ganti semua)
 - `append` — Menambah `new_text` di akhir file
 - `prepend` — Menambah `new_text` di awal file
 
@@ -197,11 +198,12 @@ Setiap percakapan (messages) disimpan otomatis setelah setiap exchange.
 - `"File 'todo.txt' berhasil diedit (append: 12 karakter ditambahkan di akhir)."`
 - `"File 'todo.txt' berhasil diedit (prepend: 12 karakter ditambahkan di awal)."`
 - `"Error: Teks 'xxx' tidak ditemukan dalam file 'todo.txt'."`
+- `"Error: Teks 'x' ditemukan 3x dalam file 'todo.txt' (ambigu). Sertakan konteks lebih unik di old_text agar cocok tepat 1x, atau set replace_all=true untuk mengganti SEMUA kemunculan."`
 - `"Error: Parameter 'old_text' diperlukan untuk operasi 'replace'."`
 
 **Tips:**
 - Untuk `replace`, `old_text` harus persis sama termasuk spasi dan baris baru
-- Hanya kemunculan pertama yang diganti (replace once)
+- `old_text` harus cocok TEPAT 1x; bila muncul >1x edit ditolak — perunik `old_text` atau set `replace_all=true` untuk mengganti semua
 - Gunakan `read_file` dulu untuk melihat isi file sebelum melakukan replace
 
 ### 📋 list_files — Daftar File
