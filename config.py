@@ -86,6 +86,19 @@ MAX_EXEC_OUTPUT_CHARS = 20_000
 BINARY_SNIFF_BYTES = 4096
 
 # ============================================================
+# HISTORY / CONTEXT WINDOW — hard-trim riwayat sebelum kirim API
+# ============================================================
+# Riwayat 'messages' dikirim ULANG utuh tiap round agentic. Tanpa batas →
+# "context length exceeded" pada model konteks-kecil. Trim DETERMINISTIK
+# (bukan ringkasan-LLM yang rapuh): buang segmen tertua, jaga system + terbaru.
+# Catatan ambang: estimasi token memakai char/4 (cenderung UNDER-estimate teks
+# non-ASCII/Indonesia) dan TIDAK menghitung schema TOOLS + system + completion
+# yang juga memakan window → dibuat KONSERVATIF dengan margin. Tunable.
+MAX_HISTORY_TOKENS = 9_000       # ambang estimasi token (char/4) riwayat yang DIKIRIM
+KEEP_RECENT_MESSAGES = 12        # lantai keras: minimal pesan terbaru dipertahankan
+HISTORY_TRIM_NOTICE = True       # tampilkan notice 1 baris (sekali per giliran) saat trim
+
+# ============================================================
 # SECURITY — BLOCKED COMMANDS
 # ============================================================
 # Perintah yang TIDAK BOLEH dijalankan oleh agent.
