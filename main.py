@@ -3370,7 +3370,7 @@ def _trim_history(messages: list, max_tokens: int = None, keep_recent: int = Non
     return trimmed, len(messages) - len(trimmed)
 
 
-def chat(messages: list, temperature: float = 0.7, max_tokens: int = 8192,
+def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
          max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY) -> dict:
     # Hard-trim riwayat HANYA untuk payload yang dikirim (transkrip pemanggil &
     # save_session tetap utuh). Notice maksimum sekali per giliran.
