@@ -2135,14 +2135,51 @@ def _safe_path(name: str) -> str | None:
     Path traversal dicegah dengan memastikan hasil akhir masih dalam BASE_DIR
     atau SCRIPT_DIR (folder main.py, untuk akses SKILL/ dan file internal).
     """
-    if os.path.isabs(name):
-        abs_path = os.path.abspath(name)
-    else:
-        abs_path = os.path.abspath(os.path.join(config.BASE_DIR, name))
-    # Izinkan akses ke workspace user (BASE_DIR) dan folder main.py (SCRIPT_DIR)
-    if not (abs_path.startswith(config.BASE_DIR) or abs_path.startswith(config.SCRIPT_DIR)):
+    # Null byte tak pernah valid di path & bisa menipu pemeriksaan — tolak dini.
+    if "\x00" in name:
         return None
-    return abs_path
+
+    if os.path.isabs(name):
+        raw = os.path.abspath(name)
+    else:
+        raw = os.path.abspath(os.path.join(config.BASE_DIR, name))
+
+    # Resolusi symlink pada komponen PARENT (mencegah escape lewat symlink)
+    # sambil MEMPERTAHANKAN leaf — agar file/folder yang belum ada (write_file
+    # baru, create_folder, tujuan copy/move) tetap valid.
+    parent = os.path.dirname(raw)
+    leaf = os.path.basename(raw)
+    try:
+        real_parent = os.path.realpath(parent)
+    except (OSError, ValueError):
+        return None
+    if leaf in ("", os.curdir, os.pardir):
+        target = real_parent
+    else:
+        target = os.path.join(real_parent, leaf)
+        # Bila leaf sendiri symlink yang SUDAH ada, ikut diresolusi.
+        try:
+            if os.path.islink(target):
+                target = os.path.realpath(target)
+        except (OSError, ValueError):
+            return None
+
+    # Keanggotaan path divalidasi dengan commonpath terhadap base yang juga
+    # di-realpath — bukan startswith (yang lolos sibling-prefix: BASE_DIR=/a/proj
+    # keliru mengizinkan /a/proj-rahasia). Fail-closed pada error apa pun.
+    def _within(base: str) -> bool:
+        try:
+            base_real = os.path.realpath(base)
+        except (OSError, ValueError):
+            return False
+        try:
+            return os.path.commonpath([base_real, target]) == base_real
+        except (ValueError, TypeError):
+            return False  # beda drive (Windows) / campur abs-rel / null byte
+
+    if _within(config.BASE_DIR) or _within(config.SCRIPT_DIR):
+        return target
+    return None
 
 
 def _format_size(size_bytes: int) -> str:
