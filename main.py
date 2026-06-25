@@ -33,6 +33,7 @@ import sys
 import json
 import shutil
 import stat
+import tempfile
 import time
 import random
 import subprocess
@@ -1499,8 +1500,64 @@ def format_reply(text: str) -> str:
 # ============================================================
 
 def _ensure_sessions_dir():
-    """Pastikan folder sessions/ ada."""
+    """Pastikan folder sessions/ ada & sapu tmpfile yatim sisa crash (.tmp-*)."""
     os.makedirs(config.SESSIONS_DIR, exist_ok=True)
+    try:
+        for f in os.listdir(config.SESSIONS_DIR):
+            if f.startswith(".tmp-"):
+                try:
+                    os.remove(os.path.join(config.SESSIONS_DIR, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
+def _atomic_write_json(path: str, data: dict, make_backup: bool = True):
+    """
+    Tulis JSON secara atomik & crash-safe: tmpfile di folder SAMA → flush +
+    os.fsync → os.replace (atomik lintas-OS pada filesystem yang sama). Backup
+    ringan file lama (1 generasi) ke <dir>/backups/ sebelum menimpa. Meneruskan
+    exception ke caller bila gagal — file lama TETAP utuh.
+    """
+    dir_ = os.path.dirname(path) or "."
+    os.makedirs(dir_, exist_ok=True)
+
+    # Backup file lama (best-effort; kegagalan tak boleh membatalkan penyimpanan).
+    if make_backup and os.path.exists(path):
+        try:
+            backups_dir = os.path.join(dir_, "backups")
+            os.makedirs(backups_dir, exist_ok=True)
+            shutil.copy2(path, os.path.join(backups_dir, os.path.basename(path) + ".bak"))
+        except OSError:
+            pass
+
+    # Tulis ke tmpfile di folder SAMA agar os.replace atomik (bukan cross-device).
+    # suffix '.tmp' (BUKAN '.json') supaya orphan tmp tak terbaca list_sessions.
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", suffix=".tmp", dir=dir_)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)  # atomik di POSIX & Windows pada FS sama
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+    else:
+        # fsync direktori best-effort (durability entri baru) — POSIX; non-fatal
+        # di Windows/Termux FS tertentu karena data sudah ter-replace & durable.
+        try:
+            dfd = os.open(dir_, os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+        except Exception:
+            pass
 
 
 def _session_path(name: str) -> str:
@@ -1543,8 +1600,7 @@ def save_session(name: str, messages: list) -> str:
             pass
 
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(session_data, f, ensure_ascii=False, indent=2)
+        _atomic_write_json(path, session_data)
         return f"Session '{name}' berhasil disimpan ({len(messages)} messages)."
     except Exception as e:
         return f"Error menyimpan session: {e}"
@@ -1747,9 +1803,8 @@ def rename_session(old_name: str, new_name: str) -> str:
         data["name"] = new_name
         data["updated_at"] = datetime.now().isoformat()
 
-        with open(new_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
+        # Tulis target atomik; old hanya dihapus SETELAH new sukses ter-replace.
+        _atomic_write_json(new_path, data)
         os.remove(old_path)
         return f"Session '{old_name}' berhasil di-rename menjadi '{new_name}'."
     except Exception as e:
