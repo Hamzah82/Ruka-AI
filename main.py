@@ -4,10 +4,16 @@ AI Kura-Kura yang dapat membaca, menulis, menghapus, menyalin, memindahkan file,
 mengelola folder, serta menjalankan perintah terminal (bash) di local device.
 Output AI diformat dari markdown ke styled terminal text.
 
+Workspace:
+  Workspace (folder kerja AI) = folder TEMPAT user menjalankan perintah (cwd).
+  Pasang alias `ruka` lewat ./install.sh, lalu `cd` ke folder mana pun dan
+  ketik `ruka` — AI bekerja di folder itu. File internal (SKILL/, sessions/,
+  .env) tetap dibaca dari folder instalasi, bukan dari workspace.
+
 Session Management:
-  python main.py                          → session baru dengan nama timestamp
-  python main.py <namaSesi>               → load atau buat sesi dengan nama tertentu
-  python main.py <workspacePath>           → session baru di workspace tertentu
+  python main.py                          → workspace = cwd, session nama timestamp
+  python main.py <namaSesi>               → workspace = cwd, sesi dengan nama tertentu
+  python main.py <workspacePath>           → override workspace ke path tertentu
   python main.py <workspacePath> <namaSesi> → session tertentu di workspace tertentu
   python main.py listSessions              → tampilkan daftar semua sesi (CLI)
   python main.py deleteSession <nama>      → hapus sesi tertentu (CLI)
@@ -51,7 +57,11 @@ try:
 except ImportError:
     _HAS_TERMIOS = False
 
-load_dotenv()
+# Muat .env dari FOLDER main.py (folder instalasi), BUKAN dari cwd.
+# Penting: sejak workspace = cwd tempat user memanggil `ruka`, user bisa
+# berada di folder mana pun. API key tetap harus dibaca dari .env di folder
+# instalasi, bukan dari folder kerja user yang acak.
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # ============================================================
 # KONFIGURASI — dimuat dari config.py
@@ -1695,11 +1705,11 @@ def show_help():
     print(f"  {_rule()}")
 
     _help_section("Penggunaan")
-    _help_row("python main.py", "Mode interaktif (session baru otomatis)")
-    _help_row("python main.py <namaSesi>", "Load atau buat session bernama")
-    _help_row("python main.py <path> <namaSesi>", "Session di workspace tertentu")
-    _help_row("python main.py <path>", "Session baru di workspace tertentu")
-    _help_row("python main.py \"<prompt>\"", "Mode prompt tunggal (langsung jawab)")
+    _help_row("ruka", "Mode interaktif — workspace = folder saat ini (cwd)")
+    _help_row("ruka <namaSesi>", "Load atau buat session bernama (workspace = cwd)")
+    _help_row("ruka <path> <namaSesi>", "Override workspace ke path tertentu")
+    _help_row("ruka <path>", "Override workspace ke path tertentu")
+    _help_row("ruka \"<prompt>\"", "Mode prompt tunggal (langsung jawab)")
 
     _help_section("Slash command (dalam sesi)")
     _help_row("/help", "Tampilkan bantuan ini")
@@ -3078,9 +3088,10 @@ def get_system_prompt(session_name: str = None) -> str:
         "══════════════════════════════════════════════════════════════\n"
         "\n"
         "📌 CATATAN PENTING TENTANG WORKSPACE & SKILL:\n"
-        "Ketika user menjalankan dengan 'python main.py <workspace_path> <session_name>',\n"
-        "BASE_DIR (direktori kerja) akan berubah ke workspace path user.\n"
-        "Namua SEMUA file di folder SKILL/ SELALU berada di folder tempat main.py berada.\n"
+        "Workspace (BASE_DIR / direktori kerja) = folder TEMPAT user menjalankan\n"
+        "perintah `ruka` (current working directory), bukan folder instalasi.\n"
+        "Jadi BASE_DIR bisa berbeda-beda tergantung di mana user berada.\n"
+        "Namun SEMUA file di folder SKILL/ SELALU berada di folder tempat main.py berada.\n"
         "Gunakan path absolut '" + SCRIPT_DIR + "/SKILL/<nama_file>' untuk membaca\n"
         "file apapun di folder SKILL (skills.md, pptSkill.md, browsingSkill.md, dll).\n"
         "JANGAN gunakan path relatif 'SKILL/<nama_file>' karena BASE_DIR mungkin\n"
@@ -3279,11 +3290,12 @@ if __name__ == "__main__":
     _ensure_sessions_dir()
 
     # ── Parse CLI arguments ──────────────────────────────────
+    # Workspace default = cwd (folder tempat user memanggil; di-set di config.BASE_DIR).
     # Format: python main.py [workspace_path] [session_name]
-    #   - python main.py                        → workspace = folder main.py, session auto
-    #   - python main.py /path/to/workspace      → workspace = path, session auto
-    #   - python main.py /path/to/workspace nama → workspace = path, session = nama
-    #   - python main.py nama                   → workspace = folder main.py, session = nama
+    #   - python main.py                        → workspace = cwd, session auto
+    #   - python main.py /path/to/workspace      → override workspace = path, session auto
+    #   - python main.py /path/to/workspace nama → override workspace = path, session = nama
+    #   - python main.py nama                   → workspace = cwd, session = nama
     #   - CLI commands (listSessions, dll)       → tetap jalan seperti biasa
 
     # Deteksi apakah argumen adalah CLI command (bukan path/session)

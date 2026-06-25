@@ -19,7 +19,7 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Retry dengan Exponential Backoff** — Otomatis retry hingga 5 kali jika request ke API gagal
 - **Keamanan Terintegrasi** — Path traversal protection dan pemblokiran perintah berbahaya
 - **Unlimited Rounds** — Tidak ada batas maksimum round per sesi
-- **Custom Workspace Path** — Jalankan AI di workspace tertentu dengan `python main.py <path> <namaSesi>`, folder SKILL/ tetap diakses dari path asal main.py
+- **Workspace = Folder Pemanggil** — Workspace otomatis mengikuti folder tempat kamu menjalankan perintah (cwd). Pasang alias `ruka` lewat `install.sh`, lalu `cd` ke folder mana pun dan ketik `ruka`. Bisa juga di-override dengan `python main.py <path> <namaSesi>`. Folder `SKILL/`, `sessions/`, dan `.env` selalu diakses dari folder instalasi
 
 ---
 
@@ -156,6 +156,19 @@ Lalu edit `.env` dan masukkan API key kamu.
 python main.py
 ```
 
+**5. (Opsional, disarankan) Pasang alias `ruka`:**
+
+Supaya bisa memanggil Ruka AI dari folder mana pun, pasang alias `ruka` ke `~/.bashrc`:
+
+```bash
+bash install.sh
+source ~/.bashrc
+```
+
+Setelah itu cukup `cd` ke folder yang ingin dikerjakan lalu ketik `ruka` — folder
+tempat kamu berada otomatis menjadi **workspace**. Jika alias `ruka` sudah ada,
+installer akan memberi tahu bahwa Ruka AI sudah terinstall (tidak menambah duplikat).
+
 ---
 
 ## 💡 Contoh Penggunaan
@@ -260,25 +273,34 @@ Dengan memulai percakapan menggunakan sapaan, AI akan lebih responsif dan memaha
 ❯ exit
 ```
 
-### Mode Custom Workspace
+### Workspace = Folder Tempat Kamu Memanggil
 
-Jalankan Ruka AI di workspace tertentu — semua operasi file/folder akan dilakukan di path tersebut:
+Secara default, **workspace = folder tempat kamu menjalankan perintah** (current
+working directory). Jadi cukup `cd` ke folder yang ingin dikerjakan lalu jalankan:
 
 ```bash
-# Session baru di workspace tertentu
+cd ~/proyek-ku
+ruka                 # (atau: python /path/instalasi/main.py)
+```
+
+Semua operasi file/folder AI akan dilakukan di folder itu.
+
+Kamu juga masih bisa **meng-override** workspace lewat argumen path:
+
+```bash
+# Override workspace ke path tertentu
 python main.py /home/user/project
 
-# Session dengan nama di workspace tertentu
+# Override workspace + nama session
 python main.py /home/user/project kerja-proyek
 
 # Path relatif juga bisa
 python main.py ./my-project sesi-baru
 ```
 
-Saat menggunakan custom workspace:
-- Semua operasi file (baca, tulis, hapus, dll) dilakukan di **workspace path**
-- Session tersimpan di **`<workspace>/sessions/`**
-- Folder `SKILL/` (panduan AI) tetap diakses dari **path asal main.py** — jadi AI selalu punya akses ke panduan meskipun workspace berbeda
+Catatan penting:
+- Semua operasi file (baca, tulis, hapus, dll) dilakukan di **workspace** (cwd atau path override)
+- File internal — folder `sessions/`, `SKILL/`, dan `.env` — **selalu** dibaca dari **folder instalasi** (tempat `main.py` berada), bukan dari workspace. Jadi API key & panduan AI tetap terbaca meskipun kamu memanggil `ruka` dari folder mana pun.
 
 ### Mode Single Prompt
 
@@ -322,9 +344,9 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 
 ### Perintah Session dari CLI
 
-- `python main.py <nama>` — Load atau buat session dengan nama tertentu
-- `python main.py <workspace_path>` — Session baru di workspace tertentu
-- `python main.py <workspace_path> <nama>` — Session tertentu di workspace tertentu
+- `python main.py <nama>` — Load atau buat session dengan nama tertentu (workspace = cwd)
+- `python main.py <workspace_path>` — Override workspace ke path tertentu
+- `python main.py <workspace_path> <nama>` — Override workspace + session tertentu
 - `python main.py listSessions` — Lihat daftar semua session
 - `python main.py deleteSession <nama>` — Hapus session tertentu dari CLI
 - `python main.py renameSession <lama> <baru>` — Rename session dari CLI
@@ -412,6 +434,7 @@ Ruka AI dilengkapi dengan beberapa lapisan keamanan:
 Ruka-AI/
 ├── main.py           # Source code utama — seluruh logic agent
 ├── config.py         # Konfigurasi (API key, model, BASE_DIR, SCRIPT_DIR)
+├── install.sh        # Installer alias `ruka` ke ~/.bashrc
 ├── requirements.txt  # Dependensi Python yang dibutuhkan
 ├── .env.example      # Template konfigurasi API key
 ├── .env              # Konfigurasi API key (tidak di-push ke git)
@@ -440,9 +463,9 @@ Variabel konfigurasi yang dapat diubah di `config.py`:
 - `DEFAULT_CMD_TIMEOUT` — Default: `60` — Timeout default untuk eksekusi perintah (detik)
 - `MAX_RETRIES` — Default: `5` — Jumlah maksimum retry jika request gagal
 - `RETRY_BASE_DELAY` — Default: `5` — Delay dasar untuk exponential backoff (detik)
-- `BASE_DIR` — Default: Direktori main.py — Direktori kerja tempat file dikelola (bisa di-override via CLI)
-- `SCRIPT_DIR` — Path absolut ke folder main.py — dipakai untuk akses SKILL/ dan file internal (tidak pernah berubah)
-- `SESSIONS_DIR` — Default: `sessions/` — Folder penyimpanan session (relatif terhadap BASE_DIR)
+- `BASE_DIR` — Default: `os.getcwd()` (folder tempat user memanggil) — Workspace tempat file dikelola (bisa di-override via CLI)
+- `SCRIPT_DIR` — Path absolut ke folder main.py — dipakai untuk akses SKILL/, .env, dan file internal (tidak pernah berubah)
+- `SESSIONS_DIR` — Default: `<SCRIPT_DIR>/sessions/` — Folder penyimpanan session (selalu di folder instalasi, bukan workspace)
 
 ---
 

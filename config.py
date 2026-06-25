@@ -32,13 +32,17 @@ HEADERS = {
 # DIRECTORY CONFIGURATION
 # ============================================================
 
-# Direktori kerja = folder tempat main.py berada
-# Bisa di-override dari CLI: python main.py <workspace_path> <session_name>
+# Direktori kerja (workspace) = folder TEMPAT USER MEMANGGIL `python main.py`
+# (current working directory), BUKAN folder tempat main.py berada.
+# Dengan begitu alias `ruka` beroperasi pada folder tempat user sedang berada
+# saat menjalankan perintah (mis. `cd ~/proyek && ruka`).
+# Masih bisa di-override eksplisit dari CLI: python main.py <workspace_path> [session_name]
 # JANGAN ubah ini kecuali tahu apa yang dilakukan
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.getcwd()
 
-# Path ke folder tempat main.py berada — dipakai untuk akses SKILL/ dan file internal
-# Ini TIDAK PERNAH berubah meskipun workspace user berbeda
+# Path ke folder tempat main.py berada — dipakai untuk akses SKILL/, sessions/,
+# .env, dan file internal lain. Ini TIDAK PERNAH berubah meskipun workspace
+# (BASE_DIR) user berbeda dari folder instalasi.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Folder untuk menyimpan sesi chat — SELALU di SCRIPT_DIR, bukan BASE_DIR
