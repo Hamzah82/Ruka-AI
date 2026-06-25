@@ -3485,7 +3485,7 @@ def process_response(messages: list, data: dict) -> tuple:
             })
             show_thinking()
             try:
-                data = chat(messages, temperature=0.7, max_tokens=8192)
+                data = chat(messages, temperature=0.7, max_tokens=16384)
             except Exception as e:
                 error_msg = f"Error saat interrupt: {e}"
                 return error_msg, messages, True
@@ -3530,7 +3530,7 @@ def process_response(messages: list, data: dict) -> tuple:
                 })
                 show_thinking()
                 try:
-                    data = chat(messages, temperature=0.7, max_tokens=8192)
+                    data = chat(messages, temperature=0.7, max_tokens=16384)
                 except Exception as e:
                     return f"Error saat interrupt: {e}", messages, True
                 choice = data["choices"][0]
@@ -3613,14 +3613,14 @@ def process_response(messages: list, data: dict) -> tuple:
             })
             show_thinking()
             try:
-                data = chat(messages, temperature=0.7, max_tokens=8192)
+                data = chat(messages, temperature=0.7, max_tokens=16384)
             except Exception as e:
                 return f"Error saat interrupt: {e}", messages, True
             continue
 
         # ── Panggil model lagi dengan semua hasil tool ───────────
         show_thinking()
-        data = chat(messages, temperature=0.7, max_tokens=8192)
+        data = chat(messages, temperature=0.7, max_tokens=16384)
 
 
 # ============================================================
