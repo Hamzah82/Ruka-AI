@@ -15,7 +15,11 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # Model AI yang digunakan (format: provider/model-name)
 # Contoh: "openrouter/owl-alpha", "openrouter/qwen/qwen3-8b", dll.
-MODEL = "openrouter/owl-alpha"
+# Bisa di-override via environment variable RUKA_MODEL (atau lewat .env, karena
+# load_dotenv jalan sebelum import config di main.py). Nilai kosong/whitespace
+# → fallback ke default agar payload API tidak rusak.
+_DEFAULT_MODEL = "openrouter/owl-alpha"
+MODEL = (os.getenv("RUKA_MODEL") or "").strip() or _DEFAULT_MODEL
 
 # URL endpoint API
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
