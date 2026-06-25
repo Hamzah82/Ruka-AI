@@ -34,9 +34,22 @@ import threading
 import queue
 import unicodedata
 import readline
+import select
+import codecs
+import atexit
+import signal
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
+
+# termios/tty hanya tersedia di Unix — dibutuhkan untuk floating prompt (raw mode).
+# Di platform tanpa termios, floating prompt otomatis nonaktif (fallback linear).
+try:
+    import termios
+    import tty
+    _HAS_TERMIOS = True
+except ImportError:
+    _HAS_TERMIOS = False
 
 load_dotenv()
 
@@ -66,18 +79,600 @@ _interrupt_event = threading.Event()
 _input_thread = None
 _input_running = threading.Event()
 
+# FooterUI aktif → prompt "❯" mengambang di bawah layar. None/disarmed → mode linear.
+_footer = None
+
+
+def _footer_active() -> bool:
+    """True jika prompt mengambang sedang aktif."""
+    return _footer is not None and _footer.armed
+
+
+# ============================================================
+# FLOATING PROMPT — footer tetap di bawah + scroll region (DECSTBM)
+# ============================================================
+
+class _RegionWriter:
+    """
+    Proxy stdout: setiap print() otomatis ditulis ke scroll region (di atas
+    footer), lalu footer digambar ulang — semuanya atomik di bawah satu lock.
+    Dengan ini semua print() yang sudah ada aman tanpa perlu disentuh.
+    """
+
+    def __init__(self, footer):
+        self._footer = footer
+
+    def write(self, text):
+        if text:
+            self._footer.write_output(text)
+        return len(text) if text else 0
+
+    def flush(self):
+        try:
+            self._footer._real.flush()
+        except Exception:
+            pass
+
+    # Beberapa kode mungkin mengakses atribut stdout asli (mis. isatty).
+    def __getattr__(self, name):
+        return getattr(self._footer._real, name)
+
+
+class FooterUI:
+    """
+    Mengelola footer mengambang di bawah layar memakai scroll region ANSI.
+
+    Layout (1-indexed, H = tinggi terminal):
+        baris H-2 : garis pemisah
+        baris H-1 : status/spinner (saat memproses) atau hint (saat idle)
+        baris H   : "❯ <input>" dengan kursor di dalamnya
+    Region scroll = baris 1..H-3 — semua output AI bergulir di sini.
+
+    Aturan anti-bug:
+      • SATU RLock menjaga setiap penulisan ke stdout (3 penulis: main/print,
+        spinner, input thread).
+      • Posisi konten disimpan di slot save-cursor terminal (DECSC \0337/DECRC
+        \0338) — HANYA disentuh oleh write_output(). render() footer murni
+        memakai positioning ABSOLUT (\033[r;cH), tak pernah save/restore,
+        sehingga tidak ada drift kursor antar-thread.
+    """
+
+    RESERVED = 3  # jumlah baris yang dipesan di bawah
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.armed = False
+        self.H = 0
+        self.W = 0
+        self._status = ""
+        self._buffer = ""
+        self._cursor = 0
+        self._resized = False
+        self._real = sys.stdout
+        self._prev_stdout = None
+        self._fd = None
+        self._saved_termios = None
+        self._idle_hint = ""
+
+    # ── Util lebar karakter (sadar lebar-ganda) ──────────────
+    @staticmethod
+    def _char_w(ch: str) -> int:
+        if unicodedata.combining(ch) or ch == "️":
+            return 0
+        return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+    def _size_ok(self) -> bool:
+        # Butuh minimal 2 baris konten + RESERVED baris footer, dan lebar wajar.
+        return self.H >= (self.RESERVED + 2) and self.W >= 10
+
+    def _read_size(self):
+        size = shutil.get_terminal_size(fallback=(80, 24))
+        self.H, self.W = size.lines, size.columns
+
+    # ── Lifecycle ────────────────────────────────────────────
+    def arm(self, idle_hint: str = "") -> bool:
+        """Aktifkan footer mengambang. Return False bila tak memungkinkan."""
+        if self.armed:
+            return True
+        if not _HAS_TERMIOS:
+            return False
+        try:
+            if not (sys.stdout.isatty() and sys.stdin.isatty()):
+                return False
+        except Exception:
+            return False
+        self._read_size()
+        if not self._size_ok():
+            return False
+
+        self._idle_hint = idle_hint
+        self._status = idle_hint
+        self._real = sys.stdout
+        self._fd = sys.stdin.fileno()
+
+        # Masuk raw mode (canonical/echo/signal off) TAPI biarkan OPOST (output)
+        # tetap aktif agar "\n" pada print() tetap berfungsi normal.
+        try:
+            self._saved_termios = termios.tcgetattr(self._fd)
+            new = termios.tcgetattr(self._fd)
+            new[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG | termios.IEXTEN)
+            new[0] &= ~(termios.IXON | termios.ICRNL | termios.INLCR | termios.IGNCR)
+            new[6][termios.VMIN] = 1
+            new[6][termios.VTIME] = 0
+            termios.tcsetattr(self._fd, termios.TCSADRAIN, new)
+        except Exception:
+            self._saved_termios = None
+            return False
+
+        with self.lock:
+            # Pesan RESERVED baris di bawah untuk footer.
+            self._emit("\n" * self.RESERVED)
+            self._emit("\033[?2004h")                      # bracketed paste on
+            self._set_region()
+            # Seed posisi konten di baris konten terbawah (chat: terbaru di bawah).
+            self._emit(f"\033[{self.H - self.RESERVED};1H")
+            self._emit("\0337")                            # simpan posisi konten
+            self._render_locked()
+            self.armed = True
+
+        # Pasang handler resize + jaring pengaman teardown.
+        try:
+            signal.signal(signal.SIGWINCH, self._on_sigwinch)
+        except (ValueError, AttributeError, OSError):
+            pass
+        atexit.register(self.disarm)
+
+        # Alihkan semua print() ke region.
+        self._prev_stdout = sys.stdout
+        sys.stdout = _RegionWriter(self)
+        return True
+
+    def disarm(self):
+        """Kembalikan terminal ke keadaan normal. Idempotent."""
+        with self.lock:
+            if not self.armed:
+                return
+            self.armed = False
+            # Pulihkan stdout asli.
+            try:
+                if self._prev_stdout is not None:
+                    sys.stdout = self._prev_stdout
+            except Exception:
+                pass
+            try:
+                self._emit("\033[r")                       # reset scroll region
+                self._emit(f"\033[{self.H};1H")            # ke baris paling bawah
+                self._emit("\033[?2004l")                  # bracketed paste off
+                self._emit("\033[?25h")                    # tampilkan kursor
+                self._emit("\n")
+            except Exception:
+                pass
+        # Pulihkan termios.
+        if self._saved_termios is not None and self._fd is not None:
+            try:
+                termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved_termios)
+            except Exception:
+                pass
+        try:
+            signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+        except (ValueError, AttributeError, OSError):
+            pass
+
+    # ── Primitif tulis ───────────────────────────────────────
+    def _emit(self, seq: str):
+        """Tulis langsung ke stdout asli (pemanggil HARUS memegang lock)."""
+        try:
+            self._real.write(seq)
+            self._real.flush()
+        except Exception:
+            pass
+
+    def _set_region(self):
+        self._emit(f"\033[1;{self.H - self.RESERVED}r")
+
+    # ── Output AI → region di atas footer ────────────────────
+    def write_output(self, text: str):
+        with self.lock:
+            if not self.armed:
+                # Belum/again tidak aktif → tulis apa adanya.
+                self._emit(text)
+                return
+            self._emit("\033[?25l")        # sembunyikan kursor saat menulis
+            self._emit("\0338")            # kembali ke posisi konten
+            self._real.write(text)         # mengalir alami di dalam region
+            self._real.flush()
+            self._emit("\0337")            # simpan posisi konten baru
+            self._render_locked()
+
+    # ── Render footer (positioning absolut, tanpa save/restore) ──
+    def _truncate(self, text: str, max_cols: int) -> str:
+        """Potong text (sadar ANSI & lebar-ganda) agar muat max_cols kolom."""
+        if max_cols <= 0:
+            return ""
+        out = []
+        cols = 0
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if ch == "\033":  # lewati sekuens ANSI utuh (tak menambah kolom)
+                j = text.find("m", i)
+                if j == -1:
+                    break
+                out.append(text[i:j + 1])
+                i = j + 1
+                continue
+            w = self._char_w(ch)
+            if cols + w > max_cols:
+                break
+            out.append(ch)
+            cols += w
+            i += 1
+        return "".join(out)
+
+    def _input_view(self):
+        """Return (display_text, cursor_col) untuk baris input — geser horizontal."""
+        text_cols = max(1, self.W - 3)        # sisakan kolom untuk "❯ " + 1 aman
+        buf = self._buffer
+        cur = max(0, min(self._cursor, len(buf)))
+        widths = [self._char_w(c) for c in buf]
+        # Geser jendela agar kursor selalu terlihat (kursor menempel kanan).
+        start = 0
+        while sum(widths[start:cur]) > text_cols - 1 and start < cur:
+            start += 1
+        disp = []
+        w = 0
+        i = start
+        while i < len(buf):
+            cw = widths[i]
+            if w + cw > text_cols:
+                break
+            disp.append(buf[i])
+            w += cw
+            i += 1
+        cursor_col = 3 + sum(widths[start:cur])
+        if cursor_col > self.W:
+            cursor_col = self.W
+        return "".join(disp), cursor_col
+
+    def _render_locked(self):
+        """Gambar 3 baris footer secara absolut. Pemanggil memegang lock."""
+        if not (self.armed or self._fd is not None):
+            return
+        if self.H < self.RESERVED + 1:
+            return
+        sep_row = self.H - 2
+        status_row = self.H - 1
+        input_row = self.H
+
+        sep = self._truncate(_rule(self.W), self.W)
+        status = self._truncate("  " + (self._status or ""), self.W)
+        view, cursor_col = self._input_view()
+        prompt_line = f"{Style.ACCENT}❯{Style.RESET} " + view
+
+        R = Style.RESET
+        buf = []
+        buf.append("\033[?25l")                 # hide cursor
+        buf.append("\033[?7l")                  # autowrap off (anti corner-scroll)
+        buf.append(f"\033[{sep_row};1H\033[2K{sep}{R}")
+        buf.append(f"\033[{status_row};1H\033[2K{status}{R}")
+        buf.append(f"\033[{input_row};1H\033[2K{prompt_line}{R}")
+        buf.append(f"\033[{input_row};{cursor_col}H")  # kursor di baris input
+        buf.append("\033[?7h")                  # autowrap on lagi
+        buf.append("\033[?25h")                 # show cursor
+        self._emit("".join(buf))
+
+    # ── API publik (dipanggil spinner / editor) ──────────────
+    def set_status(self, text: str):
+        with self.lock:
+            self._status = text
+            if self.armed:
+                self._render_locked()
+
+    def set_idle(self):
+        self.set_status(self._idle_hint)
+
+    def set_input(self, buffer: str, cursor: int):
+        with self.lock:
+            self._buffer = buffer
+            self._cursor = cursor
+            if self.armed:
+                self._render_locked()
+
+    def clear_region(self):
+        """/clear: bersihkan layar tapi pertahankan footer & region."""
+        with self.lock:
+            if not self.armed:
+                return
+            self._emit("\033[r")              # reset region sementara
+            self._emit("\033[2J\033[H")       # bersihkan layar
+            self._set_region()
+            self._emit("\033[1;1H")           # konten mulai dari atas
+            self._emit("\0337")
+            self._render_locked()
+
+    # ── Resize ───────────────────────────────────────────────
+    def _on_sigwinch(self, signum, frame):
+        # Hanya set flag; reflow dilakukan di luar handler (di bawah lock).
+        self._resized = True
+
+    def check_resize(self):
+        if not self._resized:
+            return
+        with self.lock:
+            self._resized = False
+            if not self.armed:
+                return
+            self._read_size()
+            if not self._size_ok():
+                return
+            self._set_region()
+            self._emit(f"\033[{self.H - self.RESERVED};1H")
+            self._emit("\0337")
+            self._render_locked()
+
+
+# ============================================================
+# RAW-MODE LINE EDITOR — prompt "❯" yang bisa diketik kapan pun
+# ============================================================
+
+class _LineEditor:
+    """
+    Editor satu-baris di footer: membaca byte mentah, merakit UTF-8 secara
+    inkremental, dan mendukung navigasi (panah, history, Home/End, Ctrl-A/E/U/W).
+    Pada Enter → kirim baris ke _input_queue (kontrak antrian/interrupt lama).
+    """
+
+    def __init__(self):
+        self.buf = ""
+        self.cur = 0
+        self.history = []
+        self.hist_idx = None       # None = sedang di baris aktif
+        self.saved_line = ""       # simpan baris saat mulai menelusuri history
+        self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.pending = b""         # sekuens escape yang belum lengkap
+        self.paste = False
+
+    def _sync(self):
+        if _footer is not None:
+            _footer.set_input(self.buf, self.cur)
+
+    # ── Mutasi buffer ────────────────────────────────────────
+    def _insert(self, s: str):
+        if not s:
+            return
+        # Dalam mode paste, ubah newline jadi spasi (prompt satu baris).
+        if self.paste:
+            s = s.replace("\r", " ").replace("\n", " ")
+        self.buf = self.buf[:self.cur] + s + self.buf[self.cur:]
+        self.cur += len(s)
+
+    def _backspace(self):
+        if self.cur > 0:
+            self.buf = self.buf[:self.cur - 1] + self.buf[self.cur:]
+            self.cur -= 1
+
+    def _delete(self):
+        if self.cur < len(self.buf):
+            self.buf = self.buf[:self.cur] + self.buf[self.cur + 1:]
+
+    def _kill_to_start(self):
+        self.buf = self.buf[self.cur:]
+        self.cur = 0
+
+    def _kill_word(self):
+        i = self.cur
+        while i > 0 and self.buf[i - 1] == " ":
+            i -= 1
+        while i > 0 and self.buf[i - 1] != " ":
+            i -= 1
+        self.buf = self.buf[:i] + self.buf[self.cur:]
+        self.cur = i
+
+    # ── History ──────────────────────────────────────────────
+    def _hist_prev(self):
+        if not self.history:
+            return
+        if self.hist_idx is None:
+            self.saved_line = self.buf
+            self.hist_idx = len(self.history)
+        if self.hist_idx > 0:
+            self.hist_idx -= 1
+            self.buf = self.history[self.hist_idx]
+            self.cur = len(self.buf)
+
+    def _hist_next(self):
+        if self.hist_idx is None:
+            return
+        self.hist_idx += 1
+        if self.hist_idx >= len(self.history):
+            self.hist_idx = None
+            self.buf = self.saved_line
+        else:
+            self.buf = self.history[self.hist_idx]
+        self.cur = len(self.buf)
+
+    # ── Submit / EOF ─────────────────────────────────────────
+    def _submit(self):
+        line = self.buf
+        self.buf = ""
+        self.cur = 0
+        self.hist_idx = None
+        self.decoder.reset()
+        if line.strip():
+            if not self.history or self.history[-1] != line:
+                self.history.append(line)
+        _input_queue.put(line)
+        self._sync()
+
+    def _eof(self):
+        _input_queue.put(None)
+
+    # ── Parser byte ──────────────────────────────────────────
+    def feed(self, data: bytes):
+        data = self.pending + data
+        self.pending = b""
+        i = 0
+        n = len(data)
+        changed = False
+        while i < n:
+            b = data[i]
+            if b == 0x1b:  # ESC → sekuens
+                action, consumed, incomplete = self._parse_escape(data, i)
+                if incomplete:
+                    self.pending = data[i:]
+                    break
+                i += consumed
+                if action:
+                    if self._apply_action(action):
+                        changed = True
+                continue
+            if self.paste:
+                # Dalam paste: semua byte non-ESC = teks literal.
+                ch = self.decoder.decode(bytes([b]))
+                if ch:
+                    self._insert(ch)
+                    changed = True
+                i += 1
+                continue
+            if b in (0x0d, 0x0a):          # Enter
+                self._submit()
+                changed = False
+                i += 1
+                continue
+            if b in (0x7f, 0x08):          # Backspace
+                self._backspace(); changed = True; i += 1; continue
+            if b == 0x03:                  # Ctrl-C → keluar (seperti EOF lama)
+                self._eof(); i += 1; continue
+            if b == 0x04:                  # Ctrl-D
+                if not self.buf:
+                    self._eof()
+                else:
+                    self._delete(); changed = True
+                i += 1; continue
+            if b == 0x01:                  # Ctrl-A → awal
+                self.cur = 0; changed = True; i += 1; continue
+            if b == 0x05:                  # Ctrl-E → akhir
+                self.cur = len(self.buf); changed = True; i += 1; continue
+            if b == 0x15:                  # Ctrl-U → hapus ke awal
+                self._kill_to_start(); changed = True; i += 1; continue
+            if b == 0x17:                  # Ctrl-W → hapus kata
+                self._kill_word(); changed = True; i += 1; continue
+            if b < 0x20:                   # kontrol lain → abaikan
+                i += 1; continue
+            # Teks (termasuk UTF-8 multibyte: byte >= 0x80 dirakit decoder).
+            ch = self.decoder.decode(bytes([b]))
+            if ch:
+                self._insert(ch); changed = True
+            i += 1
+        if changed:
+            self._sync()
+
+    def _apply_action(self, action: str) -> bool:
+        if action == "left":
+            if self.cur > 0:
+                self.cur -= 1
+            return True
+        if action == "right":
+            if self.cur < len(self.buf):
+                self.cur += 1
+            return True
+        if action == "up":
+            self._hist_prev(); return True
+        if action == "down":
+            self._hist_next(); return True
+        if action == "home":
+            self.cur = 0; return True
+        if action == "end":
+            self.cur = len(self.buf); return True
+        if action == "delete":
+            self._delete(); return True
+        if action == "paste_start":
+            self.paste = True; return False
+        if action == "paste_end":
+            self.paste = False; return False
+        return False
+
+    def _parse_escape(self, data: bytes, i: int):
+        """Return (action|None, consumed, incomplete) untuk sekuens mulai di data[i]==ESC."""
+        n = len(data)
+        if i + 1 >= n:
+            return None, 0, True
+        c1 = data[i + 1]
+        if c1 == ord('['):  # CSI
+            j = i + 2
+            params = b""
+            while j < n:
+                c = data[j]
+                if 0x40 <= c <= 0x7e:      # byte final
+                    final = chr(c)
+                    seq = params.decode("ascii", "replace")
+                    return self._csi_action(final, seq), (j - i + 1), False
+                params += bytes([c])
+                j += 1
+            return None, 0, True           # belum lengkap
+        if c1 == ord('O'):  # SS3 (mode aplikasi kursor)
+            if i + 2 >= n:
+                return None, 0, True
+            final = chr(data[i + 2])
+            mapping = {"A": "up", "B": "down", "C": "right", "D": "left",
+                       "H": "home", "F": "end"}
+            return mapping.get(final), 3, False
+        # ESC + lain (mis. Alt+key) → konsumsi 2 byte, abaikan.
+        return None, 2, False
+
+    @staticmethod
+    def _csi_action(final: str, params: str):
+        if final == "A":
+            return "up"
+        if final == "B":
+            return "down"
+        if final == "C":
+            return "right"
+        if final == "D":
+            return "left"
+        if final == "H":
+            return "home"
+        if final == "F":
+            return "end"
+        if final == "~":
+            return {"1": "home", "7": "home", "4": "end", "8": "end",
+                    "3": "delete", "200": "paste_start", "201": "paste_end"}.get(params)
+        return None
+
+
+def _raw_input_loop():
+    """Loop input raw mode: baca byte, render footer, kirim baris ke queue."""
+    ed = _LineEditor()
+    fd = sys.stdin.fileno()
+    if _footer is not None:
+        _footer.set_input("", 0)
+    while _input_running.is_set():
+        try:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if _footer is not None:
+                _footer.check_resize()
+            if not r:
+                continue
+            data = os.read(fd, 4096)
+            if not data:
+                _input_queue.put(None)
+                break
+            ed.feed(data)
+        except OSError:
+            _input_queue.put(None)
+            break
+        except Exception:
+            continue
+
 
 def _input_reader():
     """
-    Satu-satunya thread yang membaca dari stdin.
-    Semua input user masuk ke _input_queue.
-
-    Menggunakan input() yang secara default menggunakan readline,
-    sehingga arrow key, history, dan line editing bekerja.
+    Reader legacy (mode linear / non-TTY): pakai input()/readline.
+    Dipakai saat footer mengambang tidak aktif (mis. mode single-prompt).
     """
     while _input_running.is_set():
         try:
-            # input() menggunakan readline secara default — arrow key works
             line = input()
             _input_queue.put(line)
         except EOFError:
@@ -90,19 +685,25 @@ def _input_reader():
 
 def _start_input_reader():
     """Mulai thread input reader (hanya dipanggil sekali di awal)."""
-    # Konfigurasi readline untuk arrow key & history
-    readline.set_history_length(1000)
-    # Parse readline config agar arrow key & navigasi bekerja
-    readline.read_init_file()
-    # Set supaya readline handle tab completion (opsional, bisa di-disable)
-    readline.set_completer(None)
-    readline.parse_and_bind('tab: complete')
-    # Disable supaya ^W tidak pakai word delimiter yang aneh
-    readline.parse_and_bind('set disable-completion on')
-
     global _input_thread
     _input_running.set()
-    _input_thread = threading.Thread(target=_input_reader, daemon=True)
+
+    if _footer_active():
+        # Raw mode editor (footer mengambang).
+        target = _raw_input_loop
+    else:
+        # Legacy readline — arrow key & history untuk mode linear.
+        try:
+            readline.set_history_length(1000)
+            readline.read_init_file()
+            readline.set_completer(None)
+            readline.parse_and_bind('tab: complete')
+            readline.parse_and_bind('set disable-completion on')
+        except Exception:
+            pass
+        target = _input_reader
+
+    _input_thread = threading.Thread(target=target, daemon=True)
     _input_thread.start()
 
 
@@ -114,9 +715,9 @@ def _stop_input_reader():
 def _get_input(prompt_text=""):
     """
     Ambil input user dari queue. Satu-satunya fungsi input di seluruh program.
-    Menampilkan prompt, lalu tunggu item dari queue.
+    Saat footer mengambang aktif, prompt dimiliki footer (tidak dicetak inline).
     """
-    if prompt_text:
+    if prompt_text and not _footer_active():
         sys.stdout.write(prompt_text)
         sys.stdout.flush()
     while True:
@@ -342,13 +943,17 @@ class Spinner:
             else:
                 # ganti kata kerja tiap ~3.5 detik
                 word = self.WORDS[int(elapsed // 3.5) % len(self.WORDS)]
-            line = (
-                f"\r  {Style.ACCENT}{frame}{Style.RESET}  "
+            content = (
+                f"{Style.ACCENT}{frame}{Style.RESET}  "
                 f"{Style.GREY_LIGHT}{word}…{Style.RESET} "
                 f"{Style.GREY}({_format_duration(elapsed)} · q untuk interupsi){Style.RESET}"
             )
-            sys.stdout.write(line + "\033[K")  # \033[K = bersihkan sisa baris
-            sys.stdout.flush()
+            if _footer_active():
+                # Footer mengambang: tulis ke baris status (bukan inline \r).
+                _footer.set_status(content)
+            else:
+                sys.stdout.write(f"\r  {content}\033[K")  # \033[K = bersihkan sisa baris
+                sys.stdout.flush()
             i += 1
             time.sleep(0.1)
 
@@ -359,9 +964,13 @@ class Spinner:
         self._running.clear()
         if self._thread:
             self._thread.join(timeout=0.3)
-        # Bersihkan seluruh baris spinner agar output berikut mulai bersih
-        sys.stdout.write("\r\033[K")
-        sys.stdout.flush()
+        if _footer_active():
+            # Kembalikan baris status ke hint idle.
+            _footer.set_idle()
+        else:
+            # Bersihkan seluruh baris spinner agar output berikut mulai bersih
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
 
 
 # Spinner global tunggal — siklus hidupnya dikelola di dalam chat()
@@ -1211,7 +1820,9 @@ def _result_summary(result: str) -> tuple:
         return "(kosong)", False
     is_error = text.lower().startswith("error")
     lines = [l for l in text.split("\n")]
-    first = lines[0].strip()
+    # Buang kode ANSI & karakter kontrol mentah dari isi tool agar tidak
+    # merusak scroll region / footer saat dicetak.
+    first = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', _strip_ansi(lines[0])).strip()
     if len(first) > 60:
         first = first[:59] + "…"
     extra = len(lines) - 1
@@ -1331,6 +1942,9 @@ def show_reply_header():
 
 def show_user_prompt(session_name: str = None):
     # Prompt minimalis ala Claude Code: chevron coral '❯'
+    # Saat footer mengambang aktif, prompt dimiliki footer; tampilkan hint idle.
+    if _footer_active():
+        _footer.set_idle()
     return _get_input(f"\n{Style.ACCENT}❯{Style.RESET} ").strip()
 
 
@@ -2430,124 +3044,143 @@ def chat_session(session_name: str = None):
     show_banner(session_name, session_meta, is_new=is_new_session)
     show_examples()
 
-    # Mulai input reader thread sekali di awal
+    # ── Aktifkan prompt mengambang di bawah layar (jika TTY) ───
+    global _footer
+    idle_hint = (
+        f"{Style.GREY}Ketik pesan · {Style.GREY_LIGHT}/help{Style.GREY} bantuan · "
+        f"{Style.GREY_LIGHT}exit{Style.GREY} keluar{Style.RESET}"
+    )
+    _footer = FooterUI()
+    if not _footer.arm(idle_hint=idle_hint):
+        _footer = None  # fallback: terminal tak mendukung → mode linear
+
+    # Mulai input reader thread sekali di awal (raw editor bila footer aktif)
     _start_input_reader()
 
     # ── Loop utama ─────────────────────────────────────────────
-    while True:
-        _reset_interrupt()
+    try:
+        while True:
+            _reset_interrupt()
 
-        try:
-            user_input = show_user_prompt(session_name)
-        except (EOFError, KeyboardInterrupt):
-            save_session(session_name, messages)
-            show_exit(session_name)
-            break
+            try:
+                user_input = show_user_prompt(session_name)
+            except (EOFError, KeyboardInterrupt):
+                save_session(session_name, messages)
+                show_exit(session_name)
+                break
 
-        if not user_input:
-            continue
+            if not user_input:
+                continue
 
-        # ── Perintah khusus session ─────────────────────────────
-        if user_input.lower() in ("exit", "quit", "keluar"):
-            save_session(session_name, messages)
-            show_exit(session_name)
-            break
+            # ── Perintah khusus session ─────────────────────────────
+            if user_input.lower() in ("exit", "quit", "keluar"):
+                save_session(session_name, messages)
+                show_exit(session_name)
+                break
 
-        if user_input.lower() in ("/help", "/?"):
-            show_help()
-            continue
+            if user_input.lower() in ("/help", "/?"):
+                show_help()
+                continue
 
-        if user_input.lower() in ("/clear", "/cls"):
-            # Bersihkan layar lalu tampilkan ulang sapaan ringkas
-            os.system("clear" if os.name != "nt" else "cls")
-            ruka_print()
-            continue
+            if user_input.lower() in ("/clear", "/cls"):
+                # Bersihkan layar lalu tampilkan ulang sapaan ringkas
+                if _footer_active():
+                    _footer.clear_region()  # region-aware: footer tetap di bawah
+                else:
+                    os.system("clear" if os.name != "nt" else "cls")
+                ruka_print()
+                continue
 
-        if user_input.lower() == "/sessions":
-            show_session_list()
-            continue
+            if user_input.lower() == "/sessions":
+                show_session_list()
+                continue
 
-        if user_input.lower() == "/new":
-            # Simpan session saat ini, lalu buat baru
-            save_session(session_name, messages)
-            session_name = _generate_session_name()
-            messages = [
-                {
-                    "role": "system",
-                    "content": get_system_prompt(session_name)
-                }
-            ]
-            print(f"\n  {Style.OK}✻{Style.RESET} {Style.GREY_LIGHT}Session baru dimulai:{Style.RESET} {Style.ACCENT}{session_name}{Style.RESET}")
-            continue
+            if user_input.lower() == "/new":
+                # Simpan session saat ini, lalu buat baru
+                save_session(session_name, messages)
+                session_name = _generate_session_name()
+                messages = [
+                    {
+                        "role": "system",
+                        "content": get_system_prompt(session_name)
+                    }
+                ]
+                print(f"\n  {Style.OK}✻{Style.RESET} {Style.GREY_LIGHT}Session baru dimulai:{Style.RESET} {Style.ACCENT}{session_name}{Style.RESET}")
+                continue
 
-        if user_input.lower() == "/history":
-            show_session_history(messages, session_name)
-            continue
+            if user_input.lower() == "/history":
+                show_session_history(messages, session_name)
+                continue
 
-        if user_input.lower().startswith("/delete-session"):
-            parts = user_input.split(maxsplit=1)
-            if len(parts) < 2:
-                print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/delete-session <nama>{Style.RESET}")
-            else:
-                target_name = parts[1].strip()
-                result = delete_session(target_name)
-                ok = "berhasil" in result.lower()
-                dot = Style.OK if ok else Style.ERR
-                print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
-            continue
+            if user_input.lower().startswith("/delete-session"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) < 2:
+                    print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/delete-session <nama>{Style.RESET}")
+                else:
+                    target_name = parts[1].strip()
+                    result = delete_session(target_name)
+                    ok = "berhasil" in result.lower()
+                    dot = Style.OK if ok else Style.ERR
+                    print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+                continue
 
-        if user_input.lower().startswith("/rename-session"):
-            parts = user_input.split(maxsplit=2)
-            if len(parts) < 3:
-                print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/rename-session <lama> <baru>{Style.RESET}")
-            else:
-                old_name = parts[1].strip()
-                new_name = parts[2].strip()
-                result = rename_session(old_name, new_name)
-                if old_name == session_name:
-                    session_name = new_name
-                ok = "berhasil" in result.lower()
-                dot = Style.OK if ok else Style.ERR
-                print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
-            continue
+            if user_input.lower().startswith("/rename-session"):
+                parts = user_input.split(maxsplit=2)
+                if len(parts) < 3:
+                    print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/rename-session <lama> <baru>{Style.RESET}")
+                else:
+                    old_name = parts[1].strip()
+                    new_name = parts[2].strip()
+                    result = rename_session(old_name, new_name)
+                    if old_name == session_name:
+                        session_name = new_name
+                    ok = "berhasil" in result.lower()
+                    dot = Style.OK if ok else Style.ERR
+                    print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+                continue
 
-        # ── Slash command tak dikenal → jangan kirim ke model ───
-        if user_input.startswith("/"):
-            cmd = user_input.split()[0]
-            print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Perintah {Style.GREY_LIGHT}{cmd}{Style.GREY} tidak dikenal. Ketik {Style.GREY_LIGHT}/help{Style.GREY} untuk daftar perintah.{Style.RESET}")
-            continue
+            # ── Slash command tak dikenal → jangan kirim ke model ───
+            if user_input.startswith("/"):
+                cmd = user_input.split()[0]
+                print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Perintah {Style.GREY_LIGHT}{cmd}{Style.GREY} tidak dikenal. Ketik {Style.GREY_LIGHT}/help{Style.GREY} untuk daftar perintah.{Style.RESET}")
+                continue
 
-        # ── Normal chat flow ────────────────────────────────────
-        show_separator()
-        messages.append({"role": "user", "content": user_input})
+            # ── Normal chat flow ────────────────────────────────────
+            show_separator()
+            messages.append({"role": "user", "content": user_input})
 
-        # Mulai timer giliran — titik nol yang bertahan menembus semua tool call
-        _spinner.begin_turn()
-        try:
-            show_thinking()
-            data = chat(messages)
-            reply, messages, was_interrupted = process_response(messages, data)
+            # Mulai timer giliran — titik nol yang bertahan menembus semua tool call
+            _spinner.begin_turn()
+            try:
+                show_thinking()
+                data = chat(messages)
+                reply, messages, was_interrupted = process_response(messages, data)
 
-            # Total durasi giliran (sebelum mencetak apa pun yang lain)
-            turn_secs = _spinner.end_turn()
+                # Total durasi giliran (sebelum mencetak apa pun yang lain)
+                turn_secs = _spinner.end_turn()
 
-            # Jawaban akhir asisten dengan marker ⏺ ala Claude Code
-            _emit_agent_text(reply, interrupted=was_interrupted)
+                # Jawaban akhir asisten dengan marker ⏺ ala Claude Code
+                _emit_agent_text(reply, interrupted=was_interrupted)
 
-            if was_interrupted:
-                print(f"\n  {Style.GREY}■ Sesi agent diinterupsi. Kembali ke prompt utama.{Style.RESET}")
+                if was_interrupted:
+                    print(f"\n  {Style.GREY}■ Sesi agent diinterupsi. Kembali ke prompt utama.{Style.RESET}")
 
-            # Ringkasan kecil & redup: berapa lama giliran ini berjalan
-            show_turn_summary(turn_secs)
+                # Ringkasan kecil & redup: berapa lama giliran ini berjalan
+                show_turn_summary(turn_secs)
 
-            # Auto-save setelah setiap exchange
-            save_session(session_name, messages)
+                # Auto-save setelah setiap exchange
+                save_session(session_name, messages)
 
-        except Exception as e:
-            _spinner.end_turn()
-            show_error(str(e)[:80])
-            # Tetap save meski error
-            save_session(session_name, messages)
+            except Exception as e:
+                _spinner.end_turn()
+                show_error(str(e)[:80])
+                # Tetap save meski error
+                save_session(session_name, messages)
+    finally:
+        # Kembalikan terminal ke keadaan normal (scroll region, termios, kursor).
+        if _footer is not None:
+            _footer.disarm()
+            _footer = None
 
 
 # ============================================================
