@@ -2881,6 +2881,13 @@ def _consume_stream(response) -> dict:
     token REALTIME ke spinner — sehingga counter token menanjak hidup saat model
     sedang menghasilkan jawaban (bukan hanya melompat di akhir round).
     """
+    # PENTING: respons SSE bertipe "text/event-stream"; requests men-default-kan
+    # encoding-nya ke ISO-8859-1 (Latin-1). Tanpa override ini, karakter multi-byte
+    # UTF-8 (emoji, dsb.) ter-decode per-byte → mojibake. Paksa UTF-8 agar utuh.
+    # (decode_unicode=True memakai incremental decoder, jadi karakter yang terbelah
+    # antar-chunk jaringan tetap tersusun benar.)
+    response.encoding = "utf-8"
+
     content_parts = []
     tool_calls = {}      # index → {"id","type","function":{"name","arguments"}}
     finish_reason = None
