@@ -1874,6 +1874,7 @@ def show_help():
     _help_row("/clear", "Bersihkan layar")
     _help_row("/delete-session <nama>", "Hapus session tertentu")
     _help_row("/rename-session <l> <b>", "Rename session")
+    _help_row("/team <tugas>", "Pecah tugas & delegasikan ke agen spesialis")
 
     _help_section("CLI command (dari terminal)")
     _help_row("listSessions", "Daftar semua session tersimpan")
@@ -2033,6 +2034,7 @@ TOOL_LABELS = {
     "delete_folder": "RmDir",
     "list_all":      "Tree",
     "exec_command":  "Bash",
+    "agent":         "Agent",
 }
 
 
@@ -2634,6 +2636,43 @@ TOOLS = [
                 "required": ["command"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent",
+            "description": (
+                "Spawn sub-agent independen untuk menangani satu tugas spesifik. "
+                "Sub-agent memiliki konteks percakapan fresh dan akses ke semua tools "
+                "(read_file, write_file, exec_command, dll). "
+                "Gunakan ini untuk mendelegasikan sub-tugas dalam skenario orchestration: "
+                "misalnya satu agent menganalisis kode, satu lagi menulis dokumentasi, "
+                "satu lagi menjalankan test. Sub-agent berjalan hingga selesai dan "
+                "mengembalikan jawaban akhirnya ke kamu. "
+                "Batas kedalaman sub-agent: 3 level."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": (
+                            "Deskripsi tugas yang akan dikerjakan sub-agent. "
+                            "Tulis dengan jelas dan lengkap karena sub-agent tidak "
+                            "memiliki konteks percakapan utama."
+                        )
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": (
+                            "Konteks tambahan opsional untuk sub-agent, misalnya "
+                            "hasil dari sub-agent sebelumnya atau informasi relevan."
+                        )
+                    }
+                },
+                "required": ["task"]
+            }
+        }
     }
 ]
 
@@ -3131,6 +3170,104 @@ def tool_exec_command(command: str, timeout: int = 60) -> str:
         return f"Error menjalankan perintah: {e}"
 
 
+# ============================================================
+# ORCHESTRATION — Multi-Agent
+# ============================================================
+
+# Kedalaman sub-agent saat ini (0 = agen utama, >0 = sub-agent).
+# Di-increment saat masuk tool_spawn_agent dan di-decrement saat keluar (via finally).
+_AGENT_DEPTH = 0
+_AGENT_MAX_DEPTH = 3   # Cegah rekursi tak terbatas
+
+
+def _show_subagent_banner(task: str, done: bool = False, elapsed: float = 0.0):
+    """
+    Tampilkan panel pembuka/penutup sub-agent ala Claude Code.
+
+    Pembuka:  ╭─ Sub-agent · <task> ──────────────────────╮
+    Penutup:  ╰─ selesai dalam 5s ──────────────────────────╯
+
+    Warna berputar tiap kedalaman: Cyan → Magenta → Yellow.
+    """
+    width = _term_cols() - 4
+    colors = [Style.CYAN, Style.MAGENTA, Style.YELLOW]
+    depth = _AGENT_DEPTH if not done else max(0, _AGENT_DEPTH - 1)
+    color = colors[max(0, depth - 1) % len(colors)]
+
+    if not done:
+        label = f" Sub-agent · {task[:52]}{'…' if len(task) > 52 else ''} "
+        fill = max(0, width - len(label) - 2)
+        line = f"╭─{label}{'─' * fill}─╮"
+    else:
+        label = f" selesai dalam {_format_duration(elapsed)} "
+        fill = max(0, width - len(label) - 2)
+        line = f"╰─{label}{'─' * fill}─╯"
+
+    print(f"\n  {color}{line}{Style.RESET}")
+
+
+def tool_spawn_agent(task: str, context: str = "") -> str:
+    """
+    Spawn sub-agent independen untuk menangani satu tugas spesifik.
+
+    Sub-agent mendapat system prompt fresh + konteks tugas saja (tidak menerisi
+    riwayat percakapan utama). Ia menjalankan agentic loop penuh miliknya sendiri
+    (chat → process_response → tool calls tak terbatas) hingga selesai, lalu
+    mengembalikan teks jawaban akhirnya ke agen yang memanggilnya.
+
+    Returns: teks jawaban akhir sub-agent, atau pesan error.
+    """
+    global _AGENT_DEPTH
+
+    if _AGENT_DEPTH >= _AGENT_MAX_DEPTH:
+        return (
+            f"Error: Kedalaman sub-agent maksimum ({_AGENT_MAX_DEPTH}) sudah tercapai. "
+            "Selesaikan tugas ini langsung tanpa membuat sub-agent baru."
+        )
+
+    # Bangun pesan tugas (opsional sisipkan konteks tambahan)
+    task_content = task
+    if context and context.strip():
+        task_content = f"{task}\n\nKonteks tambahan:\n{context}"
+
+    # Konteks sub-agent yang fresh — tidak membawa riwayat percakapan utama
+    sub_messages = [
+        {"role": "system", "content": get_system_prompt()},
+        {"role": "user", "content": task_content},
+    ]
+
+    # Tampilkan panel pembuka
+    _show_subagent_banner(task, done=False)
+    _AGENT_DEPTH += 1
+    sub_start = time.time()
+
+    try:
+        _spinner.begin_turn()
+        data = chat(sub_messages, temperature=0.7, max_tokens=16384)
+        reply, sub_messages, was_interrupted = process_response(sub_messages, data)
+        _spinner.end_turn()
+
+        sub_elapsed = time.time() - sub_start
+
+        # Tampilkan jawaban akhir sub-agent
+        if reply:
+            _emit_agent_text(reply, interrupted=was_interrupted)
+
+        # Tampilkan panel penutup
+        _show_subagent_banner(task, done=True, elapsed=sub_elapsed)
+
+        return reply or "(sub-agent tidak menghasilkan output)"
+
+    except Exception as e:
+        _spinner.end_turn()
+        sub_elapsed = time.time() - sub_start
+        _show_subagent_banner(task, done=True, elapsed=sub_elapsed)
+        return f"Error sub-agent: {e}"
+
+    finally:
+        _AGENT_DEPTH -= 1
+
+
 def execute_tool(name: str, arguments: dict) -> str:
     if name == "read_file":
         result = tool_read_file(
@@ -3168,6 +3305,11 @@ def execute_tool(name: str, arguments: dict) -> str:
     elif name == "exec_command":
         timeout = arguments.get("timeout", DEFAULT_CMD_TIMEOUT)
         result = tool_exec_command(arguments["command"], timeout)
+    elif name == "agent":
+        result = tool_spawn_agent(
+            arguments["task"],
+            arguments.get("context", ""),
+        )
     else:
         result = f"Error: Tool '{name}' tidak dikenal."
     return result
@@ -3833,6 +3975,26 @@ def chat_session(session_name: str = None):
                     dot = Style.OK if ok else Style.ERR
                     print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
                 continue
+
+            # ── /team — orchestrasi multi-agent ──────────────────────────
+            if user_input.lower().startswith("/team"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) < 2:
+                    print(
+                        f"\n  {Style.WARN}■{Style.RESET}  "
+                        f"{Style.GREY}Gunakan: {Style.GREY_LIGHT}/team <deskripsi tugas>{Style.RESET}"
+                    )
+                    continue
+                task_desc = parts[1].strip()
+                # Ubah user_input menjadi instruksi orchestrasi lalu
+                # fall-through ke normal chat flow (tidak ada continue di sini).
+                user_input = (
+                    f"Orkestrasikan tugas berikut — pecah menjadi sub-tugas independen "
+                    f"dan delegasikan setiap sub-tugas ke agen spesialis menggunakan "
+                    f"tool 'agent'. Setelah semua sub-agent selesai, gabungkan hasilnya "
+                    f"dan beri laporan akhir.\n\nTugas:\n{task_desc}"
+                )
+                # (tidak ada continue — lanjut ke blok normal chat di bawah)
 
             # ── Slash command tak dikenal → jangan kirim ke model ───
             if user_input.startswith("/"):

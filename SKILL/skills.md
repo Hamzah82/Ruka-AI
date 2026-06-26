@@ -21,6 +21,7 @@
 - [11. Browsing & Web Scraping](#11-browsing--web-scraping)
 - [12. Vercel CLI Deploy](#12-vercel-cli-deploy)
 - [13. Email via msmtp](#13-email-via-msmtp)
+- [14. Orchestration & Multi-Agent](#14-orchestration--multi-agent)
 
 ---
 
@@ -71,9 +72,9 @@ User Input → System Prompt + Chat History → OpenRouter API
     → Response: tool_calls → Eksekusi Tool → Kirim hasil → Loop lagi
 ```
 
-### Anggota Tubuh: 12 Tools
+### Anggota Tubuh: 13 Tools
 
-Berikut "anggota tubuhku" — 12 tools yang bisa aku gunakan:
+Berikut "anggota tubuhku" — 13 tools yang bisa aku gunakan:
 
 **Tangan Kanan (File Operations):**
 - `read_file` — Membaca isi file
@@ -94,6 +95,9 @@ Berikut "anggota tubuhku" — 12 tools yang bisa aku gunakan:
 
 **Mulut & Kaki (Terminal Execution):**
 - `exec_command` — Menjalankan perintah bash/shell
+
+**Otak Kolektif (Orchestration):**
+- `agent` — Spawn sub-agent independen untuk mendelegasikan sub-tugas
 
 ### Sensor: Interrupt Mechanism
 
@@ -1006,6 +1010,91 @@ Round 5: exec_command("cat ~/.msmtp.log") → cek log, konfirmasi hasil
 
 ---
 
+## 14. Orchestration & Multi-Agent
+
+Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke agen spesialis yang berjalan secara independen.
+
+### Tool: `agent`
+
+**Kapan digunakan:** Saat tugas terlalu besar atau memerlukan spesialisasi terpisah, pecah menjadi sub-tugas dan delegasikan via tool `agent`.
+
+**Parameter:**
+- `task` (string, required) — Deskripsi tugas yang jelas dan lengkap. Sub-agent TIDAK memiliki konteks percakapan utama, jadi tulis lengkap.
+- `context` (string, optional) — Konteks tambahan, mis. hasil sub-agent sebelumnya.
+
+**Cara kerja sub-agent:**
+1. Mendapat system prompt fresh + tugas yang diberikan
+2. Menjalankan agentic loop penuh (bisa memanggil tools tak terbatas)
+3. Output-nya ditampilkan di terminal dengan panel visual: `╭─ Sub-agent … ╮`
+4. Mengembalikan jawaban akhirnya ke agen yang memanggilnya
+5. Batas kedalaman rekursi: 3 level (sub-agent tidak bisa memanggil agent tak terbatas)
+
+**Pola orchestration:**
+
+```
+Analisis tugas
+    │
+    ▼
+Pecah menjadi sub-tugas independen
+    │
+    ├── agent("Sub-tugas A") → hasil A
+    ├── agent("Sub-tugas B", context=hasil_A) → hasil B
+    └── agent("Sub-tugas C") → hasil C
+    │
+    ▼
+Gabungkan hasil → laporan akhir
+```
+
+**Contoh panggilan:**
+```json
+{"name": "agent", "arguments": {"task": "Analisis semua file .py di direktori kerja dan buat daftar semua fungsi publik beserta deskripsi singkatnya"}}
+```
+
+**Dengan konteks dari sub-agent sebelumnya:**
+```json
+{"name": "agent", "arguments": {
+  "task": "Buat file README.md berisi dokumentasi proyek",
+  "context": "Hasil analisis: proyek berisi main.py dengan fungsi chat(), process_response(), dan 12 tool functions"
+}}
+```
+
+**Slash command: `/team <tugas>`**
+
+Shortcut di prompt utama untuk memulai sesi orchestrasi:
+```
+/team buat project Python Flask lengkap dengan tests dan dokumentasi
+```
+
+Setara dengan mengirim instruksi ke agen utama untuk mendelegasikan ke sub-agen spesialis.
+
+**⚠️ Aturan orchestration:**
+- Tulis `task` dengan lengkap — sub-agent tidak tahu konteks percakapan sebelumnya
+- Gunakan `context` untuk meneruskan hasil sub-agent ke sub-agent berikutnya
+- Jangan memanggil `agent` dari dalam sub-agent yang sudah di kedalaman 3 (error otomatis)
+- Sub-agent memiliki akses ke semua 12 tools yang sama (read_file, exec_command, dll.)
+- Setiap sub-agent berjalan di direktori kerja yang SAMA (BASE_DIR tidak berubah)
+
+**Contoh alur orchestrasi lengkap:**
+```
+User: "Buat dokumentasi lengkap proyek ini"
+
+Agen utama → agent("Analisis struktur proyek dan daftar semua file penting")
+             ╭─ Sub-agent: Analisis struktur proyek... ─────────╮
+               ⏺ Bash(find . -name "*.py" -not -path "*/__pycache__/*")
+               ⏺ Read(main.py) ...
+               ⏺ Daftar: main.py (agen utama), config.py (konfigurasi)...
+             ╰─ selesai dalam 12s ─────────────────────────────╯
+
+Agen utama → agent("Tulis README.md ...", context="Hasil analisis: ...")
+             ╭─ Sub-agent: Tulis README.md ────────────────────╮
+               ⏺ Write(README.md) ...
+             ╰─ selesai dalam 8s ──────────────────────────────╯
+
+Agen utama: Dokumentasi berhasil dibuat di README.md.
+```
+
+---
+
 ## 📊 Quick Reference Card
 
 ```
@@ -1064,6 +1153,12 @@ Round 5: exec_command("cat ~/.msmtp.log") → cek log, konfirmasi hasil
 │    Kirim: echo -e "Subject: ...\n\n..." | msmtp          │
 │           --file=SKILL/config/email/msmtprc tujuan@gmail.com │
 │    Gmail wajib App Password + permission 600             │
+│                                                          │
+│  ORCHESTRATION:                                          │
+│    agent(task, context="")  → Spawn sub-agent independen │
+│    /team <tugas>            → Shortcut orchestrasi        │
+│    Max depth: 3 level rekursi                            │
+│    Sub-agent: fresh context, akses semua tools           │
 │                                                          │
 │  RULES:                                                  │
 │    ✅ Bahasa Indonesia                                    │
