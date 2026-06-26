@@ -72,9 +72,9 @@ User Input → System Prompt + Chat History → OpenRouter API
     → Response: tool_calls → Eksekusi Tool → Kirim hasil → Loop lagi
 ```
 
-### Anggota Tubuh: 13 Tools
+### Anggota Tubuh: 14 Tools
 
-Berikut "anggota tubuhku" — 13 tools yang bisa aku gunakan:
+Berikut "anggota tubuhku" — 14 tools yang bisa aku gunakan:
 
 **Tangan Kanan (File Operations):**
 - `read_file` — Membaca isi file
@@ -98,6 +98,7 @@ Berikut "anggota tubuhku" — 13 tools yang bisa aku gunakan:
 
 **Otak Kolektif (Orchestration):**
 - `agent` — Spawn sub-agent independen untuk mendelegasikan sub-tugas
+- `discuss` — Diskusi kolaboratif multi-agent dengan shared context & Koordinator
 
 ### Sensor: Interrupt Mechanism
 
@@ -1067,6 +1068,72 @@ Shortcut di prompt utama untuk memulai sesi orchestrasi:
 
 Setara dengan mengirim instruksi ke agen utama untuk mendelegasikan ke sub-agen spesialis.
 
+---
+
+### Tool: `discuss`
+
+**Kapan digunakan:** Saat masalah butuh perspektif beragam atau keputusan kolektif — agent saling membaca, merespons, dan menyempurnakan ide satu sama lain.
+
+**Perbedaan dengan `agent`:**
+
+- `agent(task)` — satu sub-agent bekerja sendiri, tidak tahu apa yang dikerjakan agent lain
+- `discuss(topic, team)` — semua agent **melihat diskusi satu sama lain** dan bisa merespons secara eksplisit, layaknya rapat tim
+
+**Parameter:**
+- `topic` (string, required) — topik atau masalah yang didiskusikan
+- `team` (array, required) — 2-6 anggota, masing-masing `{"name": str, "role": str}`
+- `rounds` (integer, optional, default 2) — jumlah putaran diskusi (1-4). Putaran >1 memungkinkan revisi setelah mendengar argumen tim
+
+**Cara kerja:**
+1. Setiap anggota tim tampil satu per satu dengan header `◆ Nama  (Putaran N)`
+2. Anggota membaca SEMUA kontribusi sebelumnya, lalu memberikan pandangannya — bisa setuju, sanggah, atau sempurnakan
+3. Setiap anggota bisa menggunakan tools (read_file, exec_command, dll.) untuk mengumpulkan data
+4. Setelah semua putaran, **Koordinator** merangkum: poin sepakat, perbedaan, keputusan akhir, langkah selanjutnya
+
+**Tampilan diskusi:**
+```
+╭─ Tim · Rancang arsitektur API proyek ini ─────────────────────╮
+
+  ◆ Backend_Dev  (Putaran 1)
+  └ Merancang sisi server dan API endpoint
+  ────────────────────────────────────────
+  Saya rekomendasikan FastAPI karena async support-nya...
+  
+  ◆ Security_Expert  (Putaran 1)
+  └ Menganalisis aspek keamanan
+  ────────────────────────────────────────
+  Setuju soal FastAPI, tapi kita perlu tambah rate limiting...
+  
+  ◆ Backend_Dev  (Putaran 2)
+  └ Merancang sisi server dan API endpoint
+  ────────────────────────────────────────
+  Poin bagus dari Security_Expert. Saya revisi: pakai FastAPI
+  + slowapi untuk rate limiting + JWT auth...
+  
+  ◆ Koordinator  (Sintesis)
+  └ Merangkum dan mensintesis hasil diskusi tim
+  ────────────────────────────────────────
+  Tim sepakat: FastAPI + slowapi + JWT. Langkah: ...
+
+╰─ diskusi selesai dalam 1m 45s ────────────────────────────────╯
+```
+
+**Contoh panggilan:**
+```json
+{
+  "name": "discuss",
+  "arguments": {
+    "topic": "Pilih database yang tepat untuk aplikasi chat real-time",
+    "team": [
+      {"name": "Backend_Dev", "role": "Implementasi dan performa"},
+      {"name": "DBA", "role": "Database design dan skalabilitas"},
+      {"name": "DevOps", "role": "Infrastruktur dan operasional"}
+    ],
+    "rounds": 2
+  }
+}
+```
+
 **⚠️ Aturan orchestration:**
 - Tulis `task` dengan lengkap — sub-agent tidak tahu konteks percakapan sebelumnya
 - Gunakan `context` untuk meneruskan hasil sub-agent ke sub-agent berikutnya
@@ -1155,10 +1222,13 @@ Agen utama: Dokumentasi berhasil dibuat di README.md.
 │    Gmail wajib App Password + permission 600             │
 │                                                          │
 │  ORCHESTRATION:                                          │
-│    agent(task, context="")  → Spawn sub-agent independen │
-│    /team <tugas>            → Shortcut orchestrasi        │
+│    agent(task, context="")  → Sub-agent independen       │
+│    discuss(topic, team, rounds=2) → Diskusi kolaboratif  │
+│      team: [{"name":..,"role":..}]  (2-6 anggota)       │
+│      Setiap agent baca diskusi sebelumnya → bisa respons │
+│      Koordinator merangkum di akhir                      │
+│    /team <tugas>  → Shortcut bentuk tim & diskusi        │
 │    Max depth: 3 level rekursi                            │
-│    Sub-agent: fresh context, akses semua tools           │
 │                                                          │
 │  RULES:                                                  │
 │    ✅ Bahasa Indonesia                                    │

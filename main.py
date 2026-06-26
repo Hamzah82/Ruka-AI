@@ -1874,7 +1874,7 @@ def show_help():
     _help_row("/clear", "Bersihkan layar")
     _help_row("/delete-session <nama>", "Hapus session tertentu")
     _help_row("/rename-session <l> <b>", "Rename session")
-    _help_row("/team <tugas>", "Pecah tugas & delegasikan ke agen spesialis")
+    _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
 
     _help_section("CLI command (dari terminal)")
     _help_row("listSessions", "Daftar semua session tersimpan")
@@ -2035,6 +2035,7 @@ TOOL_LABELS = {
     "list_all":      "Tree",
     "exec_command":  "Bash",
     "agent":         "Agent",
+    "discuss":       "Discuss",
 }
 
 
@@ -2673,6 +2674,66 @@ TOOLS = [
                 "required": ["task"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "discuss",
+            "description": (
+                "Mulai diskusi kolaboratif antara beberapa agen dengan peran berbeda. "
+                "Setiap anggota tim MELIHAT seluruh riwayat diskusi sebelum giliran mereka "
+                "sehingga bisa merespons, menyanggah, atau menyempurnakan argumen anggota lain. "
+                "Setelah semua putaran, Koordinator merangkum hasil dan memberikan keputusan akhir. "
+                "Gunakan ini untuk masalah yang butuh perspektif beragam, "
+                "tinjauan kolektif, atau keputusan bersama."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": (
+                            "Topik atau masalah yang akan didiskusikan tim. "
+                            "Tulis dengan jelas agar setiap anggota memahami konteksnya."
+                        )
+                    },
+                    "team": {
+                        "type": "array",
+                        "description": (
+                            "Daftar anggota tim (2-6 orang), masing-masing dengan nama dan peran. "
+                            "Pilih peran yang saling melengkapi, misalnya: "
+                            "Developer + Reviewer + Tester untuk tugas coding; "
+                            "Arsitek + Implementer + Risk_Analyst untuk perencanaan; "
+                            "Penulis + Editor + Kritikus untuk tugas menulis."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Nama anggota tim, mis. 'Backend_Dev', 'Reviewer'."
+                                },
+                                "role": {
+                                    "type": "string",
+                                    "description": "Peran dan fokus anggota ini dalam diskusi."
+                                }
+                            },
+                            "required": ["name", "role"]
+                        }
+                    },
+                    "rounds": {
+                        "type": "integer",
+                        "description": (
+                            "Jumlah putaran diskusi (default 2, maks 4). "
+                            "Putaran >1 memungkinkan anggota merevisi pandangan "
+                            "setelah membaca respons tim."
+                        ),
+                        "default": 2
+                    }
+                },
+                "required": ["topic", "team"]
+            }
+        }
     }
 ]
 
@@ -3206,6 +3267,49 @@ def _show_subagent_banner(task: str, done: bool = False, elapsed: float = 0.0):
     print(f"\n  {color}{line}{Style.RESET}")
 
 
+def _show_team_banner(topic: str, done: bool = False, elapsed: float = 0.0):
+    """
+    Panel pembuka/penutup sesi diskusi tim.
+    Warna ACCENT (coral) — berbeda dari panel sub-agent (Cyan/Magenta/Yellow)
+    agar tim mudah dibedakan secara visual.
+
+    Pembuka:  ╭─ Tim · <topic> ──────────────────────────────╮
+    Penutup:  ╰─ diskusi selesai dalam 2m 5s ────────────────╯
+    """
+    width = _term_cols() - 4
+    color = Style.ACCENT
+
+    if not done:
+        label = f" Tim · {topic[:46]}{'…' if len(topic) > 46 else ''} "
+        fill = max(0, width - len(label) - 2)
+        line = f"╭─{label}{'─' * fill}─╮"
+    else:
+        label = f" diskusi selesai dalam {_format_duration(elapsed)} "
+        fill = max(0, width - len(label) - 2)
+        line = f"╰─{label}{'─' * fill}─╯"
+
+    print(f"\n  {color}{line}{Style.RESET}")
+
+
+def _show_team_member_header(name: str, role: str, round_label, color: str):
+    """
+    Header speaker dalam diskusi tim:
+
+        ◆ Nama  (Putaran 1)
+        └ Peran anggota ini
+        ──────────────────────────────────────
+    """
+    round_str = (
+        f"Putaran {round_label}" if isinstance(round_label, int) else str(round_label)
+    )
+    print(
+        f"\n  {color}◆ {Style.BOLD}{name}{Style.RESET}"
+        f"  {Style.GREY}({round_str}){Style.RESET}"
+    )
+    print(f"  {Style.GREY_DARK}└ {Style.GREY}{role}{Style.RESET}")
+    print(f"  {color}{'─' * max(4, _term_cols() - 8)}{Style.RESET}")
+
+
 def tool_spawn_agent(task: str, context: str = "") -> str:
     """
     Spawn sub-agent independen untuk menangani satu tugas spesifik.
@@ -3242,10 +3346,8 @@ def tool_spawn_agent(task: str, context: str = "") -> str:
     sub_start = time.time()
 
     try:
-        _spinner.begin_turn()
         data = chat(sub_messages, temperature=0.7, max_tokens=16384)
         reply, sub_messages, was_interrupted = process_response(sub_messages, data)
-        _spinner.end_turn()
 
         sub_elapsed = time.time() - sub_start
 
@@ -3259,10 +3361,173 @@ def tool_spawn_agent(task: str, context: str = "") -> str:
         return reply or "(sub-agent tidak menghasilkan output)"
 
     except Exception as e:
-        _spinner.end_turn()
         sub_elapsed = time.time() - sub_start
         _show_subagent_banner(task, done=True, elapsed=sub_elapsed)
         return f"Error sub-agent: {e}"
+
+    finally:
+        _AGENT_DEPTH -= 1
+
+
+def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
+    """
+    Mulai diskusi kolaboratif antara beberapa agen dengan peran berbeda.
+
+    Setiap anggota tim MELIHAT seluruh riwayat diskusi sebelum giliran mereka —
+    termasuk argumen anggota lain — sehingga mereka dapat merespons, menyanggah,
+    atau menyempurnakan ide secara eksplisit. Setelah semua putaran selesai,
+    Koordinator merangkum hasil diskusi dan memberikan keputusan akhir.
+
+    topic  : topik atau masalah yang didiskusikan
+    team   : list of {"name": str, "role": str} — minimal 2, maksimal 6 anggota
+    rounds : jumlah putaran diskusi (1-4, default 2)
+    """
+    global _AGENT_DEPTH
+
+    if _AGENT_DEPTH >= _AGENT_MAX_DEPTH:
+        return (
+            f"Error: Kedalaman sub-agent maksimum ({_AGENT_MAX_DEPTH}) tercapai. "
+            "Tidak bisa memulai diskusi tim baru."
+        )
+    if not isinstance(team, list) or not team:
+        return "Error: Parameter 'team' harus berupa daftar anggota tim."
+    if len(team) < 2:
+        return "Error: Diskusi tim membutuhkan minimal 2 anggota."
+    if len(team) > 6:
+        return "Error: Maksimum 6 anggota tim per diskusi."
+
+    rounds = max(1, min(int(rounds), 4))
+
+    # Riwayat diskusi bersama — semua anggota bisa membaca ini tiap giliran
+    discussion: list[dict] = []  # {"name": str, "round": int, "content": str}
+
+    # Warna per anggota (deterministik by index)
+    member_colors = [
+        Style.CYAN, Style.MAGENTA, Style.YELLOW,
+        Style.GREEN, Style.ORANGE, Style.PINK,
+    ]
+
+    _show_team_banner(topic, done=False)
+    _AGENT_DEPTH += 1
+    disc_start = time.time()
+
+    try:
+        # ── Putaran diskusi ──────────────────────────────────────────
+        for round_num in range(1, rounds + 1):
+            for i, member in enumerate(team):
+                name = member.get("name", f"Agen {i + 1}")
+                role = member.get("role", "Anggota tim")
+                color = member_colors[i % len(member_colors)]
+
+                _show_team_member_header(name, role, round_num, color)
+
+                # Susun riwayat diskusi untuk konteks member ini
+                if discussion:
+                    hist_parts = [
+                        f"[{d['name']}, Putaran {d['round']}]:\n{d['content']}"
+                        for d in discussion
+                    ]
+                    context_part = (
+                        "\n\nRiwayat diskusi tim sejauh ini:\n"
+                        + "\n\n".join(hist_parts)
+                    )
+                else:
+                    context_part = ""
+
+                if round_num == 1:
+                    turn_note = (
+                        "Ini putaran pertama. Berikan pandangan awalmu tentang topik ini. "
+                        "Kamu bisa menggunakan tools (read_file, exec_command, dll.) "
+                        "untuk mengumpulkan informasi sebelum berpendapat."
+                    )
+                else:
+                    turn_note = (
+                        f"Ini putaran {round_num}. Baca kontribusi tim di atas, "
+                        "lalu respons mereka — setuju, sanggah, atau sempurnakan. "
+                        "Sebutkan nama anggota secara eksplisit jika kamu merespons "
+                        "poin spesifik mereka. "
+                        "Revisi pandanganmu jika ada argumen yang meyakinkan."
+                    )
+
+                member_prompt = (
+                    f"Kamu adalah **{name}** dalam sebuah diskusi tim.\n"
+                    f"Peranmu: {role}\n\n"
+                    f"Topik diskusi: {topic}"
+                    f"{context_part}\n\n"
+                    f"{turn_note}"
+                )
+
+                sub_messages = [
+                    {"role": "system", "content": get_system_prompt()},
+                    {"role": "user", "content": member_prompt},
+                ]
+
+                try:
+                    data = chat(sub_messages, temperature=0.7, max_tokens=16384)
+                    reply, sub_messages, was_interrupted = process_response(
+                        sub_messages, data
+                    )
+                    if reply:
+                        _emit_agent_text(reply, interrupted=was_interrupted)
+                        discussion.append(
+                            {"name": name, "round": round_num, "content": reply}
+                        )
+                    else:
+                        discussion.append(
+                            {"name": name, "round": round_num,
+                             "content": "(tidak ada respons)"}
+                        )
+                except Exception as e:
+                    err = f"Error anggota {name}: {e}"
+                    discussion.append(
+                        {"name": name, "round": round_num, "content": err}
+                    )
+                    _emit_agent_text(err)
+
+        # ── Sintesis Koordinator ────────────────────────────────────
+        synthesis = ""
+        if discussion:
+            _show_team_member_header(
+                "Koordinator",
+                "Merangkum dan mensintesis hasil diskusi tim",
+                "Sintesis",
+                Style.ACCENT,
+            )
+            hist_parts = [
+                f"[{d['name']}, Putaran {d['round']}]:\n{d['content']}"
+                for d in discussion
+            ]
+            synthesis_prompt = (
+                f"Kamu adalah koordinator yang merangkum hasil diskusi tim.\n\n"
+                f"Topik: {topic}\n\n"
+                f"Diskusi tim:\n" + "\n\n".join(hist_parts) + "\n\n"
+                "Buat rangkuman yang mencakup:\n"
+                "1. Poin-poin yang disepakati tim\n"
+                "2. Perbedaan pendapat yang masih ada (jika ada)\n"
+                "3. Rekomendasi atau keputusan akhir\n"
+                "4. Langkah selanjutnya yang konkret"
+            )
+            synth_messages = [
+                {"role": "system", "content": get_system_prompt()},
+                {"role": "user", "content": synthesis_prompt},
+            ]
+            try:
+                data = chat(synth_messages, temperature=0.7, max_tokens=16384)
+                synthesis, synth_messages, _ = process_response(synth_messages, data)
+                if synthesis:
+                    _emit_agent_text(synthesis)
+            except Exception as e:
+                synthesis = f"Error sintesis: {e}"
+
+        elapsed = time.time() - disc_start
+        _show_team_banner(topic, done=True, elapsed=elapsed)
+
+        members_str = ", ".join(m.get("name", "?") for m in team)
+        return (
+            f"Diskusi tim selesai: {len(discussion)} kontribusi dari {members_str} "
+            f"({rounds} putaran, {_format_duration(elapsed)}).\n\n"
+            f"Sintesis:\n{synthesis or '(tidak ada sintesis)'}"
+        )
 
     finally:
         _AGENT_DEPTH -= 1
@@ -3309,6 +3574,12 @@ def execute_tool(name: str, arguments: dict) -> str:
         result = tool_spawn_agent(
             arguments["task"],
             arguments.get("context", ""),
+        )
+    elif name == "discuss":
+        result = tool_team_discuss(
+            arguments["topic"],
+            arguments.get("team", []),
+            arguments.get("rounds", 2),
         )
     else:
         result = f"Error: Tool '{name}' tidak dikenal."
@@ -3989,10 +4260,13 @@ def chat_session(session_name: str = None):
                 # Ubah user_input menjadi instruksi orchestrasi lalu
                 # fall-through ke normal chat flow (tidak ada continue di sini).
                 user_input = (
-                    f"Orkestrasikan tugas berikut — pecah menjadi sub-tugas independen "
-                    f"dan delegasikan setiap sub-tugas ke agen spesialis menggunakan "
-                    f"tool 'agent'. Setelah semua sub-agent selesai, gabungkan hasilnya "
-                    f"dan beri laporan akhir.\n\nTugas:\n{task_desc}"
+                    f"Bentuk tim dan mulai diskusi kolaboratif untuk topik berikut "
+                    f"menggunakan tool 'discuss'. Tentukan 2-4 anggota tim dengan peran "
+                    f"yang saling melengkapi sesuai jenis tugas (contoh — coding: "
+                    f"Developer, Reviewer, Tester; perencanaan: Arsitek, Implementer, "
+                    f"Risk_Analyst; penulisan: Penulis, Editor, Kritikus). Gunakan 2 "
+                    f"putaran agar tim bisa saling merespons dan menyempurnakan ide.\n\n"
+                    f"Topik:\n{task_desc}"
                 )
                 # (tidak ada continue — lanjut ke blok normal chat di bawah)
 
