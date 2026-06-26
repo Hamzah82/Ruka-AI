@@ -72,9 +72,9 @@ User Input → System Prompt + Chat History → OpenRouter API
     → Response: tool_calls → Eksekusi Tool → Kirim hasil → Loop lagi
 ```
 
-### Anggota Tubuh: 14 Tools
+### Anggota Tubuh: 13 Tools
 
-Berikut "anggota tubuhku" — 14 tools yang bisa aku gunakan:
+Berikut "anggota tubuhku" — 13 tools yang bisa aku gunakan:
 
 **Tangan Kanan (File Operations):**
 - `read_file` — Membaca isi file
@@ -97,7 +97,6 @@ Berikut "anggota tubuhku" — 14 tools yang bisa aku gunakan:
 - `exec_command` — Menjalankan perintah bash/shell
 
 **Otak Kolektif (Orchestration):**
-- `agent` — Spawn sub-agent independen untuk mendelegasikan sub-tugas
 - `discuss` — Diskusi kolaboratif multi-agent dengan shared context & Koordinator
 
 ### Sensor: Interrupt Mechanism
@@ -1015,69 +1014,9 @@ Round 5: exec_command("cat ~/.msmtp.log") → cek log, konfirmasi hasil
 
 Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke agen spesialis yang berjalan secara independen.
 
-### Tool: `agent`
-
-**Kapan digunakan:** Saat tugas terlalu besar atau memerlukan spesialisasi terpisah, pecah menjadi sub-tugas dan delegasikan via tool `agent`.
-
-**Parameter:**
-- `task` (string, required) — Deskripsi tugas yang jelas dan lengkap. Sub-agent TIDAK memiliki konteks percakapan utama, jadi tulis lengkap.
-- `context` (string, optional) — Konteks tambahan, mis. hasil sub-agent sebelumnya.
-
-**Cara kerja sub-agent:**
-1. Mendapat system prompt fresh + tugas yang diberikan
-2. Menjalankan agentic loop penuh (bisa memanggil tools tak terbatas)
-3. Output-nya ditampilkan di terminal dengan panel visual: `╭─ Sub-agent … ╮`
-4. Mengembalikan jawaban akhirnya ke agen yang memanggilnya
-5. Batas kedalaman rekursi: 3 level (sub-agent tidak bisa memanggil agent tak terbatas)
-
-**Pola orchestration:**
-
-```
-Analisis tugas
-    │
-    ▼
-Pecah menjadi sub-tugas independen
-    │
-    ├── agent("Sub-tugas A") → hasil A
-    ├── agent("Sub-tugas B", context=hasil_A) → hasil B
-    └── agent("Sub-tugas C") → hasil C
-    │
-    ▼
-Gabungkan hasil → laporan akhir
-```
-
-**Contoh panggilan:**
-```json
-{"name": "agent", "arguments": {"task": "Analisis semua file .py di direktori kerja dan buat daftar semua fungsi publik beserta deskripsi singkatnya"}}
-```
-
-**Dengan konteks dari sub-agent sebelumnya:**
-```json
-{"name": "agent", "arguments": {
-  "task": "Buat file README.md berisi dokumentasi proyek",
-  "context": "Hasil analisis: proyek berisi main.py dengan fungsi chat(), process_response(), dan 12 tool functions"
-}}
-```
-
-**Slash command: `/team <tugas>`**
-
-Shortcut di prompt utama untuk memulai sesi orchestrasi:
-```
-/team buat project Python Flask lengkap dengan tests dan dokumentasi
-```
-
-Setara dengan mengirim instruksi ke agen utama untuk mendelegasikan ke sub-agen spesialis.
-
----
-
 ### Tool: `discuss`
 
 **Kapan digunakan:** Saat masalah butuh perspektif beragam atau keputusan kolektif — agent saling membaca, merespons, dan menyempurnakan ide satu sama lain.
-
-**Perbedaan dengan `agent`:**
-
-- `agent(task)` — satu sub-agent bekerja sendiri, tidak tahu apa yang dikerjakan agent lain
-- `discuss(topic, team)` — semua agent **melihat diskusi satu sama lain** dan bisa merespons secara eksplisit, layaknya rapat tim
 
 **Parameter:**
 - `topic` (string, required) — topik atau masalah yang didiskusikan
@@ -1224,13 +1163,12 @@ Agen utama: Dokumentasi berhasil dibuat di README.md.
 │    Gmail wajib App Password + permission 600             │
 │                                                          │
 │  ORCHESTRATION:                                          │
-│    agent(task, context="")  → Sub-agent independen       │
-│    discuss(topic, team, rounds=2) → Diskusi kolaboratif  │
+│    discuss(topic, team, max_rounds=8)                    │
 │      team: [{"name":..,"role":..}]  (2-6 anggota)       │
 │      Setiap agent baca diskusi sebelumnya → bisa respons │
-│      Koordinator merangkum di akhir                      │
+│      Koordinator pantau & tutup saat diskusi matang      │
 │    /team <tugas>  → Shortcut bentuk tim & diskusi        │
-│    Max depth: 3 level rekursi                            │
+│    Max depth: 3 level rekursi diskusi                    │
 │                                                          │
 │  RULES:                                                  │
 │    ✅ Bahasa Indonesia                                    │
