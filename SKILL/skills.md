@@ -1082,13 +1082,16 @@ Setara dengan mengirim instruksi ke agen utama untuk mendelegasikan ke sub-agen 
 **Parameter:**
 - `topic` (string, required) — topik atau masalah yang didiskusikan
 - `team` (array, required) — 2-6 anggota, masing-masing `{"name": str, "role": str}`
-- `rounds` (integer, optional, default 2) — jumlah putaran diskusi (1-4). Putaran >1 memungkinkan revisi setelah mendengar argumen tim
+- `max_rounds` (integer, optional, default 8) — batas keamanan putaran. Diskusi bisa selesai lebih awal kapan saja jika koordinator menilai sudah matang.
 
 **Cara kerja:**
 1. Setiap anggota tim tampil satu per satu dengan header `◆ Nama  (Putaran N)`
 2. Anggota membaca SEMUA kontribusi sebelumnya, lalu memberikan pandangannya — bisa setuju, sanggah, atau sempurnakan
 3. Setiap anggota bisa menggunakan tools (read_file, exec_command, dll.) untuk mengumpulkan data
-4. Setelah semua putaran, **Koordinator** merangkum: poin sepakat, perbedaan, keputusan akhir, langkah selanjutnya
+4. Setelah setiap putaran selesai, **Koordinator mengevaluasi**: diskusi sudah matang atau perlu lanjut?
+   - Jika `LANJUT` → putaran berikutnya dimulai, tim diberi tahu apa yang masih perlu dibahas
+   - Jika `SELESAI` → diskusi ditutup, Koordinator merangkum hasil
+5. Diskusi berlanjut sampai Koordinator puas, bukan berdasarkan jumlah putaran yang ditentukan
 
 **Tampilan diskusi:**
 ```
@@ -1128,8 +1131,7 @@ Setara dengan mengirim instruksi ke agen utama untuk mendelegasikan ke sub-agen 
       {"name": "Backend_Dev", "role": "Implementasi dan performa"},
       {"name": "DBA", "role": "Database design dan skalabilitas"},
       {"name": "DevOps", "role": "Infrastruktur dan operasional"}
-    ],
-    "rounds": 2
+    ]
   }
 }
 ```

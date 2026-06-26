@@ -2721,14 +2721,15 @@ TOOLS = [
                             "required": ["name", "role"]
                         }
                     },
-                    "rounds": {
+                    "max_rounds": {
                         "type": "integer",
                         "description": (
-                            "Jumlah putaran diskusi (default 2, maks 4). "
-                            "Putaran >1 memungkinkan anggota merevisi pandangan "
-                            "setelah membaca respons tim."
+                            "Batas keamanan jumlah putaran (default 8). "
+                            "Diskusi bisa selesai lebih awal kapan saja jika koordinator "
+                            "menilai diskusi sudah matang — tidak perlu menunggu max_rounds. "
+                            "Naikkan jika topik sangat kompleks dan butuh lebih banyak iterasi."
                         ),
-                        "default": 2
+                        "default": 8
                     }
                 },
                 "required": ["topic", "team"]
@@ -3369,18 +3370,71 @@ def tool_spawn_agent(task: str, context: str = "") -> str:
         _AGENT_DEPTH -= 1
 
 
-def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
+def _coordinator_check(topic: str, discussion: list) -> tuple:
+    """
+    Tanya koordinator apakah diskusi sudah cukup matang untuk ditutup.
+    Panggilan ringan (tanpa tools, max 400 token) agar cepat.
+    Returns (is_done: bool, note: str)
+      - is_done=True  → koordinator minta tutup diskusi
+      - is_done=False → koordinator minta lanjut + catatan apa yg perlu dibahas
+    """
+    hist_parts = [
+        f"[{d['name']}, Putaran {d['round']}]:\n{d['content'][:600]}"
+        for d in discussion
+    ]
+    check_messages = [
+        {
+            "role": "system",
+            "content": (
+                "Kamu adalah koordinator diskusi yang bertugas menilai kematangan "
+                "sebuah diskusi tim. Jawab singkat dan langsung."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Topik diskusi: {topic}\n\n"
+                f"Diskusi sejauh ini ({len(discussion)} kontribusi):\n"
+                + "\n\n".join(hist_parts)
+                + "\n\nEvaluasi: Apakah diskusi ini sudah cukup matang untuk ditutup?\n"
+                "Pertimbangkan:\n"
+                "- Sudahkah semua perspektif penting dibahas?\n"
+                "- Apakah tim sudah mencapai konsensus atau keputusan yang jelas?\n"
+                "- Apakah masih ada pertanyaan kritis yang belum terjawab?\n\n"
+                "Jika SUDAH selesai → mulai jawaban dengan kata SELESAI\n"
+                "Jika BELUM selesai → mulai jawaban dengan kata LANJUT "
+                "dan sebutkan maksimal 3 poin yang masih perlu dibahas di putaran berikutnya."
+            ),
+        },
+    ]
+    try:
+        data = chat(check_messages, temperature=0.2, max_tokens=400,
+                    include_tools=False)
+        reply = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content") or ""
+        ).strip()
+        is_done = reply.upper().startswith("SELESAI")
+        return is_done, reply
+    except Exception as e:
+        # Jika gagal → anggap belum selesai (safer: lanjut daripada cut off)
+        return False, f"(Error cek koordinator: {e})"
+
+
+def tool_team_discuss(topic: str, team: list, max_rounds: int = 8) -> str:
     """
     Mulai diskusi kolaboratif antara beberapa agen dengan peran berbeda.
 
-    Setiap anggota tim MELIHAT seluruh riwayat diskusi sebelum giliran mereka —
-    termasuk argumen anggota lain — sehingga mereka dapat merespons, menyanggah,
-    atau menyempurnakan ide secara eksplisit. Setelah semua putaran selesai,
-    Koordinator merangkum hasil diskusi dan memberikan keputusan akhir.
+    Setiap anggota tim MELIHAT seluruh riwayat diskusi sebelum giliran mereka
+    sehingga bisa merespons, menyanggah, atau menyempurnakan argumen anggota lain.
+    Setelah setiap putaran, Koordinator mengevaluasi apakah diskusi sudah matang.
+    Jika belum → lanjut putaran berikutnya dengan catatan apa yang masih perlu dibahas.
+    Jika sudah → Koordinator menutup dan merangkum diskusi.
 
-    topic  : topik atau masalah yang didiskusikan
-    team   : list of {"name": str, "role": str} — minimal 2, maksimal 6 anggota
-    rounds : jumlah putaran diskusi (1-4, default 2)
+    topic      : topik atau masalah yang didiskusikan
+    team       : list of {"name": str, "role": str} — minimal 2, maksimal 6 anggota
+    max_rounds : batas keamanan putaran (default 8); diskusi bisa selesai lebih awal
     """
     global _AGENT_DEPTH
 
@@ -3396,7 +3450,7 @@ def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
     if len(team) > 6:
         return "Error: Maksimum 6 anggota tim per diskusi."
 
-    rounds = max(1, min(int(rounds), 4))
+    max_rounds = max(1, int(max_rounds))
 
     # Riwayat diskusi bersama — semua anggota bisa membaca ini tiap giliran
     discussion: list[dict] = []  # {"name": str, "round": int, "content": str}
@@ -3411,9 +3465,22 @@ def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
     _AGENT_DEPTH += 1
     disc_start = time.time()
 
+    coordinator_note = ""  # catatan koordinator untuk putaran berikutnya
+
     try:
-        # ── Putaran diskusi ──────────────────────────────────────────
-        for round_num in range(1, rounds + 1):
+        round_num = 0
+        while True:
+            round_num += 1
+
+            # ── Batas keamanan ───────────────────────────────────────
+            if round_num > max_rounds:
+                print(
+                    f"\n  {Style.WARN}◈ Batas keamanan {max_rounds} putaran tercapai "
+                    f"— menutup diskusi.{Style.RESET}"
+                )
+                break
+
+            # ── Setiap anggota tim berbicara ────────────────────────
             for i, member in enumerate(team):
                 name = member.get("name", f"Agen {i + 1}")
                 role = member.get("role", "Anggota tim")
@@ -3434,6 +3501,7 @@ def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
                 else:
                     context_part = ""
 
+                # Instruksi giliran
                 if round_num == 1:
                     turn_note = (
                         "Ini putaran pertama. Berikan pandangan awalmu tentang topik ini. "
@@ -3441,12 +3509,16 @@ def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
                         "untuk mengumpulkan informasi sebelum berpendapat."
                     )
                 else:
+                    unresolved = (
+                        f"\n\nCatatan koordinator — poin yang masih perlu dibahas:\n"
+                        f"{coordinator_note}"
+                        if coordinator_note else ""
+                    )
                     turn_note = (
                         f"Ini putaran {round_num}. Baca kontribusi tim di atas, "
                         "lalu respons mereka — setuju, sanggah, atau sempurnakan. "
                         "Sebutkan nama anggota secara eksplisit jika kamu merespons "
-                        "poin spesifik mereka. "
-                        "Revisi pandanganmu jika ada argumen yang meyakinkan."
+                        f"poin spesifik mereka.{unresolved}"
                     )
 
                 member_prompt = (
@@ -3484,7 +3556,35 @@ def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
                     )
                     _emit_agent_text(err)
 
-        # ── Sintesis Koordinator ────────────────────────────────────
+            # ── Koordinator mengevaluasi setelah putaran selesai ────
+            print(
+                f"\n  {Style.GREY_DARK}◈ Koordinator mengevaluasi putaran "
+                f"{round_num}…{Style.RESET}"
+            )
+            is_done, coord_reply = _coordinator_check(topic, discussion)
+
+            if is_done:
+                print(
+                    f"  {Style.OK}◈ Koordinator: diskusi selesai "
+                    f"— merangkum.{Style.RESET}"
+                )
+                break
+            else:
+                # Ekstrak catatan untuk putaran berikutnya (buang kata LANJUT)
+                coordinator_note = (
+                    coord_reply
+                    .replace("LANJUT", "").replace("lanjut", "")
+                    .strip(" :\n")
+                )
+                note_preview = coordinator_note[:180]
+                print(
+                    f"  {Style.WARN}◈ Koordinator: lanjut ke putaran "
+                    f"{round_num + 1}.{Style.RESET}"
+                )
+                if note_preview:
+                    print(f"  {Style.GREY}  └ {note_preview}{Style.RESET}")
+
+        # ── Sintesis akhir oleh Koordinator ────────────────────────
         synthesis = ""
         if discussion:
             _show_team_member_header(
@@ -3500,8 +3600,9 @@ def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
             synthesis_prompt = (
                 f"Kamu adalah koordinator yang merangkum hasil diskusi tim.\n\n"
                 f"Topik: {topic}\n\n"
-                f"Diskusi tim:\n" + "\n\n".join(hist_parts) + "\n\n"
-                "Buat rangkuman yang mencakup:\n"
+                f"Diskusi tim ({round_num} putaran):\n"
+                + "\n\n".join(hist_parts)
+                + "\n\nBuat rangkuman yang mencakup:\n"
                 "1. Poin-poin yang disepakati tim\n"
                 "2. Perbedaan pendapat yang masih ada (jika ada)\n"
                 "3. Rekomendasi atau keputusan akhir\n"
@@ -3525,7 +3626,7 @@ def tool_team_discuss(topic: str, team: list, rounds: int = 2) -> str:
         members_str = ", ".join(m.get("name", "?") for m in team)
         return (
             f"Diskusi tim selesai: {len(discussion)} kontribusi dari {members_str} "
-            f"({rounds} putaran, {_format_duration(elapsed)}).\n\n"
+            f"({round_num} putaran, {_format_duration(elapsed)}).\n\n"
             f"Sintesis:\n{synthesis or '(tidak ada sintesis)'}"
         )
 
@@ -3579,7 +3680,7 @@ def execute_tool(name: str, arguments: dict) -> str:
         result = tool_team_discuss(
             arguments["topic"],
             arguments.get("team", []),
-            arguments.get("rounds", 2),
+            arguments.get("max_rounds", 8),
         )
     else:
         result = f"Error: Tool '{name}' tidak dikenal."
@@ -3784,7 +3885,8 @@ def _trim_history(messages: list, max_tokens: int = None, keep_recent: int = Non
 
 
 def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
-         max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY) -> dict:
+         max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY,
+         include_tools: bool = True) -> dict:
     # Hard-trim riwayat HANYA untuk payload yang dikirim (transkrip pemanggil &
     # save_session tetap utuh). Notice maksimum sekali per giliran.
     sent, dropped = _trim_history(messages)
@@ -3795,7 +3897,6 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
     payload = {
         "model": MODEL,
         "messages": sent,
-        "tools": TOOLS,
         "temperature": temperature,
         "max_tokens": max_tokens,
         # Streaming → token bisa dihitung realtime saat respons mengalir.
@@ -3803,6 +3904,8 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
         "stream_options": {"include_usage": True},  # kompat OpenAI
         "usage": {"include": True},                 # param native OpenRouter
     }
+    if include_tools:
+        payload["tools"] = TOOLS
 
     last_error = None
 
