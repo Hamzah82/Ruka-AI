@@ -3408,7 +3408,7 @@ def _coordinator_check(topic: str, discussion: list) -> tuple:
         },
     ]
     try:
-        data = chat(check_messages, temperature=0.2, max_tokens=400,
+        data = chat(check_messages, temperature=0.2, max_tokens=4096,
                     include_tools=False)
         reply = (
             data.get("choices", [{}])[0]
