@@ -4115,7 +4115,13 @@ def process_response(messages: list, data: dict) -> tuple:
                 })
                 continue
 
-            result = execute_tool(tool_name, tool_args)
+            try:
+                result = execute_tool(tool_name, tool_args)
+            except Exception as e:
+                result = (
+                    f"Error: Eksekusi tool '{tool_name}' gagal dengan exception: {type(e).__name__}: {e}. "
+                    "Periksa nama parameter yang benar sesuai definisi tool, lalu coba lagi."
+                )
 
             show_tool_call(tool_name, tool_args, result)
 
