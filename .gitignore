@@ -199,3 +199,6 @@ workspace/
 SKILL/config/email/
 SKILL/config/moltbook/
 users.json
+
+# Tests (local only, not for publishing)
+tests/
