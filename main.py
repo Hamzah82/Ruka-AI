@@ -3262,36 +3262,41 @@ def _coordinator_check(topic: str, discussion: list) -> tuple:
       - is_done=False → koordinator minta lanjut + catatan apa yg perlu dibahas
     """
     hist_parts = [
-        f"[{d['name']}, Putaran {d['round']}]:\n{d['content'][:600]}"
+        f"[{d['name']}, Putaran {d['round']}]:\n{d['content'][:1200]}"
         for d in discussion
     ]
+    rounds_done = discussion[-1]["round"] if discussion else 0
     check_messages = [
         {
             "role": "system",
             "content": (
                 "Kamu adalah koordinator diskusi yang bertugas menilai kematangan "
-                "sebuah diskusi tim. Jawab singkat dan langsung."
+                "sebuah diskusi tim. Jawab singkat dan langsung. "
+                "Bersikaplah kritis — satu putaran hampir tidak pernah cukup untuk "
+                "topik yang kompleks. Pastikan ada dialog nyata antar anggota "
+                "sebelum menutup diskusi."
             ),
         },
         {
             "role": "user",
             "content": (
                 f"Topik diskusi: {topic}\n\n"
-                f"Diskusi sejauh ini ({len(discussion)} kontribusi):\n"
+                f"Diskusi sejauh ini ({len(discussion)} kontribusi, {rounds_done} putaran):\n"
                 + "\n\n".join(hist_parts)
                 + "\n\nEvaluasi: Apakah diskusi ini sudah cukup matang untuk ditutup?\n"
-                "Pertimbangkan:\n"
-                "- Sudahkah semua perspektif penting dibahas?\n"
-                "- Apakah tim sudah mencapai konsensus atau keputusan yang jelas?\n"
-                "- Apakah masih ada pertanyaan kritis yang belum terjawab?\n\n"
+                "Kriteria SELESAI (SEMUA harus terpenuhi):\n"
+                "- Sudah minimal 2 putaran sehingga anggota bisa MERESPONS satu sama lain\n"
+                "- Ada dialog nyata: anggota menyebut nama rekan & merespons poin spesifik mereka\n"
+                "- Konsensus atau keputusan teknis sudah jelas dan bisa langsung dieksekusi\n"
+                "- Tidak ada pertanyaan kritis atau trade-off yang belum terjawab\n\n"
                 "Jika SUDAH selesai → mulai jawaban dengan kata SELESAI\n"
                 "Jika BELUM selesai → mulai jawaban dengan kata LANJUT "
-                "dan sebutkan maksimal 3 poin yang masih perlu dibahas di putaran berikutnya."
+                "dan sebutkan maksimal 3 poin yang masih perlu didialogkan di putaran berikutnya."
             ),
         },
     ]
     try:
-        data = chat(check_messages, temperature=0.2, max_tokens=4096,
+        data = chat(check_messages, temperature=0.4, max_tokens=4096,
                     include_tools=False)
         reply = (
             data.get("choices", [{}])[0]
@@ -3392,9 +3397,12 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
                 # Instruksi giliran
                 if round_num == 1:
                     turn_note = (
-                        "Ini putaran pertama. Berikan pandangan awalmu tentang topik ini. "
+                        "Ini putaran pertama. Sampaikan POSISI AWAL dan argumen utamamu — "
+                        "bukan kesimpulan final. Sisakan ruang untuk diperdebatkan: "
+                        "sebutkan asumsi yang masih perlu dikonfirmasi, trade-off yang belum jelas, "
+                        "atau poin di mana kamu ingin mendengar pendapat anggota lain. "
                         "Kamu bisa menggunakan tools (read_file, exec_command, dll.) "
-                        "untuk mengumpulkan informasi sebelum berpendapat."
+                        "untuk mengumpulkan data konkret sebelum berpendapat."
                     )
                 else:
                     unresolved = (
