@@ -1,0 +1,13 @@
+# Konfigurasi msmtp untuk Gmail
+# Letakkan file ini di SKILL/config/email/msmtprc dan isi dengan credential kamu
+
+account default
+host smtp.gmail.com
+port 587
+tls on
+tls_starttls on
+auth on
+user your_email@gmail.com
+password your_app_password_here
+from your_email@gmail.com
+logfile ~/.msmtp.log
