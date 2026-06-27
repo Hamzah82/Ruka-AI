@@ -4043,6 +4043,18 @@ def process_response(messages: list, data: dict) -> tuple:
 # SYSTEM PROMPT
 # ============================================================
 
+def _load_skills() -> str:
+    """Baca skills.md sekali dan cache hasilnya agar tidak berulang kali buka file."""
+    if not hasattr(_load_skills, "_cache"):
+        skills_path = os.path.join(SCRIPT_DIR, "SKILL", "skills.md")
+        try:
+            with open(skills_path, "r", encoding="utf-8") as f:
+                _load_skills._cache = f.read()
+        except Exception:
+            _load_skills._cache = ""
+    return _load_skills._cache
+
+
 def get_system_prompt(session_name: str = None) -> str:
     session_info = ""
     if session_name:
@@ -4059,6 +4071,16 @@ def get_system_prompt(session_name: str = None) -> str:
             f"python main.py clearSessions (hapus semua session tanpa nama), "
             f"python main.py searchSessions <keyword> (cari session berdasarkan nama)."
         )
+
+    skills_content = _load_skills()
+    skills_section = (
+        "\n\n══════════════════════════════════════════════════════════════\n"
+        "📋 SKILLS & BODY GUIDE — PANDUAN LENGKAP KEMAMPUANMU:\n"
+        "══════════════════════════════════════════════════════════════\n"
+        + skills_content
+        + "\n══════════════════════════════════════════════════════════════\n"
+        if skills_content else ""
+    )
 
     return (
         "Kamu adalah Ruka AI, agent kura-kura (turtle) yang dapat mengelola file dan folder "
@@ -4086,32 +4108,15 @@ def get_system_prompt(session_name: str = None) -> str:
         "cukup jelaskan hasilnya dengan kata-kata.\n\n"
         "Kamu adalah kura-kura yang bijaksana, sabar, dan teliti. "
         "Gunakan emoji 🐢 untuk menandai dirimu.\n\n"
-        "══════════════════════════════════════════════════════════════\n"
-        "📋 INSTRUKSI AWAL SESSION — BACA SEBELUM MULAI:\n"
-        "══════════════════════════════════════════════════════════════\n"
-        "Baca file 'SKILL/skills.md' menggunakan tool read_file untuk memahami:\n"
-        "   - Daftar 12 tools yang tersedia dan cara menggunakannya\n"
-        "   - Batasan keamanan dan path traversal protection\n"
-        "   - Alur kerja agentic loop dan multi-step execution\n"
-        "   - Panduan gaya komunikasi (Bahasa Indonesia + emoji 🐢)\n"
-        "   - Tips & best practices untuk operasi file\n"
-        "   - Daftar tool yang TIDAK ADA (jangan panggil)\n"
-        "Setelah membaca skills.md, kamu akan memahami seluruh capabilities "
-        "dan constraints tubuhmu sebelum mulai berinteraksi dengan user.\n"
-        "══════════════════════════════════════════════════════════════\n"
-        "\n"
         "📌 CATATAN PENTING TENTANG WORKSPACE & SKILL:\n"
         "Workspace (BASE_DIR / direktori kerja) = folder TEMPAT user menjalankan\n"
         "perintah `ruka` (current working directory), bukan folder instalasi.\n"
         "Jadi BASE_DIR bisa berbeda-beda tergantung di mana user berada.\n"
         "Namun SEMUA file di folder SKILL/ SELALU berada di folder tempat main.py berada.\n"
-        "Gunakan path absolut '" + SCRIPT_DIR + "/SKILL/<nama_file>' untuk membaca\n"
-        "file apapun di folder SKILL (skills.md, pptSkill.md, browsingSkill.md, dll).\n"
-        "JANGAN gunakan path relatif 'SKILL/<nama_file>' karena BASE_DIR mungkin\n"
-        "sudah berubah ke workspace user, sehingga path SKILL jadi salah.\n"
-        "Contoh: read_file('" + os.path.join(SCRIPT_DIR, "SKILL/skills.md") + "')\n"
-        "        read_file('" + os.path.join(SCRIPT_DIR, "SKILL/pptSkill.md") + "')\n"
+        "Gunakan path absolut untuk membaca file SKILL lainnya (pptSkill.md, browsingSkill.md, dll):\n"
+        "Contoh: read_file('" + os.path.join(SCRIPT_DIR, "SKILL/pptSkill.md") + "')\n"
         "        read_file('" + os.path.join(SCRIPT_DIR, "SKILL/browsingSkill.md") + "')"
+        + skills_section
         + session_info
     )
 
