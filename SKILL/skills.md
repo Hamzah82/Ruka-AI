@@ -1021,7 +1021,7 @@ Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke ag
 **Parameter:**
 - `topic` (string, required) — topik atau masalah yang didiskusikan
 - `team` (array, required) — 2-6 anggota, masing-masing `{"name": str, "role": str}`
-- `max_rounds` (integer, optional, default 8) — batas keamanan putaran. Diskusi bisa selesai lebih awal kapan saja jika koordinator menilai sudah matang.
+- `max_rounds` (integer, optional, default 0) — **JANGAN diisi**. Default 0 = tidak terbatas; Koordinator yang memutuskan kapan diskusi selesai. Isi hanya jika ada kebutuhan sangat khusus untuk memotong diskusi lebih awal.
 
 **Cara kerja:**
 1. Setiap anggota tim tampil satu per satu dengan header `◆ Nama  (Putaran N)`
@@ -1030,7 +1030,7 @@ Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke ag
 4. Setelah setiap putaran selesai, **Koordinator mengevaluasi**: diskusi sudah matang atau perlu lanjut?
    - Jika `LANJUT` → putaran berikutnya dimulai, tim diberi tahu apa yang masih perlu dibahas
    - Jika `SELESAI` → diskusi ditutup, Koordinator merangkum hasil
-5. Diskusi berlanjut sampai Koordinator puas, bukan berdasarkan jumlah putaran yang ditentukan
+5. **Putaran tidak terbatas** — diskusi berlanjut sebanyak yang diperlukan sampai Koordinator benar-benar puas; JANGAN batasi dengan `max_rounds`
 
 **Tampilan diskusi:**
 ```
@@ -1082,6 +1082,7 @@ Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke ag
 - Sub-agent memiliki akses ke semua 12 tools yang sama (read_file, exec_command, dll.)
 - Setiap sub-agent berjalan di direktori kerja yang SAMA (BASE_DIR tidak berubah)
 - **Nama agen WAJIB pakai format Snake_Case** — tanpa spasi, gunakan underscore (`_`) sebagai pemisah kata. Contoh: `Backend_Dev`, `Security_Expert`, `Data_Analyst`, `Frontend_Lead`. Jangan pakai spasi seperti "Backend Dev" atau "Security Expert" — nama agen harus valid sebagai identifier.
+- **JANGAN menetapkan `max_rounds`** — biarkan kosong agar diskusi berlangsung sepanjang yang dibutuhkan. Koordinator yang memutuskan kapan diskusi selesai.
 
 **Contoh alur orchestrasi lengkap:**
 ```
@@ -1164,9 +1165,9 @@ Agen utama: Dokumentasi berhasil dibuat di README.md.
 │    Gmail wajib App Password + permission 600             │
 │                                                          │
 │  ORCHESTRATION:                                          │
-│    discuss(topic, team, max_rounds=8)                    │
+│    discuss(topic, team)  ← JANGAN isi max_rounds         │
 │      team: [{"name":..,"role":..}]  (2-6 anggota)       │
-│      Setiap agent baca diskusi sebelumnya → bisa respons │
+│      Putaran tidak terbatas — Koordinator yang memutuskan│
 │      Koordinator pantau & tutup saat diskusi matang      │
 │    /team <tugas>  → Shortcut bentuk tim & diskusi        │
 │    Max depth: 3 level rekursi diskusi                    │

@@ -2686,12 +2686,11 @@ TOOLS = [
                     "max_rounds": {
                         "type": "integer",
                         "description": (
-                            "Batas keamanan jumlah putaran (default 8). "
-                            "Diskusi bisa selesai lebih awal kapan saja jika koordinator "
-                            "menilai diskusi sudah matang — tidak perlu menunggu max_rounds. "
-                            "Naikkan jika topik sangat kompleks dan butuh lebih banyak iterasi."
+                            "Batas putaran diskusi. Default 0 = tidak terbatas — "
+                            "Koordinator yang memutuskan kapan diskusi selesai. "
+                            "Isi hanya jika ada kebutuhan khusus untuk membatasi jumlah putaran."
                         ),
-                        "default": 8
+                        "default": 0
                     }
                 },
                 "required": ["topic", "team"]
@@ -3299,7 +3298,7 @@ def _coordinator_check(topic: str, discussion: list) -> tuple:
         return False, f"(Error cek koordinator: {e})"
 
 
-def tool_team_discuss(topic: str, team: list, max_rounds: int = 8) -> str:
+def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
     """
     Mulai diskusi kolaboratif antara beberapa agen dengan peran berbeda.
 
@@ -3311,7 +3310,7 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 8) -> str:
 
     topic      : topik atau masalah yang didiskusikan
     team       : list of {"name": str, "role": str} — minimal 2, maksimal 6 anggota
-    max_rounds : batas keamanan putaran (default 8); diskusi bisa selesai lebih awal
+    max_rounds : batas putaran; 0 (default) = tidak terbatas, Koordinator yang memutuskan
     """
     global _AGENT_DEPTH
 
@@ -3327,7 +3326,7 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 8) -> str:
     if len(team) > 6:
         return "Error: Maksimum 6 anggota tim per diskusi."
 
-    max_rounds = max(1, int(max_rounds))
+    max_rounds = max(0, int(max_rounds))  # 0 = tidak terbatas
 
     # Riwayat diskusi bersama — semua anggota bisa membaca ini tiap giliran
     discussion: list[dict] = []  # {"name": str, "round": int, "content": str}
@@ -3349,10 +3348,10 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 8) -> str:
         while True:
             round_num += 1
 
-            # ── Batas keamanan ───────────────────────────────────────
-            if round_num > max_rounds:
+            # ── Batas putaran (hanya berlaku jika max_rounds > 0) ───
+            if max_rounds > 0 and round_num > max_rounds:
                 print(
-                    f"\n  {Style.WARN}◈ Batas keamanan {max_rounds} putaran tercapai "
+                    f"\n  {Style.WARN}◈ Batas {max_rounds} putaran tercapai "
                     f"— menutup diskusi.{Style.RESET}"
                 )
                 break
@@ -3574,7 +3573,7 @@ def execute_tool(name: str, arguments: dict) -> str:
         result = tool_team_discuss(
             arguments["topic"],
             arguments.get("team", []),
-            arguments.get("max_rounds", 8),
+            arguments.get("max_rounds", 0),
         )
     else:
         result = f"Error: Tool '{name}' tidak dikenal."
@@ -4272,8 +4271,9 @@ def chat_session(session_name: str = None):
                     f"menggunakan tool 'discuss'. Tentukan 2-4 anggota tim dengan peran "
                     f"yang saling melengkapi sesuai jenis tugas (contoh — coding: "
                     f"Developer, Reviewer, Tester; perencanaan: Arsitek, Implementer, "
-                    f"Risk_Analyst; penulisan: Penulis, Editor, Kritikus). Gunakan 2 "
-                    f"putaran agar tim bisa saling merespons dan menyempurnakan ide.\n\n"
+                    f"Risk_Analyst; penulisan: Penulis, Editor, Kritikus). "
+                    f"Jangan isi parameter max_rounds — biarkan diskusi berlangsung "
+                    f"sepanjang yang dibutuhkan sampai Koordinator puas.\n\n"
                     f"Topik:\n{task_desc}"
                 )
                 # (tidak ada continue — lanjut ke blok normal chat di bawah)
