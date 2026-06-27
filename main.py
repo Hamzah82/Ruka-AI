@@ -3370,12 +3370,20 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
 
             # ── Setiap anggota tim berbicara ────────────────────────
             for i, member in enumerate(team):
-                # Robust extraction: coba "name", lalu key pertama bukan "role"
-                # (model kadang pakai nama sebagai key dict, bukan value "name")
-                name = member.get("name") or next(
-                    (k for k in member if k.lower() not in ("name", "role")),
-                    f"Agen {i + 1}",
-                )
+                name = member.get("name")
+                if not name:
+                    for k, v in member.items():
+                        if k.lower() in ("name", "role"):
+                            continue
+                        # key mirip "name" (mis. "namename") → nama ada di value
+                        if "name" in k.lower():
+                            name = v if isinstance(v, str) else k
+                        else:
+                            # key IS nama-nya (mis. "Backend Dev")
+                            name = k
+                        break
+                if not name:
+                    name = f"Agen {i + 1}"
                 role = member.get("role", "Anggota tim")
                 color = member_colors[i % len(member_colors)]
 

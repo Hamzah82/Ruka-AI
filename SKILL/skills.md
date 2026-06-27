@@ -1081,7 +1081,7 @@ Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke ag
 - Jangan memanggil `agent` dari dalam sub-agent yang sudah di kedalaman 3 (error otomatis)
 - Sub-agent memiliki akses ke semua 12 tools yang sama (read_file, exec_command, dll.)
 - Setiap sub-agent berjalan di direktori kerja yang SAMA (BASE_DIR tidak berubah)
-- **Nama agen** diisi di field `"name"` — boleh pakai spasi ("Backend Dev") atau underscore ("Backend_Dev"), keduanya valid. Yang penting selalu pakai `{"name": "...", "role": "..."}` — jangan taruh nama sebagai key dict.
+- **Nama agen** — selalu gunakan struktur `{"name": "NamaAgen", "role": "peran"}`. Contoh: `{"name": "Backend Dev", "role": "Implementasi server"}`. Boleh pakai spasi atau underscore di value `"name"`.
 - **JANGAN menetapkan `max_rounds`** — biarkan kosong agar diskusi berlangsung sepanjang yang dibutuhkan. Koordinator yang memutuskan kapan diskusi selesai.
 
 **Contoh alur orchestrasi lengkap:**
