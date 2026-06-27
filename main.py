@@ -2654,7 +2654,10 @@ TOOLS = [
                 "sehingga bisa merespons, menyanggah, atau menyempurnakan argumen anggota lain. "
                 "Setelah semua putaran, Koordinator merangkum hasil dan memberikan keputusan akhir. "
                 "Gunakan ini untuk masalah yang butuh perspektif beragam, "
-                "tinjauan kolektif, atau keputusan bersama."
+                "tinjauan kolektif, atau keputusan bersama. "
+                "PENTING: Koordinator sudah muncul OTOMATIS di akhir diskusi — "
+                "JANGAN masukkan 'Koordinator' ke dalam parameter 'team'. "
+                "Parameter 'team' hanya berisi anggota diskusi aktif (Developer, Reviewer, dll.)."
             ),
             "parameters": {
                 "type": "object",
@@ -2669,11 +2672,13 @@ TOOLS = [
                     "team": {
                         "type": "array",
                         "description": (
-                            "Daftar anggota tim (2-6 orang), masing-masing dengan nama dan peran. "
+                            "Daftar anggota diskusi aktif (2-6 orang), masing-masing dengan nama dan peran. "
                             "Pilih peran yang saling melengkapi, misalnya: "
                             "Developer + Reviewer + Tester untuk tugas coding; "
                             "Arsitek + Implementer + Risk_Analyst untuk perencanaan; "
-                            "Penulis + Editor + Kritikus untuk tugas menulis."
+                            "Penulis + Editor + Kritikus untuk tugas menulis. "
+                            "LARANGAN KERAS: JANGAN masukkan 'Koordinator' ke sini — "
+                            "Koordinator sudah ditambahkan secara otomatis oleh sistem."
                         ),
                         "items": {
                             "type": "object",
@@ -3333,6 +3338,22 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
         )
     if not isinstance(team, list) or not team:
         return "Error: Parameter 'team' harus berupa daftar anggota tim."
+
+    # Buang anggota bernama "Koordinator" — sudah muncul otomatis, jangan duplikat.
+    _RESERVED = {"koordinator", "coordinator"}
+    filtered_team = [
+        m for m in team
+        if not (isinstance(m.get("name"), str)
+                and m["name"].strip().lower() in _RESERVED)
+    ]
+    if len(filtered_team) < len(team):
+        removed = len(team) - len(filtered_team)
+        print(
+            f"\n  {Style.WARN}◈ Peringatan: {removed} anggota bernama 'Koordinator' "
+            f"dilewati — Koordinator sudah otomatis.{Style.RESET}"
+        )
+    team = filtered_team
+
     if len(team) < 2:
         return "Error: Diskusi tim membutuhkan minimal 2 anggota."
     if len(team) > 6:

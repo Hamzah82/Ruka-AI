@@ -1105,14 +1105,14 @@ Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke ag
 
 **Parameter:**
 - `topic` (string, required) — topik atau masalah yang didiskusikan
-- `team` (array, required) — 2-6 anggota, masing-masing `{"name": str, "role": str}`
+- `team` (array, required) — 2-6 anggota diskusi aktif, masing-masing `{"name": str, "role": str}`. **LARANGAN KERAS: JANGAN masukkan `"Koordinator"` ke sini** — Koordinator sudah muncul OTOMATIS di akhir diskusi.
 - `max_rounds` (integer, optional, default 0) — **JANGAN diisi**. Default 0 = tidak terbatas; Koordinator yang memutuskan kapan diskusi selesai. Isi hanya jika ada kebutuhan sangat khusus untuk memotong diskusi lebih awal.
 
 **Cara kerja:**
 1. Setiap anggota tim tampil satu per satu dengan header `◆ Nama  (Putaran N)`
 2. Anggota membaca SEMUA kontribusi sebelumnya, lalu memberikan pandangannya — bisa setuju, sanggah, atau sempurnakan
 3. Setiap anggota bisa menggunakan tools (read_file, exec_command, dll.) untuk mengumpulkan data
-4. Setelah setiap putaran selesai, **Koordinator mengevaluasi**: diskusi sudah matang atau perlu lanjut?
+4. Setelah setiap putaran selesai, **Koordinator mengevaluasi secara OTOMATIS** (tidak perlu dimasukkan ke `team`): diskusi sudah matang atau perlu lanjut?
    - Jika `LANJUT` → putaran berikutnya dimulai, tim diberi tahu apa yang masih perlu dibahas
    - Jika `SELESAI` → diskusi ditutup, Koordinator merangkum hasil
 5. **Putaran tidak terbatas** — diskusi berlanjut sebanyak yang diperlukan sampai Koordinator benar-benar puas; JANGAN batasi dengan `max_rounds`
@@ -1168,6 +1168,7 @@ Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke ag
 - Setiap sub-agent berjalan di direktori kerja yang SAMA (BASE_DIR tidak berubah)
 - **Nama agen** — selalu gunakan struktur `{"name": "NamaAgen", "role": "peran"}`. Contoh: `{"name": "Backend Dev", "role": "Implementasi server"}`. Boleh pakai spasi atau underscore di value `"name"`.
 - **JANGAN menetapkan `max_rounds`** — biarkan kosong agar diskusi berlangsung sepanjang yang dibutuhkan. Koordinator yang memutuskan kapan diskusi selesai.
+- **🚫 JANGAN masukkan `"Koordinator"` ke dalam array `team`** — Koordinator sudah muncul OTOMATIS setelah setiap putaran dan di akhir diskusi. Memasukkannya ke `team` akan membuat dua Koordinator sekaligus.
 
 **Contoh alur orchestrasi lengkap:**
 ```
