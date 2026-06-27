@@ -1,0 +1,16 @@
+{
+  "repository": "your_username/your_repo",
+  "collaborators": [
+    {
+      "username": "github_username",
+      "role": "owner",
+      "permissions": {
+        "admin": true,
+        "maintain": true,
+        "push": true,
+        "pull": true,
+        "triage": true
+      }
+    }
+  ]
+}

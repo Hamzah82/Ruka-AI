@@ -195,3 +195,7 @@ sessions/
 skills_old.md
 # Workspace folder
 workspace/
+# Sensitive config (credentials & API keys)
+SKILL/config/email/
+SKILL/config/moltbook/
+users.json
