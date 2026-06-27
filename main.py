@@ -2049,6 +2049,13 @@ def _tool_arg_summary(tool_name: str, args: dict) -> str:
     if tool_name in ("copy_file", "move_file") and "source" in args:
         dst = args.get("destination", "?")
         return f"{args['source']} → {dst}"
+    if tool_name == "discuss":
+        topic = args.get("topic", "")[:30]
+        team = args.get("team", [])
+        names = [m.get("name", "?") for m in team if isinstance(m, dict)]
+        if names:
+            return f"{topic} · {', '.join(names)}"
+        return topic
     for k in ("command", "filename", "name", "foldername", "source", "path"):
         if k in args and args[k] not in (None, ""):
             return str(args[k])
@@ -2673,7 +2680,7 @@ TOOLS = [
                             "properties": {
                                 "name": {
                                     "type": "string",
-                                    "description": "Nama anggota tim, mis. 'Backend_Dev', 'Reviewer'."
+                                    "description": "Nama anggota tim, mis. 'Backend Dev', 'Reviewer', 'DBA'."
                                 },
                                 "role": {
                                     "type": "string",
@@ -3358,7 +3365,12 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
 
             # ── Setiap anggota tim berbicara ────────────────────────
             for i, member in enumerate(team):
-                name = member.get("name", f"Agen {i + 1}")
+                # Robust extraction: coba "name", lalu key pertama bukan "role"
+                # (model kadang pakai nama sebagai key dict, bukan value "name")
+                name = member.get("name") or next(
+                    (k for k in member if k.lower() not in ("name", "role")),
+                    f"Agen {i + 1}",
+                )
                 role = member.get("role", "Anggota tim")
                 color = member_colors[i % len(member_colors)]
 
