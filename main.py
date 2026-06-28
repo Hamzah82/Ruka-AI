@@ -293,6 +293,15 @@ class FooterUI:
                 # Belum/again tidak aktif → tulis apa adanya.
                 self._emit(text)
                 return
+            # Terapkan resize tertunda SEBELUM menulis. Tanpa ini, \0338 di
+            # bawah akan mengembalikan kursor ke posisi lama yang sudah basi
+            # (bisa menunjuk ke area footer), sehingga teks AI masuk ke sana.
+            if self._resized:
+                self._resized = False
+                if not self._apply_resize():
+                    # Terminal terlalu kecil; tulis apa adanya, skip region.
+                    self._emit(text)
+                    return
             self._emit("\033[?25l")        # sembunyikan kursor saat menulis
             self._emit("\0338")            # kembali ke posisi konten
             self._real.write(text)         # mengalir alami di dalam region
@@ -486,6 +495,30 @@ class FooterUI:
         # Hanya set flag; reflow dilakukan di luar handler (di bawah lock).
         self._resized = True
 
+    def _apply_resize(self) -> bool:
+        """
+        Bersihkan footer lama, baca ukuran baru, pasang ulang region & simpan
+        posisi konten. Pemanggil HARUS memegang lock.
+        Return True bila berhasil; False bila terminal terlalu kecil.
+        """
+        old_H = self.H
+        old_reserved = self._reserved
+        self._read_size()
+        if not self._size_ok():
+            return False
+        # Reset region ke penuh sementara, lalu hapus baris footer lama.
+        # Ini krusial saat terminal membesar: baris footer lama kini masuk ke
+        # scroll-region baru dan akan muncul sebagai "ghost" di output AI.
+        self._emit("\033[r")
+        for r in range(max(1, old_H - old_reserved + 1), old_H + 1):
+            self._emit(f"\033[{r};1H\033[2K")
+        # Pasang ulang reserved dasar, region baru, posisi konten tersimpan.
+        self._reserved = self.RESERVED
+        self._set_region()
+        self._emit(f"\033[{self.H - self._reserved};1H")
+        self._emit("\0337")
+        return True
+
     def check_resize(self):
         if not self._resized:
             return
@@ -493,14 +526,8 @@ class FooterUI:
             self._resized = False
             if not self.armed:
                 return
-            self._read_size()
-            if not self._size_ok():
-                return
-            self._reserved = self.RESERVED    # reset tinggi; render akan tumbuhkan lagi
-            self._set_region()
-            self._emit(f"\033[{self.H - self._reserved};1H")
-            self._emit("\0337")
-            self._render_locked()
+            if self._apply_resize():
+                self._render_locked()
 
 
 # ============================================================
