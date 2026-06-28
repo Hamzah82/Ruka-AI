@@ -293,16 +293,21 @@ class FooterUI:
                 # Belum/again tidak aktif → tulis apa adanya.
                 self._emit(text)
                 return
-            # Terapkan resize tertunda SEBELUM menulis. Tanpa ini, \0338 di
-            # bawah akan mengembalikan kursor ke posisi lama yang sudah basi
-            # (bisa menunjuk ke area footer), sehingga teks AI masuk ke sana.
-            if self._resized:
+            # Deteksi resize secara langsung (TIOCGWINSZ) dan via flag SIGWINCH.
+            # Pengecekan langsung menangkap jendela sempit di mana terminal sudah
+            # berubah ukuran tapi SIGWINCH belum terkirim — dalam kasus itu self.H
+            # masih basi sehingga footer dirender di baris yang salah (masuk content).
+            # Beberapa terminal (alacritty, wezterm) juga mereset scroll region saat
+            # resize, jadi _set_region() selalu dipanggil sebelum menulis.
+            size = shutil.get_terminal_size(fallback=(self.W, self.H))
+            if self._resized or size.lines != self.H or size.columns != self.W:
                 self._resized = False
                 if not self._apply_resize():
                     # Terminal terlalu kecil; tulis apa adanya, skip region.
                     self._emit(text)
                     return
             self._emit("\033[?25l")        # sembunyikan kursor saat menulis
+            self._set_region()             # pastikan region valid (terminal bisa reset saat resize)
             self._emit("\0338")            # kembali ke posisi konten
             self._real.write(text)         # mengalir alami di dalam region
             self._real.flush()
