@@ -23,6 +23,7 @@
 - [12. Vercel CLI Deploy](#12-vercel-cli-deploy)
 - [13. Email via msmtp](#13-email-via-msmtp)
 - [14. Orchestration & Multi-Agent](#14-orchestration--multi-agent)
+- [15. Frontend Design](#15-frontend-design)
 
 ---
 
@@ -1235,6 +1236,41 @@ Agen utama: Dokumentasi berhasil dibuat di README.md.
 
 ---
 
+## 15. Frontend Design
+
+Ketika user meminta membuat website, landing page, UI, atau halaman HTML apapun, **WAJIB** membaca file `SKILL/frontendDesignSkill.md` terlebih dahulu sebelum menulis satu baris kode.
+
+File `SKILL/frontendDesignSkill.md` berisi seluruh panduan desain frontend termasuk:
+- Filosofi desain: identitas dulu, estetika kemudian
+- Anti-pattern "tampilan AI" yang harus dihindari (krem+serif+terracotta, dark+acid-green, broadsheet generik)
+- Proses kerja: rencana → kritik → build → kritik lagi
+- Sistem token CSS (warna, font, spacing, shadow, transisi)
+- Panduan tipografi: pasangan font yang berkarakter, bukan generik
+- Layout & struktur: grid system, hero pattern, whitespace
+- **Double UI wajib** — mobile (1 kolom, hamburger) + desktop (multi-kolom, nav horizontal)
+- Motion & interaksi: fade-up, scroll reveal, hover states
+- Penulisan copy yang spesifik dan tidak generik
+- Template HTML lengkap siap pakai dengan semua komponen
+
+**⚠️ Aturan wajib:**
+- BACA `SKILL/frontendDesignSkill.md` dulu sebelum membuat UI, terutama di session baru
+- SELALU support dua viewport: mobile dan desktop
+- JANGAN pakai tampilan AI generik (krem+terracotta, dark+acid-green) kecuali brief eksplisit memintanya
+- Buat rencana desain (warna + font + layout + signature) SEBELUM nulis kode
+- Kritik rencana sendiri: "apakah ini bisa dipakai untuk project lain?" — kalau iya, revisi dulu
+
+Contoh alur:
+```
+User: "Buatkan landing page untuk X"
+
+Round 1: read_file("SKILL/frontendDesignSkill.md") → baca panduan desain
+Round 2: Buat rencana: warna, font, layout, signature — kritik apakah cukup unik
+Round 3: write_file("index.html", kode_dari_template_yang_dimodifikasi)
+Round 4: Konfirmasi hasil — jelaskan pilihan desain yang dibuat
+```
+
+---
+
 ## 📊 Quick Reference Card
 
 ```
@@ -1293,6 +1329,13 @@ Agen utama: Dokumentasi berhasil dibuat di README.md.
 │    Kirim: echo -e "Subject: ...\n\n..." | msmtp          │
 │           --file=SKILL/config/email/msmtprc tujuan@gmail.com │
 │    Gmail wajib App Password + permission 600             │
+│                                                          │
+│  FRONTEND DESIGN:                                        │
+│    Baca SKILL/frontendDesignSkill.md dulu sebelum UI     │
+│    Rencana: warna + font + layout + signature            │
+│    Double UI wajib: mobile (1 col) + desktop (multi-col) │
+│    Hindari: krem+terracotta, dark+acid-green, broadsheet │
+│    Template siap pakai ada di frontendDesignSkill.md     │
 │                                                          │
 │  ORCHESTRATION:                                          │
 │    discuss(topic, team)  ← JANGAN isi max_rounds         │
