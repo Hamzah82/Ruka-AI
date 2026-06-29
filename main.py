@@ -399,7 +399,7 @@ class FooterUI:
 
         # DEBUG: log resize_reserved
         try:
-            with open("/tmp/ruka_resize_debug.log", "a") as f:
+            with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
                 import datetime
                 f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] _resize_reserved: old={old} new={new_reserved} delta={delta} H={self.H}\n")
         except:
@@ -408,7 +408,7 @@ class FooterUI:
         if delta > 0:
             # Bersihkan baris footer lama agar tidak jadi "sampah" konten saat scroll.
             try:
-                with open("/tmp/ruka_resize_debug.log", "a") as f:
+                with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
                     f.write(f"  → CLEAR baris {self.H - old + 1}-{self.H}\n")
             except:
                 pass
@@ -429,7 +429,7 @@ class FooterUI:
             self._reserved = new_reserved
             self._set_region()
             try:
-                with open("/tmp/ruka_resize_debug.log", "a") as f:
+                with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
                     f.write(f"  → CLEAR baris {self.H - old + 1}-{self.H - new_reserved + 1}\n")
             except:
                 pass
@@ -552,7 +552,7 @@ class FooterUI:
 
         # DEBUG: log resize event ke file
         try:
-            with open("/tmp/ruka_resize_debug.log", "a") as f:
+            with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
                 import datetime
                 f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] RESIZE: {old_H}x{old_W} → {self.H}x{self.W}, old_reserved={old_reserved}\n")
         except:
@@ -568,7 +568,7 @@ class FooterUI:
             start_clear = max(1, old_H - old_reserved + 1)
             end_clear = old_H
             try:
-                with open("/tmp/ruka_resize_debug.log", "a") as f:
+                with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
                     f.write(f"  → CLEAR baris {start_clear}-{end_clear}\n")
             except:
                 pass
@@ -577,7 +577,7 @@ class FooterUI:
         else:
             # Terminal mengecil atau sama: footer lama sudah di luar viewport, skip clear
             try:
-                with open("/tmp/ruka_resize_debug.log", "a") as f:
+                with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
                     f.write(f"  → SKIP clear (terminal mengecil/sama)\n")
             except:
                 pass
