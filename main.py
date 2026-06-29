@@ -4273,11 +4273,6 @@ def chat_session(session_name: str = None):
             }
         ]
 
-    # ── Tampilan awal ──────────────────────────────────────────
-    ruka_print()
-    show_banner(session_name, session_meta, is_new=is_new_session)
-    show_examples()
-
     # ── Aktifkan prompt mengambang di bawah layar (jika TTY) ───
     global _footer
     idle_hint = (
@@ -4287,6 +4282,11 @@ def chat_session(session_name: str = None):
     _footer = FooterUI()
     if not _footer.arm(idle_hint=idle_hint):
         _footer = None  # fallback: terminal tak mendukung → mode linear
+
+    # ── Tampilan awal (setelah arm agar masuk buffer untuk re-render saat resize) ──
+    ruka_print()
+    show_banner(session_name, session_meta, is_new=is_new_session)
+    show_examples()
 
     # Mulai input reader thread sekali di awal (raw editor bila footer aktif)
     _start_input_reader()
