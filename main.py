@@ -530,13 +530,15 @@ class FooterUI:
         if not self._size_ok():
             return False
 
-        # JANGAN clear footer lama — apapun ukuran resize-nya.
-        # Saat terminal mengecil: footer lama di luar viewport, tidak perlu clear.
-        # Saat terminal membesar: koordinat footer lama (mis. baris 44-46 dari
-        # terminal 46 baris) kini berada DI DALAM scroll region baru. Clear di
-        # sana akan MENGHAPUS CONTENT AI. Biarkan _render_locked() overwrite
-        # footer di posisi yang benar — itu aman karena footer di luar scroll region.
         self._emit("\033[r")
+        # Saat terminal MEMBESAR: baris footer lama (mis. 44-46 dari terminal
+        # 46-baris) kini masuk ke scroll region baru dan terlihat sebagai ghost.
+        # Aman di-clear karena saat resize terjadi baris itu pasti berisi teks
+        # footer — AI content dibatasi di scroll region lama (1..old_H-old_reserved).
+        # Saat terminal MENGECIL: footer lama sudah di luar viewport, skip clear.
+        if self.H > old_H:
+            for r in range(max(1, old_H - old_reserved + 1), old_H + 1):
+                self._emit(f"\033[{r};1H\033[2K")
 
         # JANGAN reset _reserved ke RESERVED di sini. Bila di-reset, _render_locked()
         # akan memanggil _resize_reserved() dengan delta > 0 yang men-scroll SELURUH
