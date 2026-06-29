@@ -396,8 +396,22 @@ class FooterUI:
         delta = new_reserved - old
         if delta == 0:
             return
+
+        # DEBUG: log resize_reserved
+        try:
+            with open("/tmp/ruka_resize_debug.log", "a") as f:
+                import datetime
+                f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] _resize_reserved: old={old} new={new_reserved} delta={delta} H={self.H}\n")
+        except:
+            pass
+
         if delta > 0:
             # Bersihkan baris footer lama agar tidak jadi "sampah" konten saat scroll.
+            try:
+                with open("/tmp/ruka_resize_debug.log", "a") as f:
+                    f.write(f"  → CLEAR baris {self.H - old + 1}-{self.H}\n")
+            except:
+                pass
             for r in range(self.H - old + 1, self.H + 1):
                 self._emit(f"\033[{r};1H\033[2K")
             self._emit("\033[r")                       # region penuh sementara
@@ -414,6 +428,11 @@ class FooterUI:
             # yang kini jadi area konten.
             self._reserved = new_reserved
             self._set_region()
+            try:
+                with open("/tmp/ruka_resize_debug.log", "a") as f:
+                    f.write(f"  → CLEAR baris {self.H - old + 1}-{self.H - new_reserved + 1}\n")
+            except:
+                pass
             for r in range(self.H - old + 1, self.H - new_reserved + 1):
                 self._emit(f"\033[{r};1H\033[2K")
 
@@ -525,22 +544,44 @@ class FooterUI:
         Return True bila berhasil; False bila terminal terlalu kecil.
         """
         old_H = self.H
+        old_W = self.W
         old_reserved = self._reserved
         self._read_size()
         if not self._size_ok():
             return False
-        # Reset region ke penuh sementara, lalu hapus baris footer lama.
-        # Ini krusial saat terminal membesar: baris footer lama kini masuk ke
-        # scroll-region baru dan akan muncul sebagai "ghost" di output AI.
-        # PENTING: hanya clear baris yang MASIH ADA di terminal baru. Saat
-        # terminal mengecil (keyboard Termux tutup: 40→20 baris), escape
-        # sequence \033[40;1H di terminal 20 baris akan wrap/clamp ke baris
-        # terakhir yang ada, dan \033[2K menghapus content AI di sana.
+
+        # DEBUG: log resize event ke file
+        try:
+            with open("/tmp/ruka_resize_debug.log", "a") as f:
+                import datetime
+                f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] RESIZE: {old_H}x{old_W} → {self.H}x{self.W}, old_reserved={old_reserved}\n")
+        except:
+            pass
+
+        # Saat terminal mengecil drastis (keyboard Termux tutup), JANGAN clear
+        # baris footer lama sama sekali — mereka sudah di luar viewport terminal
+        # baru dan any positioning ke sana akan clamp/wrap ke baris yang visible,
+        # menghapus content. Hanya clear saat terminal MEMBESAR (footer ghost visible).
         self._emit("\033[r")
-        start_clear = max(1, old_H - old_reserved + 1)
-        end_clear = min(old_H, self.H)  # jangan clear baris > terminal baru
-        for r in range(start_clear, end_clear + 1):
-            self._emit(f"\033[{r};1H\033[2K")
+        if self.H > old_H:
+            # Terminal membesar: footer lama kini visible di scroll region, must clear
+            start_clear = max(1, old_H - old_reserved + 1)
+            end_clear = old_H
+            try:
+                with open("/tmp/ruka_resize_debug.log", "a") as f:
+                    f.write(f"  → CLEAR baris {start_clear}-{end_clear}\n")
+            except:
+                pass
+            for r in range(start_clear, end_clear + 1):
+                self._emit(f"\033[{r};1H\033[2K")
+        else:
+            # Terminal mengecil atau sama: footer lama sudah di luar viewport, skip clear
+            try:
+                with open("/tmp/ruka_resize_debug.log", "a") as f:
+                    f.write(f"  → SKIP clear (terminal mengecil/sama)\n")
+            except:
+                pass
+
         # JANGAN reset _reserved ke RESERVED di sini. Bila di-reset, _render_locked()
         # akan memanggil _resize_reserved() dengan delta > 0 yang men-scroll SELURUH
         # konten ke atas — menghapus baris output AI. Pertahankan _reserved saat ini;
