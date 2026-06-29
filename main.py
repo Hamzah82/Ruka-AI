@@ -428,6 +428,15 @@ class FooterUI:
         if self.H < self.RESERVED + 1:
             return
 
+        # Sinkronkan ukuran terminal sebelum merender. set_status() dan
+        # set_input() (dipanggil thread spinner/input) tidak punya pengecekan
+        # ukuran sendiri, sehingga bisa merender footer di posisi salah saat
+        # self.H basi — \033[2K-nya menimpa & menghapus baris output AI.
+        size = shutil.get_terminal_size(fallback=(self.W, self.H))
+        if size.lines != self.H or size.columns != self.W:
+            if not self._apply_resize():
+                return
+
         lines, crow, ccol = self._wrap_input()
         # Batasi tinggi input agar selalu sisa >=2 baris konten (reserved<=H-2).
         cap = max(1, self.H - 4)
