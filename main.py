@@ -517,8 +517,12 @@ class FooterUI:
         self._emit("\033[r")
         for r in range(max(1, old_H - old_reserved + 1), old_H + 1):
             self._emit(f"\033[{r};1H\033[2K")
-        # Pasang ulang reserved dasar, region baru, posisi konten tersimpan.
-        self._reserved = self.RESERVED
+        # JANGAN reset _reserved ke RESERVED di sini. Bila di-reset, _render_locked()
+        # akan memanggil _resize_reserved() dengan delta > 0 yang men-scroll SELURUH
+        # konten ke atas — menghapus baris output AI. Pertahankan _reserved saat ini;
+        # hanya koreksi bila nilai lama tidak lagi valid untuk ukuran terminal baru.
+        if self._reserved > self.H - 2:
+            self._reserved = self.RESERVED
         self._set_region()
         self._emit(f"\033[{self.H - self._reserved};1H")
         self._emit("\0337")
