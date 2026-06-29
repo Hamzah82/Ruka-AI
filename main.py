@@ -523,8 +523,14 @@ class FooterUI:
         # Reset region ke penuh sementara, lalu hapus baris footer lama.
         # Ini krusial saat terminal membesar: baris footer lama kini masuk ke
         # scroll-region baru dan akan muncul sebagai "ghost" di output AI.
+        # PENTING: hanya clear baris yang MASIH ADA di terminal baru. Saat
+        # terminal mengecil (keyboard Termux tutup: 40→20 baris), escape
+        # sequence \033[40;1H di terminal 20 baris akan wrap/clamp ke baris
+        # terakhir yang ada, dan \033[2K menghapus content AI di sana.
         self._emit("\033[r")
-        for r in range(max(1, old_H - old_reserved + 1), old_H + 1):
+        start_clear = max(1, old_H - old_reserved + 1)
+        end_clear = min(old_H, self.H)  # jangan clear baris > terminal baru
+        for r in range(start_clear, end_clear + 1):
             self._emit(f"\033[{r};1H\033[2K")
         # JANGAN reset _reserved ke RESERVED di sini. Bila di-reset, _render_locked()
         # akan memanggil _resize_reserved() dengan delta > 0 yang men-scroll SELURUH
