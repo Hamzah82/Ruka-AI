@@ -1,26 +1,26 @@
-# 🐢 Ruka AI — Engineering Documentation
+# Ruka AI — Engineering Documentation
 
 > Dokumentasi teknis untuk developer yang ingin memahami, memodifikasi, atau berkontribusi pada project Ruka AI.
 
 ---
 
-## 📋 Daftar Isi
+## Daftar Isi
 
 - [1. Overview](#1-overview)
 - [2. Arsitektur Sistem](#2-arsitektur-sistem)
 - [3. Tech Stack](#3-tech-stack)
 - [4. Struktur Kode](#4-struktur-kode)
-- [5. Agentic Loop — Cara Kerja Inti](#5-agentic-loop--cara-kerja-inti)
+- [5. Agentic Loop](#5-agentic-loop)
 - [6. Tool System](#6-tool-system)
 - [7. Interrupt Mechanism](#7-interrupt-mechanism)
-- [8. Terminal Formatter](#8-terminal-formatter)
-- [9. Session Management](#9-session-management)
-- [10. Keamanan](#10-keamanan)
-- [11. Error Handling & Retry Mechanism](#11-error-handling--retry-mechanism)
-- [12. Konfigurasi](#12-konfigurasi)
-- [13. System Prompt](#13-system-prompt)
-- [14. API Reference](#14-api-reference)
-- [15. Browsing Skills](#15-browsing-skills)
+- [8. FooterUI — Floating Prompt](#8-footerui--floating-prompt)
+- [9. Terminal Formatter](#9-terminal-formatter)
+- [10. Session Management](#10-session-management)
+- [11. Keamanan](#11-keamanan)
+- [12. Error Handling & Retry](#12-error-handling--retry)
+- [13. Konfigurasi](#13-konfigurasi)
+- [14. System Prompt](#14-system-prompt)
+- [15. Auto-Update](#15-auto-update)
 - [16. Development Guide](#16-development-guide)
 - [17. Troubleshooting](#17-troubleshooting)
 
@@ -28,976 +28,651 @@
 
 ## 1. Overview
 
-Ruka AI adalah **CLI-based AI agent** yang memungkinkan user berinteraksi dengan sistem file dan terminal melalui bahasa natural. Agent ini menggunakan model AI dari OpenRouter sebagai "otak" dan mengeksekusi operasi lokal (file I/O, command execution) sebagai "tangan".
+Ruka AI adalah **CLI-based AI agent** yang memungkinkan user berinteraksi dengan sistem file dan terminal melalui bahasa natural. Agent ini menggunakan model AI dari OpenRouter sebagai "otak" dan mengeksekusi operasi lokal (file I/O, command execution, multi-agent discussion) sebagai "tangan".
 
 ### Karakteristik Utama
 
-- **Agentic** — AI dapat memutuskan sendiri tool mana yang perlu dipanggil, dalam urutan apa, dan bisa melakukan multi-step reasoning
-- **Local-first** — Semua operasi file dan terminal berjalan di mesin lokal user, bukan di cloud
-- **Session-based** — Percakapan disimpan secara persisten, memungkinkan melanjutkan kerja sebelumnya
-- **Model-agnostic** — Mendukung model apapun yang tersedia di OpenRouter (default: `openrouter/owl-alpha`)
-- **Interruptible** — User dapat mengetik `q` kapan saja untuk menghentikan proses yang sedang berjalan
+- **Agentic** — AI memutuskan sendiri tool mana yang dipanggil, dalam urutan apa, multi-step
+- **Local-first** — Semua operasi file dan terminal berjalan di mesin lokal
+- **Workspace = cwd** — Agent bekerja di folder tempat user menjalankan `ruka`, bukan folder instalasi
+- **Session-based** — Percakapan disimpan persisten di folder instalasi, bisa dilanjutkan
+- **Model-agnostic** — Default `openrouter/owl-alpha`, bisa di-override via `RUKA_MODEL` env var
+- **Interruptible** — Ketik `q` kapan saja untuk menghentikan proses
+- **Floating prompt** — Prompt input mengambang di bawah layar via FooterUI (scroll region ANSI)
 
 ---
 
 ## 2. Arsitektur Sistem
 
-### High-Level Architecture
-
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      USER (Terminal)                     │
-│                   Input: Bahasa Natural                  │
-└──────────────────────┬──────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│                USER (Terminal)                   │
+│     FooterUI: prompt "❯" mengambang di bawah     │
+└──────────────────────┬──────────────────────────┘
                        │
                        ▼
-┌─────────────────────────────────────────────────────────┐
-│                   AGENT LOOP (main.py)                   │
-│                                                         │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │   Session    │  │   Security   │  │   Terminal    │  │
-│  │  Manager     │  │    Layer     │  │   Formatter   │  │
-│  └──────┬──────┘  └──────┬───────┘  └───────┬───────┘  │
-│         │                │                   │          │
-│  ┌──────▼────────────────▼───────────────────▼───────┐  │
-│  │              CORE AGENT LOOP                       │  │
-│  │                                                    │  │
-│  │  1. Terima input user                              │  │
-│  │  2. Kirim ke OpenRouter API                        │  │
-│  │  3. Parse response (text atau tool_calls)          │  │
-│  │  4. Jika tool_calls → eksekusi tool → kirim hasil  │  │
-│  │  5. Ulangi sampai AI selesai (stop_reason=stop)    │  │
-│  │  6. Cek interrupt ('q') setiap round               │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                               │
-│  ┌──────────────────────▼────────────────────────────┐  │
-│  │              TOOL EXECUTOR                         │  │
-│  │  read_file │ write_file │ edit_file │ exec_command  │  │
-│  │  list_files │ delete_file │ copy_file │ move_file    │  │
-│  │  get_file_info │ create_folder │ delete_folder     │  │
-│  │  list_all                                          │  │
-│  └──────────────────────┬────────────────────────────┘  │
-└─────────────────────────┼───────────────────────────────┘
-                          │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-        ┌──────────┐ ┌────────┐ ┌─────────┐
-        │  File    │ │Terminal│ │OpenRouter│
-        │  System  │ │(bash)  │ │  API     │
-        └──────────┘ └────────┘ └─────────┘
+┌─────────────────────────────────────────────────┐
+│               AGENT LOOP (main.py)               │
+│                                                 │
+│  ┌────────────┐  ┌───────────┐  ┌────────────┐  │
+│  │  Session   │  │ Security  │  │ Terminal   │  │
+│  │  Manager   │  │  Layer    │  │ Formatter  │  │
+│  └─────┬──────┘  └─────┬─────┘  └─────┬──────┘  │
+│        │               │              │          │
+│  ┌─────▼───────────────▼──────────────▼───────┐  │
+│  │            CORE AGENTIC LOOP                │  │
+│  │  1. Terima input dari FooterUI / linear     │  │
+│  │  2. Kirim ke OpenRouter API                 │  │
+│  │  3. Parse response (text atau tool_calls)   │  │
+│  │  4. Jika tool_calls → eksekusi → loop ulang │  │
+│  │  5. Cek interrupt ('q') setiap round        │  │
+│  └─────────────────────┬───────────────────────┘  │
+│                        │                          │
+│  ┌─────────────────────▼───────────────────────┐  │
+│  │              TOOL EXECUTOR (13 tools)        │  │
+│  │  read_file │ write_file │ edit_file          │  │
+│  │  list_files │ delete_file │ copy_file        │  │
+│  │  move_file │ get_file_info │ create_folder   │  │
+│  │  delete_folder │ list_all │ exec_command     │  │
+│  │  discuss                                    │  │
+│  └─────────────────────┬───────────────────────┘  │
+└───────────────────────┼─────────────────────────┘
+                        │
+            ┌───────────┼───────────┐
+            ▼           ▼           ▼
+      ┌──────────┐ ┌────────┐ ┌─────────┐
+      │  File    │ │Terminal│ │OpenRouter│
+      │  System  │ │(bash)  │ │  API     │
+      └──────────┘ └────────┘ └─────────┘
 ```
 
-### Data Flow
+### Workspace vs Script Directory
 
-```
-User Input
-    │
-    ▼
-┌──────────────────┐
-│  System Prompt   │ ← Berisi instruksi, daftar tools, session info,
-│  + Chat History  │   instruksi baca skills.md saat awal session
-│  + User Message  │ ← Input terbaru dari user
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  OpenRouter API  │ ← POST /api/v1/chat/completions
-│  (AI Model)      │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐     ┌─────────────────┐
-│  Response: Text  │     │ Response:       │
-│  → Format ke     │     │ tool_calls      │
-│    terminal      │     │ → Eksekusi tool │
-│    via Terminal  │     │ → Kirim hasil   │
-│    Formatter     │     │   kembali ke AI │
-│  → Tampilkan     │     │ → Loop ulang    │
-│    ke user       │     └─────────────────┘
-└──────────────────┘
-```
+Sejak workspace diubah ke model `cwd`:
+
+| Variable | Nilai | Fungsi |
+|---|---|---|
+| `BASE_DIR` | `os.getcwd()` | Folder kerja AI (workspace user) |
+| `SCRIPT_DIR` | `dirname(abspath(__file__))` | Folder instalasi (SKILL/, sessions/, .env) |
+
+Ini memungkinkan alias `ruka` dipakai dari folder mana pun: `cd ~/proyek && ruka` → AI bekerja di `~/proyek`, tapi session dan file internal tetap di folder instalasi.
 
 ---
 
 ## 3. Tech Stack
 
-### Bahasa Pemrograman
+### Bahasa & Runtime
 
-- **Python 3.10+** — Bahasa utama, dipilih karena ekosistem library yang kuat dan kemudahan prototyping
+- **Python 3.10+** — bahasa utama
 
 ### Dependensi
 
-- **requests** (>=2.28.0) — HTTP client untuk komunikasi dengan OpenRouter API
-  - Dipilih karena: simple, reliable, tidak perlu async untuk use case ini
-- **python-dotenv** (>=1.0.0) — Manajemen environment variable dari file `.env`
-  - Memisahkan konfigurasi sensitif (API key) dari source code
+- **requests** (≥2.28.0) — HTTP client untuk OpenRouter API
+- **python-dotenv** (≥1.0.0) — load `.env` dari folder instalasi
+- **termios / tty** (stdlib, Unix only) — raw mode untuk FooterUI; fallback otomatis jika tidak tersedia
 
 ### External Services
 
-- **OpenRouter API** — Gateway AI yang menyediakan akses ke berbagai model LLM melalui satu API endpoint
-  - Base URL: `https://openrouter.ai/api/v1`
-  - Endpoint: `/chat/completions` (OpenAI-compatible)
-  - Auth: Bearer token via `Authorization` header
+- **OpenRouter API** — `https://openrouter.ai/api/v1/chat/completions` (OpenAI-compatible)
 
 ### Model Default
 
-- **openrouter/owl-alpha** — Foundation model dengan context window ~1M token, dioptimalkan untuk agentic workloads dan tool use
+- **openrouter/owl-alpha** — ~1M token context window, dioptimalkan untuk agentic tool use
+- Override: set `RUKA_MODEL=provider/model-name` di `.env` atau environment
 
 ---
 
 ## 4. Struktur Kode
 
-Seluruh logic ada di satu file: `main.py` (~88 KB, ~2200 baris). Berikut breakdown per komponen:
+`main.py` — **4641 baris**. Seluruh logic agent ada di sini.
+`config.py` — **~120 baris**. Semua konstanta konfigurasi; tunable tanpa sentuh `main.py`.
 
-### 4.1 Configuration Constants (Baris awal)
-
-```
-MODEL                    → Nama model OpenRouter yang digunakan
-DEFAULT_CMD_TIMEOUT      → Timeout default untuk exec_command (60 detik)
-MAX_RETRIES              → Maksimum retry pada kegagalan API (5)
-RETRY_BASE_DELAY         → Base delay untuk exponential backoff (2 detik)
-BASE_DIR                 → Direktori kerja agent (folder script)
-SESSIONS_DIR             → Folder penyimpanan session (sessions/)
-OPENROUTER_API_KEY       → API key (dari .env)
-API_URL                  → URL endpoint OpenRouter API
-```
-
-### 4.2 Interrupt Mechanism (Queue-Based)
-
-Sistem interupsi berbasis **queue** yang memungkinkan user mengetik `q` kapan saja selama proses berjalan:
+### 4.1 config.py — Konstanta Konfigurasi
 
 ```
-_input_reader()        → Thread daemon yang membaca stdin secara terus-menerus
-_input_queue           → Queue yang menyimpan semua input user
-_interrupt_event       → Threading event flag untuk sinyal interupsi
-_check_interrupt_nonblock() → Cek queue non-blocking untuk deteksi 'q'
+OPENROUTER_API_KEY   → API key (dari .env)
+MODEL                → Model aktif (default owl-alpha, override via RUKA_MODEL)
+API_URL              → https://openrouter.ai/api/v1/chat/completions
+HEADERS              → HTTP headers untuk request API
+BASE_DIR             → os.getcwd() — workspace user
+SCRIPT_DIR           → dirname(__file__) — folder instalasi
+SESSIONS_DIR         → SCRIPT_DIR/sessions/
+DEFAULT_CMD_TIMEOUT  → 60 detik (exec_command)
+MAX_RETRIES          → 5
+RETRY_BASE_DELAY     → 5 detik (delays: 5s → 10s → 20s → 40s → 80s)
+BLOCKED_COMMANDS     → List perintah yang diblokir
+MAX_READ_LINES       → 20.000 baris (batas read_file tanpa offset/limit)
+MAX_READ_CHARS       → 1.000.000 karakter
+MAX_EXEC_OUTPUT_CHARS→ 200.000 karakter (stdout+stderr masing-masing)
+BINARY_SNIFF_BYTES   → 8.192 byte (deteksi file biner)
+MAX_HISTORY_TOKENS   → 800.000 token estimasi (trim riwayat sebelum kirim API)
+KEEP_RECENT_MESSAGES → 1.000.000 (lantai keras pesan terbaru dipertahankan)
+HISTORY_TRIM_NOTICE  → True (tampilkan notice saat trim)
 ```
 
-Alur interrupt:
-1. `_input_reader()` berjalan di background thread, membaca stdin
-2. Setiap input masuk ke `_input_queue`
-3. Sebelum setiap round, `_check_interrupt_nonblock()` mengecek apakah ada 'q' di queue
-4. Jika 'q' ditemukan → set `_interrupt_event` → model diminta berhenti setelah round saat ini
-5. Model diberitahu via system message: "User telah meminta interupsi"
+### 4.2 Interrupt Mechanism
 
-### 4.3 Terminal Formatter
-
-Kelas `TerminalFormatter` mengkonversi markdown ke styled terminal output:
-- Headers → styled dengan warna dan garis dekoratif
-- Tabel → rendered dengan box-drawing characters (┌─┐│└┘)
-- Code blocks → dengan border dan syntax highlighting warna
-- Lists → bullet points dengan indentation multi-level
-- Blockquotes → dengan border kiri
-- Inline formatting → bold, italic, strikethrough, code, links
-
-### 4.4 Tool Definitions (JSON Schema)
-
-Setiap tool didefinisikan dalam format **OpenAI Function Calling Schema**:
-
-```json
-{
-  "type": "function",
-  "function": {
-    "name": "read_file",
-    "description": "Membaca isi file teks dari direktori kerja.",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "filename": { "type": "string", "description": "Nama file yang ingin dibaca" }
-      },
-      "required": ["filename"]
-    }
-  }
-}
+```
+_input_queue           → queue.Queue — buffer semua input user
+_interrupt_event       → threading.Event — flag interupsi
+_input_reader()        → Thread daemon, baca stdin secara kontinyu
+_check_interrupt_nonblock() → Cek queue non-blocking, deteksi 'q'
 ```
 
-Total: **12 tools** yang tersedia untuk AI.
+### 4.3 FooterUI
 
-### 4.5 System Prompt Builder
+Kelas `FooterUI` — floating prompt di bawah layar via ANSI scroll region.
+Lihat [Bagian 8](#8-footerui--floating-prompt) untuk detail.
 
-Membangun system prompt yang berisi:
+### 4.4 Terminal Formatter
 
-- Karakter dan personality agent (kura-kura bijaksana)
-- Daftar capabilities (membaca, menulis, menghapus, mengedit, dll.)
-- Instruksi multi-step execution
-- Instruksi format output (bullet point, bukan tabel markdown)
-- **Instruksi wajib baca `skills.md` saat awal session** — model harus baca file ini sebelum mulai berinteraksi
-- Session info (nama session, path penyimpanan, perintah session)
+Kelas `TerminalFormatter` — konversi markdown ke styled terminal output.
+Lihat [Bagian 9](#9-terminal-formatter) untuk detail.
+
+### 4.5 Tool Definitions & Executor
+
+- `TOOLS` array — 13 tool dalam format OpenAI Function Calling Schema (baris ~2370)
+- `execute_tool(name, arguments)` — dispatcher ke fungsi tool masing-masing
 
 ### 4.6 Core Functions
 
 ```
-build_system_prompt()        → Membangun system prompt (alias: get_system_prompt)
-load_session()               → Memuat session dari file JSON
-save_session()               → Menyimpan session ke file JSON
-list_sessions()              → Mendapatkan daftar semua session
-delete_session()             → Menghapus session
-rename_session()             → Rename session
-call_openrouter_api()        → Mengirim request ke OpenRouter dengan retry (alias: chat)
-execute_tool()               → Mengeksekusi tool yang dipanggil AI
-format_markdown_to_terminal() → Konversi markdown ke styled terminal text (alias: format_reply)
-TerminalFormatter.format()   → Class-based formatter untuk output terminal
-process_response()           → Agentic loop — handle tool_calls dan interrupt
-handle_slash_command()       → Memproses perintah /sessions, /new, dll.
-main_loop()                  → Agentic loop utama (alias: chat_session)
+get_system_prompt(session_name)   → Bangun system prompt
+load_session(name)                → Load session dari JSON
+save_session(name, messages)      → Simpan session ke JSON
+list_sessions()                   → Daftar semua session
+delete_session(name)              → Hapus session
+rename_session(old, new)          → Rename session
+call_openrouter_api(messages)     → Request ke API dengan retry
+execute_tool(name, arguments)     → Eksekusi tool yang dipanggil AI
+process_response(messages, data)  → Agentic loop — handle tool_calls & interrupt
+chat_session(session_name)        → Loop utama interaksi user
+check_for_updates()               → Cek & jalankan git pull saat startup
+main()                            → Entry point CLI
 ```
 
-### 4.7 Entry Point
+### 4.7 Entry Point & CLI
 
-```
-main() → Parse argumen CLI → Load/buat session → Jalankan chat_session()
+```bash
+python main.py                            # workspace=cwd, session timestamp
+python main.py <namaSession>              # workspace=cwd, session tertentu
+python main.py <workspacePath>            # override workspace
+python main.py <workspacePath> <session>  # workspace + session tertentu
+python main.py listSessions               # tampilkan semua session (CLI)
+python main.py deleteSession <nama>       # hapus session (CLI)
+python main.py renameSession <lama> <baru># rename session (CLI)
+python main.py clearSessions              # hapus semua session auto-generated
+python main.py searchSessions <keyword>   # cari session by nama
 ```
 
-Mode CLI:
-- `python main.py` → Session baru dengan nama timestamp
-- `python main.py <nama>` → Load/buat session dengan nama tertentu
-- `python main.py list-sessions` → Tampilkan daftar session
-- `python main.py delete-session <nama>` → Hapus session
-- `python main.py rename-session <lama> <baru>` → Rename session
-- `python main.py "prompt"` → Single prompt mode (backward compatibility)
+Slash commands dalam sesi:
+```
+/sessions           → daftar semua session
+/new                → mulai session baru
+/history            → tampilkan riwayat chat sesi ini
+/delete-session <n> → hapus session
+/rename-session <l> <b> → rename session
+/help               → tampilkan bantuan
+/clear              → bersihkan layar
+```
 
 ---
 
-## 5. Agentic Loop — Cara Kerja Inti
+## 5. Agentic Loop
 
-Ini adalah jantung dari Ruka AI. Agentic loop memungkinkan AI melakukan multi-step reasoning dan tool execution secara otonom.
+Jantung Ruka AI. AI dapat melakukan multi-step reasoning dan tool execution secara otonom.
 
-### Algoritma
-
-```
-function chat_session(session):
-    while True:
-        1. Terima input dari user (via _get_input)
-        2. Jika input adalah perintah khusus (/new, /exit, dll):
-           → Handle dan continue
-        3. Tambahkan user message ke session["messages"]
-        4. Simpan session (auto-save)
-        
-        5. ┌─── AGENT ROUND LOOP ───┐
-           │                        │
-           │  a. Cek interrupt      │
-           │     ('q' di queue)     │
-           │                        │
-           │  b. Kirim semua        │
-           │     messages ke        │
-           │     OpenRouter API     │
-           │                        │
-           │  c. Parse response:    │
-           │     - Tampilkan narasi │
-           │       jika ada         │
-           │       tool_calls       │
-           │     - Jika ada         │
-           │       tool_calls:      │
-           │       → Eksekusi       │
-           │         setiap tool    │
-           │       → Kirim hasil    │
-           │       → Loop round     │
-           │         lagi           │
-           │                        │
-           │     - Jika hanya teks  │
-           │       (stop):          │
-           │       → Format output  │
-           │       → Tampilkan      │
-           │         ke user        │
-           │       → Break round    │
-           │         loop           │
-           │                        │
-           │  d. Cek interrupt      │
-           │     SETELAH eksekusi   │
-           │     tool              │
-           └────────────────────────┘
-        
-        6. Simpan session (auto-save)
-        7. Kembali ke step 1
-```
-
-### Multi-Step Execution
+### Algoritma chat_session()
 
 ```
-User: "Tampilkan daftar file, baca file README.md, lalu ringkas isinya"
+1. Load atau buat session
+2. Inisialisasi FooterUI (floating prompt)
+3. Mulai _input_reader() thread
 
-Round 1:
-  AI memutuskan → panggil list_files()
-  Tool result → daftar file dikembalikan
-  AI menerima hasil → masih butuh info lebih
+while True:
+    4. Terima input user (FooterUI atau linear fallback)
+    5. Handle perintah khusus (exit, /help, /sessions, dll.)
+    6. Tambah user message ke messages[]
+    7. Simpan session
 
-Round 2:
-  AI memutuskan → panggil read_file("README.md")
-  Tool result → isi README.md dikembalikan
-  AI menerima hasil → sudah cukup info
+    ┌── AGENT ROUND LOOP ──┐
+    │  a. Cek interrupt     │
+    │  b. Kirim messages[]  │
+    │     ke OpenRouter API │
+    │  c. Jika tool_calls:  │
+    │     → Tampilkan narasi│
+    │       (jika ada)      │
+    │     → Eksekusi tool   │
+    │     → Append hasil    │
+    │     → Loop round lagi │
+    │  d. Jika text (stop): │
+    │     → Format output   │
+    │     → Tampilkan user  │
+    │     → Break loop      │
+    │  e. Cek interrupt     │
+    └───────────────────────┘
 
-Round 3:
-  AI memutuskan → tidak perlu tool lagi
-  AI menghasilkan teks ringkasan
-  → Tampilkan ke user (via TerminalFormatter)
-  → Loop selesai
+    8. Simpan session
+    9. Kembali ke step 4
 ```
 
-### Narasi Model
+### Context Window & History Trim
 
-Jika model mengirim `content` (narasi/pikiran) **dan** `tool_calls` sekaligus, narasi ditampilkan sebelum tool dieksekusi. Ini memberi transparansi tentang apa yang sedang dipikirkan model.
+Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk mencegah "context length exceeded":
 
-Jika model langsung menjawab tanpa tools, narasi tidak ditampilkan (langsung return jawaban).
-
-### Context Window Management
-
-Setiap round menambahkan pesan baru ke `session["messages"]`. Semua pesan ini dikirim ulang ke API pada round berikutnya. Artinya:
-
-- Semakin banyak round, semakin besar context yang dikirim
-- Context window model menjadi batas maksimum (1.048.756 token untuk Owl Alpha)
-- Jika context habis, API akan mengembalikan error
+- `MAX_HISTORY_TOKENS = 800_000` — jika estimasi token melebihi ini, segmen riwayat tertua dibuang
+- System message dan pesan terbaru selalu dipertahankan
+- `HISTORY_TRIM_NOTICE = True` — satu baris notice ditampilkan saat trim terjadi
+- Estimasi pakai rumus `len(text) / 4` (konservatif, UNDER-estimate teks Indonesia)
 
 ---
 
 ## 6. Tool System
 
-### Daftar Tools
+### Daftar Tools (13 total)
 
-- `read_file` — Membaca isi file teks
-- `write_file` — Menulis/membuat file teks
-- `edit_file` — Mengedit isi file (replace/append/prepend)
-- `list_files` — Daftar file di direktori kerja
-- `delete_file` — Menghapus file
-- `copy_file` — Menyalin file
-- `move_file` — Memindahkan/menrename file
-- `get_file_info` — Info detail file/folder
-- `create_folder` — Membuat folder baru
-- `delete_folder` — Menghapus folder (bisa rekursif)
-- `list_all` — Struktur direktori dalam format tree
-- `exec_command` — Menjalankan perintah terminal
+| Tool | Fungsi |
+|------|--------|
+| `read_file` | Baca file teks; support `offset`, `limit`, `line_numbers` |
+| `write_file` | Tulis/buat file teks |
+| `edit_file` | Edit file: `replace`, `append`, `prepend`; support `replace_all` |
+| `list_files` | Daftar file di workspace |
+| `delete_file` | Hapus file |
+| `copy_file` | Salin file |
+| `move_file` | Pindah/rename file |
+| `get_file_info` | Info detail file/folder |
+| `create_folder` | Buat folder baru |
+| `delete_folder` | Hapus folder (bisa rekursif) |
+| `list_all` | Struktur direktori tree (max_depth default 3) |
+| `exec_command` | Jalankan perintah terminal; timeout default 60s |
+| `discuss` | Diskusi kolaboratif multi-agent dengan peran berbeda |
 
-### Tool Execution Flow
+### Tool `discuss` (Multi-Agent Discussion)
 
+Tool `discuss` menjalankan diskusi antara beberapa agen virtual dengan peran berbeda. Setiap anggota melihat seluruh riwayat diskusi sebelum giliran mereka. Koordinator hadir otomatis di akhir untuk merangkum.
+
+```python
+discuss(
+    topic="Apakah arsitektur ini sudah optimal?",
+    team=[
+        {"name": "Developer", "role": "Fokus pada implementasi teknis"},
+        {"name": "Reviewer", "role": "Kritis terhadap potensi bug"}
+    ],
+    max_rounds=0   # 0 = auto (default 2 putaran)
+)
 ```
-AI Response (tool_calls)
-    │
-    ▼
-┌─────────────────────┐
-│  Parse tool_call    │
-│  - Ambil tool name  │
-│  - Parse arguments  │
-│    (JSON string)    │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  Security Check     │
-│  - Path validation  │
-│  - Command filter   │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  Execute Tool       │
-│  - Call function    │
-│  - Capture output   │
-│  - Handle errors    │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  Return Result      │
-│  - Format sebagai   │
-│    tool response    │
-│  - Tambahkan ke     │
-│    messages[]       │
-└─────────────────────┘
-```
+
+Catatan: `Koordinator` **jangan** dimasukkan ke `team` — muncul otomatis.
+
+### Output Limits
+
+Output tool dibatasi untuk mencegah context explosion:
+
+- `read_file` tanpa offset/limit: maks `MAX_READ_LINES` baris atau `MAX_READ_CHARS` karakter
+- `exec_command`: maks `MAX_EXEC_OUTPUT_CHARS` karakter per stdout/stderr
+- File biner: dideteksi via `BINARY_SNIFF_BYTES` byte pertama, ditolak pembacaan
 
 ### Menambah Tool Baru
 
-Untuk menambah tool baru, perlu melakukan 3 hal:
+3 langkah:
 
-**1. Definisikan function:**
-
-```python
-def tool_do_something(param1: str) -> str:
-    """Deskripsi apa yang dilakukan tool ini."""
-    try:
-        # Logic di sini
-        return f"Hasil: {result}"
-    except Exception as e:
-        return f"Error: {e}"
-```
-
-**2. Tambahkan ke TOOLS JSON schema dan implementasi:**
-
-Di bagian TOOLS array dan fungsi execute_tool().
-
-**Contoh implementasi edit_file:**
-
-```python
-elif name == "edit_file":
-    operation = arguments["operation"]
-    new_text = arguments["new_text"]
-    old_text = arguments.get("old_text")
-    result = tool_edit_file(arguments["filename"], operation, new_text, old_text)
-```
+1. Implementasi `tool_nama_baru(...)` — return string hasil atau error
+2. Tambah entry JSON ke array `TOOLS` (baris ~2370)
+3. Tambah `elif name == "nama_baru"` di `execute_tool()` (baris ~3641)
 
 ---
 
 ## 7. Interrupt Mechanism
 
-Sistem interupsi real-time berbasis **queue** dan **threading** yang memungkinkan user menghentikan agent kapan saja.
+User bisa mengetik `q` kapan saja selama agent bekerja untuk menghentikan proses.
 
 ### Komponen
 
-- **`_input_reader()`** — Thread daemon yang terus membaca dari stdin
-- **`_input_queue`** — `queue.Queue` sebagai buffer input
-- **`_interrupt_event`** — `threading.Event` sebagai flag interupsi
-- **`_check_interrupt_nonblock()`** — Cek queue non-blocking untuk deteksi 'q'
+- `_input_reader()` — thread daemon, terus baca stdin
+- `_input_queue` — buffer semua input
+- `_interrupt_event` — flag threading.Event
+- `_check_interrupt_nonblock()` — polling non-blocking di setiap round
 
-### Alur Kerja
+### Alur
 
-```
-1. _start_input_reader() dipanggil sekali di awal session
-2. _input_reader() thread berjalan di background:
-   - Terus membaca stdin via sys.stdin.readline()
-   - Setiap line masuk ke _input_queue
-3. Di setiap round, _check_interrupt_nonblock() dipanggil:
-   - Mengosongkan queue secara non-blocking
-   - Jika menemukan 'q' → set _interrupt_event
-   - Item lain (bukan 'q') disimpan kembali ke queue
-4. Model diberitahu via system message untuk berhenti
-5. Setelah round saat ini selesai → kembali ke prompt utama
-```
-
-### Pesan Interrupt
-
-Ketika user mengetik 'q', model menerima pesan:
-```
-[SYSTEM] User telah meminta interupsi (mengetik 'q'). 
-Proses kamu telah diinterupsi setelah round N. 
-Harap selesaikan jawaban akhir kamu sekarang dengan ringkas 
-dan berikan status dari apa yang sudah berhasil dilakukan. 
-Jangan memanggil tool lagi.
-```
+1. Thread `_input_reader` berjalan di background sejak session dimulai
+2. Semua input (termasuk karakter 'q') masuk ke `_input_queue`
+3. Di tiap round agentic, `_check_interrupt_nonblock()` drain queue
+4. Jika 'q' ditemukan → set `_interrupt_event`
+5. Model diberi system message: "User meminta interupsi, selesaikan ringkas, jangan panggil tool lagi"
+6. Setelah round saat ini selesai → kembali ke prompt utama
 
 ---
 
-## 8. Terminal Formatter
+## 8. FooterUI — Floating Prompt
 
-Kelas `TerminalFormatter` mengkonversi markdown text ke styled terminal output yang cantif dan readable.
+`FooterUI` mengelola prompt input `❯` yang mengambang di bawah layar via ANSI scroll region.
 
-### Fitur Formatting
+### Layout Terminal
 
-| Markdown Element | Terminal Output |
-|-----------------|-----------------|
-| `# Header` | Judul dengan warna TEAL + garis `═` |
-| `## Header` | Subjudul dengan warna HIJAU + garis `─` |
+```
+┌─────────────────────────┐
+│  baris 1..H-(2+L)       │  ← scroll region: output AI bergulir di sini
+├─────────────────────────┤
+│  baris H-1-L            │  ← garis pemisah ─────────────────
+│  baris H-L              │  ← status/spinner ATAU hint idle
+│  baris H-L+1 .. H       │  ← "❯ input..." (wrap ke L baris)
+└─────────────────────────┘
+```
+
+Footer tinggi-variabel: `_reserved` tumbuh saat input panjang wrap ke banyak baris.
+
+### Thread Safety
+
+Satu `threading.RLock` menjaga setiap penulisan ke stdout (3 penulis: main/print, spinner, input thread). Footer memakai positioning absolut (`\033[r;cH`), tidak menggunakan save/restore cursor untuk menghindari drift antar-thread.
+
+### Fallback
+
+Jika terminal tidak mendukung (non-TTY, atau `_HAS_TERMIOS = False`), `_footer = None` dan prompt kembali ke mode linear biasa.
+
+---
+
+## 9. Terminal Formatter
+
+`TerminalFormatter` mengkonversi markdown ke styled terminal output via ANSI escape codes.
+
+### Fitur
+
+| Markdown | Output Terminal |
+|---|---|
+| `# Header` | Judul TEAL + garis `═` |
+| `## Header` | Subjudul HIJAU + garis `─` |
 | `### Header` | Sub-subjudul dengan `▸` |
-| `**bold**` | **Bold** dengan ANSI bold |
-| `*italic*` | *Italic* dengan ANSI italic |
-| `` `code` `` | `Code` dengan warna HIJAU |
-| ` ```code``` ` | Code block dengan border kotak |
-| `\|tabel\|` | Tabel dengan box-drawing characters |
-| `> quote` | Blockquote dengan border kiri `┃` |
-| `- list` | Bullet dengan warna KUNING, multi-level |
-| `[link](url)` | Link dengan warna CYAN underline |
-| `---` | Horizontal rule dengan garis `─` |
+| `**bold**` | ANSI bold |
+| `` `code` `` | Inline code warna HIJAU |
+| ` ```block``` ` | Code block dengan border kotak |
+| `\|tabel\|` | Tabel box-drawing characters |
+| `> quote` | Blockquote dengan border `┃` |
+| `- list` | Bullet KUNING, multi-level |
+| `[link](url)` | CYAN underline |
+| `---` | Horizontal rule |
 
-### Kelas dan Fungsi
-
-```
-TerminalFormatter       → Class utama untuk format markdown → terminal
-  .format(text)         → Main entry point
-  ._format_headers()    → Format headers
-  ._format_tables()     → Format tabel → box-drawing
-  ._format_code_blocks()→ Format code blocks
-  ._format_blockquotes()→ Format blockquotes
-  ._format_lists()      → Format ordered/unordered lists
-  ._format_inline_code()→ Format inline code
-  ._format_bold()       → Format bold
-  ._format_italic()     → Format italic
-  ._format_strikethrough() → Format strikethrough
-  ._format_links()      → Format links
-  ._strip_inline_md()   → Hapus inline markdown syntax
-
-format_reply(text)      → Shortcut function untuk TerminalFormatter.format()
-```
-
-### Lebar Terminal
-
-Default lebar terminal: **70 karakter** (`TERM_WIDTH = 70`). Digunakan untuk padding dan garis dekoratif.
+Lebar default: **`shutil.get_terminal_size()`** (fail-safe, bukan hardcode).
 
 ---
 
-## 9. Session Management
+## 10. Session Management
 
 ### Format Session File
-
-Setiap session disimpan sebagai file JSON di folder `sessions/`:
 
 ```json
 {
   "name": "nama-session",
-  "created_at": "2025-07-01T14:30:22.123456",
-  "updated_at": "2025-07-01T15:45:33.654321",
+  "created_at": "2026-06-01T14:30:22.123456",
+  "updated_at": "2026-06-01T15:45:33.654321",
   "message_count": 10,
   "messages": [...]
 }
 ```
 
-### Session Lifecycle
+Session disimpan di `SESSIONS_DIR` = `SCRIPT_DIR/sessions/` — selalu di folder instalasi, terlepas dari workspace user.
 
-```
-CREATE → LOAD → USE → SAVE → (repeat USE → SAVE) → DELETE/RENAME
-```
+### Auto-Save
 
-- **Create:** Saat user memulai session baru (otomatis atau via `/new`)
-- **Load:** Saat user menjalankan `python main.py <nama-session>`
-- **Use:** Setiap interaksi user-AI
-- **Save:** Otomatis setelah setiap exchange (user prompt + AI response)
-- **Delete:** Via `/delete-session <nama>` atau CLI
-- **Rename:** Via `/rename-session <lama> <baru>` atau CLI
-
-### Auto-Save Mechanism
-
-Session disimpan pada 2 titik:
-
+Session disimpan di 2 titik:
 1. Setelah user mengirim pesan (sebelum AI memproses)
 2. Setelah AI selesai merespons
 
-Ini memastikan tidak ada data yang hilang meskipun program crash.
+### Session Commands Lengkap
 
-### Session Backup
-
-Folder `sessions/backups/` berisi backup dari session-session sebelumnya. Berguna untuk recovery jika session utama corrupt.
+| Command | Keterangan |
+|---|---|
+| `/sessions` | Daftar semua session |
+| `/new` | Session baru |
+| `/history` | Riwayat chat sesi ini |
+| `/delete-session <nama>` | Hapus session |
+| `/rename-session <l> <b>` | Rename session |
+| `python main.py listSessions` | CLI: list sessions |
+| `python main.py clearSessions` | CLI: hapus semua session auto-generated |
+| `python main.py searchSessions <kw>` | CLI: cari session by nama |
 
 ---
 
-## 10. Keamanan
+## 11. Keamanan
 
-### 10.1 Path Traversal Protection
+### Path Traversal Protection
 
-Semua operasi file dibatasi hanya di dalam `BASE_DIR` (direktori kerja). Mekanisme:
+Semua operasi file dibatasi ke `BASE_DIR` (workspace user):
 
 ```python
-# Resolve path absolut
 requested_path = os.path.abspath(os.path.join(BASE_DIR, user_input))
-
-# Cek apakah masih dalam BASE_DIR
 if not requested_path.startswith(BASE_DIR):
     return "Error: Akses ditolak — path di luar direktori kerja"
 ```
 
-Ini mencegah serangan seperti:
+Mencegah: `../../etc/passwd`, `/etc/shadow`, dll.
 
-- `../../etc/passwd`
-- `/etc/shadow`
-- `../../../home/user/.ssh/id_rsa`
+### Blocked Commands
 
-### 10.2 Dangerous Command Blocking
+Didefinisikan di `config.BLOCKED_COMMANDS`. Saat ini diblokir:
 
-Perintah-perintah berikut diblokir dari `exec_command`:
+```
+rm -rf /    rm -rf /*    mkfs.    dd if=/dev/zero
+shutdown    poweroff     reboot   :(){:|:&};:
+del /s /q   rd /s /q     format c:
+```
 
-- `rm -rf /` — Menghapus seluruh sistem
-- `mkfs` — Format filesystem
-- `dd if=/dev/zero` — Menghapus disk
-- `shutdown` / `reboot` — Mematikan/mulai ulang sistem
-- `format` — Format drive
-- Dan perintah berbahaya lainnya
+### Command Timeout
 
-### 10.3 File Permission Handling
-
-Setiap operasi file menggunakan try-catch untuk menangani:
-
-- File tidak ditemukan
-- Izin akses ditolak
-- Disk penuh
-- File sedang digunakan proses lain
-
-### 10.4 Command Timeout
-
-Setiap perintah terminal memiliki timeout default 60 detik untuk mencegah:
-
-- Infinite loops
-- Hanging processes
-- Resource exhaustion
+Default 60 detik per `exec_command`. Mencegah infinite loop dan resource exhaustion.
 
 ---
 
-## 11. Error Handling & Retry Mechanism
+## 12. Error Handling & Retry
 
 ### Exponential Backoff
 
-Saat request ke OpenRouter API gagal, sistem melakukan retry dengan exponential backoff:
-
 ```
-Retry 1: tunggu 2^1 = 2 detik
-Retry 2: tunggu 2^2 = 4 detik
-Retry 3: tunggu 2^3 = 8 detik
-Retry 4: tunggu 2^4 = 16 detik
-Retry 5: tunggu 2^5 = 32 detik
-Total maksimum waktu retry: 62 detik
+Retry 1: 5 detik
+Retry 2: 10 detik
+Retry 3: 20 detik
+Retry 4: 40 detik
+Retry 5: 80 detik
 ```
 
-Formula: `delay = RETRY_BASE_DELAY * 2^(retry_number - 1)`
+Formula: `delay = RETRY_BASE_DELAY * 2^(n-1)`, di mana `RETRY_BASE_DELAY = 5`.
 
-### Error Types yang Ditangani
+### Error Types
 
-- **Network errors** — Koneksi terputus, DNS failure, timeout
-- **API errors** — Rate limit (429), server error (5xx), auth error (401)
-- **JSON parse errors** — Response tidak valid
-- **Tool execution errors** — File tidak ditemukan, permission denied
-- **Keyboard interrupt** — User menekan Ctrl+C
+- **Network errors** — koneksi terputus, DNS failure, timeout
+- **API errors** — rate limit (429), server error (5xx), auth error (401)
+- **JSON parse errors** — response tidak valid
+- **Tool execution errors** — file tidak ditemukan, permission denied
+- **Binary file** — ditolak saat read_file
 
 ### Graceful Degradation
 
-Jika semua retry gagal:
-
-```
-"Maaf, terjadi masalah koneksi setelah 5x percobaan. 
-Silakan coba lagi nanti. (Error: <detail error>)"
-```
+Jika semua retry gagal, user menerima pesan error yang menjelaskan penyebabnya.
 
 ---
 
-## 12. Konfigurasi
+## 13. Konfigurasi
 
-### Environment Variables (.env)
+Semua konfigurasi ada di `config.py`. Edit file ini tanpa menyentuh `main.py`.
 
-```
-OPENROUTER_API_KEY=sk-or-v1-your-api-key-here
-```
-
-### Runtime Configuration (main.py)
+### Environment Variables (`.env` di SCRIPT_DIR)
 
 ```
-MODEL = "openrouter/owl-alpha"
-  → Ganti ke model lain yang didukung OpenRouter
-  → Contoh: "openrouter/anthropic/claude-sonnet-4"
-
-DEFAULT_CMD_TIMEOUT = 60
-  → Timeout untuk exec_command dalam detik
-  → Naikkan untuk perintah yang butuh waktu lama (compile, download)
-
-MAX_RETRIES = 5
-  → Jumlah maksimum retry pada kegagalan API
-
-RETRY_BASE_DELAY = 2
-  → Base delay untuk exponential backoff
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-  → Direktori kerja agent
-  → Ubah ke path lain jika ingin agent bekerja di direktori berbeda
-
-SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
-  → Folder penyimpanan session
+OPENROUTER_API_KEY=sk-or-v1-xxxxx   # wajib
+RUKA_MODEL=openrouter/model-name     # opsional, override model
 ```
 
 ### Mengganti Model
 
-Edit konstanta `MODEL` di `main.py`:
+Via `.env`:
+```
+RUKA_MODEL=openrouter/anthropic/claude-sonnet-4
+```
 
+Via `config.py` (hardcode fallback):
 ```python
-MODEL = "openrouter/anthropic/claude-sonnet-4"
+_DEFAULT_MODEL = "openrouter/owl-alpha"
 ```
 
-Atau gunakan model gratis:
+### Tuning Output Limits
 
+Edit di `config.py`:
 ```python
-MODEL = "openrouter/google/gemini-2.0-flash-001"
+MAX_READ_LINES = 20_000         # baca file
+MAX_EXEC_OUTPUT_CHARS = 200_000 # output command
+MAX_HISTORY_TOKENS = 800_000    # context window trim
 ```
 
 ---
 
-## 13. System Prompt
+## 14. System Prompt
 
-System prompt dibangun oleh `get_system_prompt()` dan dikirim sebagai pesan `system` pertama di setiap session.
+Dibangun oleh `get_system_prompt(session_name)`, dikirim sebagai pesan `system` pertama.
 
-### Isi System Prompt
+### Isi
 
-```
-1. Karakter & Personality
-   - "Kamu adalah Ruka AI, agent kura-kura (turtle)..."
-   - Bijaksana, sabar, teliti
-   - Gunakan emoji 🐢
+1. Karakter & personality — "Ruka AI, agent kura-kura 🐢, bijaksana dan teliti"
+2. Daftar 13 tools dan cara penggunaannya
+3. Instruksi multi-step execution (tanpa konfirmasi user per langkah)
+4. Instruksi format output — Bahasa Indonesia, bullet point, emoji 🐢
+5. **Instruksi wajib baca `SKILL/skills.md`** via `read_file` saat awal session
+6. Info session — nama, path, perintah session tersedia
 
-2. Daftar Kemampuan
-   - Manajemen file (baca, tulis, hapus, salin, pindah, edit)
-   - Manajemen folder (buat, hapus, list)
-   - Eksekusi terminal (bash)
-   - Multi-step tool calling
+### SKILL/ Directory
 
-3. Instruksi Multi-Step
-   - Boleh memanggil tools secara berantai
-   - Lakukan semua langkah tanpa konfirmasi user
-   - Konfirmasi hasil akhir
-
-4. Instruksi Output
-   - Bahasa Indonesia
-   - Bullet point (bukan tabel markdown)
-   - Emoji 🐢
-
-5. ═══ INSTRUKSI AWAL SESSION ═══
-   - WAJIB baca 'skills.md' via read_file
-   - Berisi: daftar tools, keamanan, agentic loop,
-     gaya komunikasi, tips, daftar tool TIDAK ADA
-
-6. Session Info (jika ada)
-   - Nama session, path, perintah session
-```
-
-### Instruksi Baca skills.md
-
-Saat session baru dimulai, system prompt berisi instruksi wajib:
+Dokumentasi internal yang dibaca model AI:
 
 ```
-Baca file 'skills.md' menggunakan tool read_file untuk memahami:
-   - Daftar 12 tools yang tersedia dan cara menggunakannya
-   - Batasan keamanan dan path traversal protection
-   - Alur kerja agentic loop dan multi-step execution
-   - Panduan gaya komunikasi (Bahasa Indonesia + emoji 🐢)
-   - Tips & best practices untuk operasi file
-   - Daftar tool yang TIDAK ADA (jangan panggil)
-```
-
-Ini memastikan model selalu punya context tentang capabilities-nya di setiap session baru.
-
----
-
-## 14. API Reference
-
-### OpenRouter API
-
-**Endpoint:** `POST https://openrouter.ai/api/v1/chat/completions`
-
-**Headers:**
-
-```
-Authorization: Bearer <OPENROUTER_API_KEY>
-Content-Type: application/json
-HTTP-Referer: https://myapp.com
-X-Title: Ruka AI - Kura-Kura Agent
-```
-
-**Request Body:**
-
-```json
-{
-  "model": "openrouter/owl-alpha",
-  "messages": [
-    {"role": "system", "content": "..."},
-    {"role": "user", "content": "..."},
-    {"role": "assistant", "content": null, "tool_calls": [...]},
-    {"role": "tool", "tool_call_id": "...", "content": "..."}
-  ],
-  "tools": [...],
-  "max_tokens": 2000,
-  "temperature": 0.7
-}
-```
-
-**Response:**
-
-```json
-{
-  "id": "gen-xxx",
-  "choices": [{
-    "message": {
-      "role": "assistant",
-      "content": "Response text atau null jika tool_calls",
-      "tool_calls": [...]
-    },
-    "finish_reason": "stop" | "tool_calls" | "length"
-  }]
-}
+SKILL/
+├── skills.md       # Capabilities, tools, batasan, best practices, orchestration
+├── browsingSkill.md# Panduan browsing web (curl/lynx/python3)
+├── pptSkill.md     # Panduan membuat presentasi PowerPoint
+├── vercelSkill.md  # Panduan deploy via Vercel CLI
+└── emailSkill.md   # Panduan kirim email via msmtp
 ```
 
 ---
 
-## 15. Browsing Skills
+## 15. Auto-Update
 
-Ruka AI memiliki kemampuan browsing web yang didokumentasikan di `browsingSkill.md`.
+`check_for_updates()` dijalankan otomatis saat startup (`main()`).
 
-### Tools yang Tersedia
+### Alur
 
-- **curl** — HTTP requests dari terminal
-- **lynx** — Text-based web browser (dump HTML ke teks)
-- **w3m** — Text-based web browser alternatif
-- **python3** — HTTP requests via urllib, parsing HTML
+1. Jalankan `git fetch origin` di `SCRIPT_DIR`
+2. Bandingkan `HEAD` vs `origin/HEAD`
+3. Jika ada commit baru → jalankan `git pull --ff-only`
+4. Jika berhasil → tampilkan notice, restart otomatis atau informasi ke user
 
-### Search Engine
-
-| Engine | Status | URL |
-|--------|--------|-----|
-| DuckDuckGo HTML | ✅ Utama | `https://html.duckduckgo.com/html/?q=QUERY` |
-| DuckDuckGo Lite | ✅ Alternatif | `https://lite.duckduckgo.com/lite/?q=QUERY` |
-| DuckDuckGo API | ✅ JSON | `https://api.duckduckgo.com/?q=QUERY&format=json` |
-| Bing | ✅ Berat | `https://www.bing.com/search?q=QUERY` |
-| Mojeek | ✅ Privacy | `https://www.mojeek.com/search?q=QUERY` |
-| Brave Search | ⚠️ Sebagian | `https://search.brave.com/search?q=QUERY` |
-| Google | ❌ Diblokir | Membutuhkan JavaScript |
-
-### Rate Limiting Strategy
-
-- Delay 3-5 detik antar request ke engine yang sama
-- Rotasi search engine jika satu gagal
-- Cache hasil — jangan request ulang query yang sama
-- Exponential backoff: 2s → 4s → 8s, lalu pindah engine
-- Prioritaskan API daripada scrape HTML
+Jika git tidak tersedia atau bukan git repo, update check dilewati secara silent.
 
 ---
 
 ## 16. Development Guide
 
-### Setup Development Environment
+### Setup
 
 ```bash
-# Clone repository
 git clone https://github.com/Hamzah82/Ruka-AI.git
 cd Ruka-AI
-
-# Buat virtual environment (opsional, recommended)
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate   # Windows
-
-# Install dependensi
 pip install -r requirements.txt
-
-# Setup API key
 cp .env.example .env
-# Edit .env, masukkan API key
-
-# Jalankan
+# Edit .env, isi OPENROUTER_API_KEY
 python main.py
+```
+
+### Install Alias
+
+```bash
+./install.sh   # membuat alias `ruka` agar bisa dipakai dari folder mana pun
 ```
 
 ### Testing
 
 ```bash
-# Test dengan session bernama "test"
-python main.py test
-
-# Test single prompt
-python main.py "Tampilkan daftar file"
-
-# Test session management
-python main.py list-sessions
-python main.py delete-session test
+pytest                           # jalankan semua tests
+python main.py test              # session bernama "test"
+python main.py listSessions      # cek session
 ```
 
-### Git Workflow
+### Menambah Skill Baru
 
-```bash
-# Buat branch baru
-git checkout -b fitur-baru
-
-# Commit perubahan
-git add .
-git commit -m "feat: menambahkan fitur X"
-
-# Push ke remote
-git push origin fitur-baru
-```
-
-### Code Style
-
-- Gunakan type hints pada function parameters
-- Dokumentasi dalam Bahasa Indonesia
-- Error messages dalam Bahasa Indonesia
-- Emoji 🐢 untuk branding konsisten
+1. Buat `SKILL/namaSkill.md` dengan dokumentasi
+2. Update `SKILL/skills.md` — tambah referensi ke skill baru
+3. System prompt sudah menginstruksikan model membaca `SKILL/skills.md` di awal session
 
 ---
 
 ## 17. Troubleshooting
 
-### Masalah Umum
+**"Error: API key tidak ditemukan"**
+Buat `.env` di folder instalasi dan isi `OPENROUTER_API_KEY`.
 
-**1. "Error: API key tidak ditemukan"**
+**"Connection refused" / "Timeout"**
+Cek koneksi internet. Retry mechanism sudah menangani ini otomatis (maks 5x).
 
-Penyebab: File `.env` tidak ada atau API key belum diisi.
-Solusi: Buat file `.env` dan masukkan API key yang valid.
+**"Context length exceeded"**
+Mulai session baru dengan `/new`. Atau turunkan `MAX_HISTORY_TOKENS` di `config.py`.
 
-**2. "Error: Connection refused" atau "Timeout"**
+**Floating prompt tidak muncul**
+Terminal tidak mendukung termios (non-TTY atau Windows). Fallback ke mode linear otomatis.
 
-Penyebab: Tidak ada koneksi internet atau OpenRouter down.
-Solusi: Cek koneksi internet, cek status OpenRouter di https://openrouter.ai
+**Output markdown tidak terformat**
+Terminal tidak mendukung ANSI escape codes. Gunakan terminal modern (iTerm2, Windows Terminal, dll.).
 
-**3. "Error: Context length exceeded"**
+**Tool execution gagal terus**
+Cek path — harus dalam `BASE_DIR` (workspace saat ini). Cek izin file/folder.
 
-Penyebab: Percakapan terlalu panjang, melebihi context window model.
-Solusi: Mulai session baru dengan `/new` atau gunakan model dengan context window lebih besar.
+**Auto-update gagal**
+Folder instalasi bukan git repo, atau tidak ada koneksi. Coba manual: `cd ~/Ruka-AI && git pull`.
 
-**4. Session tidak tersimpan**
+---
 
-Penyebab: Folder `sessions/` tidak ada atau tidak bisa ditulis.
-Solusi: Pastikan folder `sessions/` ada dan memiliki izin tulis.
+## Spesifikasi Teknis
 
-**5. Tool execution gagal terus**
-
-Penyebab: Path traversal atau permission issue.
-Solusi: Cek path yang diminta, pastikan dalam direktori kerja dan memiliki izin.
-
-**6. Output markdown tidak terformat dengan baik**
-
-Penyebab: Terminal tidak mendukung ANSI escape codes.
-Solusi: Gunakan terminal modern (Windows Terminal, iTerm2, dll.)
-
-### Debug Mode
-
-Untuk menambahkan debug output, tambahkan di fungsi `chat()`:
-
-```python
-print(f"[DEBUG] Request: {json.dumps(payload, indent=2)}")
-print(f"[DEBUG] Response: {response.text}")
+```
+Language         : Python 3.10+
+Dependencies     : requests, python-dotenv (+ termios stdlib)
+Architecture     : Single-file CLI agent (main.py ~4641 baris) + config.py
+AI Backend       : OpenRouter API (OpenAI-compatible)
+Default Model    : openrouter/owl-alpha (~1M context window)
+Model Override   : RUKA_MODEL env var atau config.py
+Tools            : 13 (file ops, folder ops, exec_command, discuss)
+Session Format   : JSON files di SCRIPT_DIR/sessions/
+Workspace        : os.getcwd() — folder tempat user menjalankan `ruka`
+Security         : Path traversal protection, command filter, timeout
+Retry            : 5x, exponential backoff 5s → 80s
+History Trim     : 800K token estimasi, deterministik (bukan LLM summary)
+Output Limits    : 20K baris / 1M chars (read), 200K chars (exec)
+Interrupt        : Queue-based real-time ('q' untuk stop)
+UI               : FooterUI floating prompt (ANSI scroll region) + fallback linear
+Output Format    : Markdown → TerminalFormatter (ANSI styled)
+Auto-update      : git pull saat startup
+Skills Dir       : SKILL/ (skills.md, browsingSkill.md, pptSkill.md, dll.)
 ```
 
 ---
 
-## 📊 Spesifikasi Teknis Ringkas
-
-```
-Language        : Python 3.10+
-Dependencies    : requests, python-dotenv
-Architecture    : Single-file CLI agent with tool-calling loop (12 tools)
-AI Backend      : OpenRouter API (OpenAI-compatible)
-Default Model   : openrouter/owl-alpha (1M context window)
-Session Format  : JSON files
-Security        : Path traversal protection, command filtering, timeout
-Max Retries     : 5 (exponential backoff)
-Session Storage : Local filesystem (sessions/)
-Default Timeout : 60 seconds (exec_command)
-Max Tokens      : 2000 (API request)
-Temperature     : 0.7 (API request)
-Interrupt       : Queue-based, real-time ('q' to interrupt)
-Output Format   : Markdown → TerminalFormatter (styled terminal)
-Browsing        : DuckDuckGo, Bing, Mojeek, Brave, Yahoo (via lynx/curl/python3)
-Key Files       : main.py, skills.md, engineering.md, browsingSkill.md
-Runtime Files   : sessions/*.json, sessions/backups/*.json
-```
-
----
-
-## 📁 Struktur Project
-
-Berikut hanya file/folder yang merupakan bagian dari project (sesuai `.gitignore`):
+## Struktur Project
 
 ```
 Ruka-AI/
-├── main.py              # Source code utama — seluruh logic agent (~88 KB, ~2200 baris)
+├── main.py              # Logic utama (~4641 baris)
+├── config.py            # Semua konstanta konfigurasi
 ├── requirements.txt     # Dependensi Python
-├── LICENSE              # Lisensi MIT
-├── README.md            # Dokumentasi project untuk user
-├── engineering.md       # Dokumentasi teknis untuk developer (file ini)
-├── skills.md            # Panduan capabilities & body agent (dibaca model di awal session)
-├── browsingSkill.md     # Panduan browsing & web scraping
-├── sessions/            # Folder penyimpanan session (tidak di-push ke git)
-│   ├── *.json           # Session files (nama tergantung session)
-│   └── backups/         # Backup session lama
+├── install.sh           # Setup alias `ruka`
+├── pyproject.toml       # Project metadata & test config
+├── conftest.py          # Pytest fixtures
+├── engineering.md       # Dokumentasi teknis (file ini)
+├── README.md            # Dokumentasi user
+├── SECURITY.md          # Security policy
+├── SKILL/               # Dokumentasi internal untuk model AI
+│   ├── skills.md        # Capabilities utama (WAJIB dibaca model)
+│   ├── browsingSkill.md # Panduan browsing web
+│   ├── pptSkill.md      # Panduan PowerPoint
+│   ├── vercelSkill.md   # Panduan Vercel deploy
+│   └── emailSkill.md    # Panduan email via msmtp
+├── sessions/            # Data session user (tidak di-push ke git)
+│   └── *.json
+└── .env                 # API key (tidak di-push ke git)
 ```
-
-> **Catatan:** File `.env`, `.env.example`, `__pycache__/`, `*.pyc`, `build/`, `dist/`, `*.egg-info/`, dan file/folder lain yang ada di `.gitignore` bukan bagian dari project. Folder `sessions/` ada di `.gitignore` karena berisi data lokal user.
-
----
-
-<div align="center">
-
-**🐢 Ruka AI — Engineering Docs v2.0**
-
-*Dokumentasi ini mencakup seluruh aspek teknis project Ruka AI.*
-*Terakhir diupdate: 2026-06-11*
-
-</div>
