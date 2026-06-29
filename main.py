@@ -2051,6 +2051,26 @@ def show_session_list():
     print(f"\n  {Style.GREY}Lanjutkan dengan {Style.GREY_LIGHT}python main.py <nama>{Style.GREY}.{Style.RESET}")
 
 
+def show_history_on_resume(messages: list):
+    """
+    Tampilkan ulang seluruh riwayat percakapan saat resume session.
+    Dipanggil setelah arm() agar output masuk _output_buf dan ter-replay
+    saat resize. Format sama dengan tampilan asli saat percakapan berlangsung.
+    """
+    chat_messages = [m for m in messages if m.get("role") in ("user", "assistant")]
+    if not chat_messages:
+        return
+    for msg in chat_messages:
+        role = msg.get("role")
+        content = msg.get("content") or ""
+        if not content.strip():
+            continue
+        if role == "user":
+            print(f"\n  {Style.ACCENT}❯{Style.RESET} {Style.GREY_LIGHT}{content}{Style.RESET}")
+        elif role == "assistant":
+            _emit_agent_text(content)
+
+
 def show_session_history(messages: list, session_name: str):
     """Tampilkan riwayat chat sesi saat ini."""
     # Filter hanya role user dan assistant (skip system & tool)
@@ -4287,6 +4307,8 @@ def chat_session(session_name: str = None):
     ruka_print()
     show_banner(session_name, session_meta, is_new=is_new_session)
     show_examples()
+    if not is_new_session:
+        show_history_on_resume(messages)
 
     # Mulai input reader thread sekali di awal (raw editor bila footer aktif)
     _start_input_reader()
