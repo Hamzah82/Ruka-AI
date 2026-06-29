@@ -18,7 +18,8 @@
 - [8. Motion & Interaksi](#8-motion--interaksi)
 - [9. Penulisan Konten (Copy)](#9-penulisan-konten-copy)
 - [10. Template HTML Siap Pakai](#10-template-html-siap-pakai)
-- [11. Cheat Sheet](#11-cheat-sheet)
+- [11. Icon & Logo: Selalu SVG, Jangan Emoji](#11-icon--logo-selalu-svg-jangan-emoji)
+- [12. Cheat Sheet](#12-cheat-sheet)
 
 ---
 
@@ -63,6 +64,8 @@ Tiga tampilan generik yang harus dihindari kecuali brief secara eksplisit memint
 **Numbered markers (01/02/03) hanya dipakai kalau konten memang berurutan** — proses nyata atau timeline yang urutannya penting. Jangan pakai sebagai dekorasi.
 
 **Animasi berlebihan = terlihat AI.** Setiap elemen yang bergerak harus punya alasan. Satu momen terkoordinasi lebih kuat dari efek tersebar di mana-mana.
+
+**🚫 Jangan pernah pakai emoji sebagai logo atau icon UI.** Emoji berbeda antar platform (Apple vs Android vs Windows), tidak bisa dikontrol warnanya, dan terlihat tidak profesional. Selalu gunakan SVG — bisa dibuat sendiri atau diambil dari library icon.
 
 ---
 
@@ -877,17 +880,34 @@ Gunakan template ini sebagai titik awal, lalu modifikasi sesuai brief.
 
       <div class="grid grid-3" style="margin-top: var(--space-12);">
         <div class="card reveal">
-          <div class="card-icon">✦</div>
+          <div class="card-icon">
+            <!-- SVG dari heroicons.com / lucide.dev / buat sendiri -->
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </div>
           <h3 style="font-size:1.1rem; font-weight:600; margin-bottom:var(--space-2);">[Nama Fitur]</h3>
           <p style="font-size:0.9rem; color:var(--ink-soft);">[Deskripsi fitur dalam 1-2 kalimat]</p>
         </div>
         <div class="card reveal">
-          <div class="card-icon">◈</div>
+          <div class="card-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+            </svg>
+          </div>
           <h3 style="font-size:1.1rem; font-weight:600; margin-bottom:var(--space-2);">[Nama Fitur]</h3>
           <p style="font-size:0.9rem; color:var(--ink-soft);">[Deskripsi fitur dalam 1-2 kalimat]</p>
         </div>
         <div class="card reveal">
-          <div class="card-icon">⬡</div>
+          <div class="card-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
           <h3 style="font-size:1.1rem; font-weight:600; margin-bottom:var(--space-2);">[Nama Fitur]</h3>
           <p style="font-size:0.9rem; color:var(--ink-soft);">[Deskripsi fitur dalam 1-2 kalimat]</p>
         </div>
@@ -943,7 +963,197 @@ Gunakan template ini sebagai titik awal, lalu modifikasi sesuai brief.
 
 ---
 
-## 11. Cheat Sheet
+## 11. Icon & Logo: Selalu SVG, Jangan Emoji
+
+### Mengapa SVG, Bukan Emoji
+
+- **Emoji tidak konsisten** — tampilan berbeda di setiap OS/browser (Apple, Android, Windows, Linux)
+- **Emoji tidak bisa dikontrol** — warna, stroke, ukuran mengikuti sistem, bukan desain kita
+- **Emoji terlihat tidak profesional** di konteks UI dan branding
+- **SVG sempurna di semua resolusi** — tajam di 4K, ringan, bisa dianimasikan, bisa diwarnai via CSS
+
+**Aturan keras:**
+- Logo → selalu SVG, bisa dibuat sendiri
+- Icon UI (fitur, nav, tombol) → selalu SVG dari library atau buat sendiri
+- Dekorasi kecil di card → SVG, bukan karakter Unicode/emoji
+- Satu-satunya pengecualian: emoji di dalam *teks konten* (bukan elemen UI)
+
+---
+
+### Opsi 1: Ambil dari Library Icon Online
+
+**Heroicons** (oleh tim Tailwind, clean & minimalis):
+```bash
+# Langsung embed inline SVG dari:
+# https://heroicons.com
+# Pilih icon → copy SVG → paste langsung di HTML
+```
+
+**Lucide Icons** (fork Feather, 1000+ icon):
+```bash
+# https://lucide.dev
+# Pilih → Copy SVG
+```
+
+**Tabler Icons** (1500+ icon outline):
+```bash
+# https://tabler.io/icons
+# Pilih → Copy SVG
+```
+
+**Phosphor Icons** (gaya fleksibel, ada thin/bold/fill/duotone):
+```bash
+# https://phosphoricons.com
+# Pilih gaya → Copy SVG
+```
+
+**Cara embed SVG inline (direkomendasikan):**
+```html
+<!-- Langsung di HTML, bisa dikontrol warna via CSS -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+     viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+  <path d="M2 17l10 5 10-5"/>
+  <path d="M2 12l10 5 10-5"/>
+</svg>
+```
+
+**`stroke="currentColor"`** adalah kunci — warna icon mengikuti `color` CSS parent-nya, jadi bisa dikontrol penuh.
+
+---
+
+### Opsi 2: Buat SVG Sendiri
+
+Untuk logo atau icon custom yang tidak ada di library, buat sendiri.
+
+**Bentuk dasar SVG:**
+
+```html
+<!-- Lingkaran -->
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" stroke-width="2"/>
+</svg>
+
+<!-- Kotak dengan rounded corners -->
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <rect x="4" y="4" width="40" height="40" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+</svg>
+
+<!-- Path custom (bentuk apapun) -->
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M12 2 L22 20 L2 20 Z" fill="currentColor"/>
+</svg>
+```
+
+**Logo wordmark sederhana (teks + shape):**
+```html
+<svg viewBox="0 0 120 40" xmlns="http://www.w3.org/2000/svg">
+  <!-- Shape aksen -->
+  <rect x="0" y="10" width="4" height="20" rx="2" fill="#c84b31"/>
+  <!-- Teks logo -->
+  <text x="12" y="28" font-family="'Inter', sans-serif"
+        font-weight="700" font-size="20" fill="#1a1a2e">NamaLogo</text>
+</svg>
+```
+
+**Logo monogram (inisial dalam shape):**
+```html
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background shape -->
+  <rect width="48" height="48" rx="12" fill="#1a1a2e"/>
+  <!-- Huruf inisial -->
+  <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle"
+        font-family="'Inter', sans-serif" font-weight="700"
+        font-size="22" fill="#ffffff">R</text>
+</svg>
+```
+
+**Icon dari path sederhana (contoh: icon bintang):**
+```html
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none"
+     stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+  <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02
+                   12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+</svg>
+```
+
+---
+
+### Opsi 3: Ambil SVG via exec_command (curl)
+
+Kalau perlu download SVG dari URL yang diberikan user atau dari CDN publik:
+
+```bash
+# Download SVG dari URL
+exec_command("curl -s 'https://cdn.example.com/icon.svg' -o icon.svg")
+
+# Atau embed langsung di HTML via curl
+exec_command("curl -s 'https://cdn.example.com/icon.svg'")
+# Lalu paste hasilnya inline di HTML
+```
+
+Catatan: untuk library icon, lebih baik copy SVG langsung dari website-nya daripada download file — lebih cepat dan langsung dapat kode siap pakai.
+
+---
+
+### Cara Kontrol Warna SVG via CSS
+
+```css
+/* Icon mengikuti warna teks parent */
+.icon { color: var(--ink-soft); }
+.icon:hover { color: var(--accent); }
+
+/* Atau langsung set fill/stroke */
+.icon-accent { color: var(--accent); }
+```
+
+```html
+<!-- SVG dengan currentColor akan ikut warna CSS -->
+<svg class="icon" width="20" height="20" viewBox="0 0 24 24"
+     fill="none" stroke="currentColor" stroke-width="1.5">
+  <!-- path di sini -->
+</svg>
+```
+
+**Ukuran SVG yang konsisten:**
+```css
+.icon-sm { width: 16px; height: 16px; }
+.icon-md { width: 20px; height: 20px; }
+.icon-lg { width: 24px; height: 24px; }
+.icon-xl { width: 32px; height: 32px; }
+```
+
+---
+
+### Contoh: Card dengan SVG Icon (bukan emoji)
+
+**Jangan:**
+```html
+<div class="card">
+  <div class="card-icon">✦</div>  <!-- ❌ karakter unicode -->
+  <div class="card-icon">🚀</div> <!-- ❌ emoji -->
+</div>
+```
+
+**Harus:**
+```html
+<div class="card">
+  <div class="card-icon">
+    <!-- ✅ SVG inline dari Heroicons/Lucide/custom -->
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+    </svg>
+  </div>
+  <h3>Nama Fitur</h3>
+  <p>Deskripsi singkat.</p>
+</div>
+```
+
+---
+
+## 12. Cheat Sheet
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -989,6 +1199,15 @@ Gunakan template ini sebagai titik awal, lalu modifikasi sesuai brief.
 │    ✅ Tombol: "Mulai sekarang" | Toast: "Tersimpan"          │
 │    ✅ Error spesifik: "Format email salah — butuh @"         │
 │    ✅ Layar kosong = undangan bertindak                      │
+│                                                              │
+│  ICON & LOGO — ATURAN KERAS:                                 │
+│    ❌ JANGAN pakai emoji sebagai icon/logo (tidak konsisten) │
+│    ❌ JANGAN pakai karakter unicode (✦ ◈ ★) sebagai icon    │
+│    ✅ Selalu SVG — inline di HTML, warna via currentColor    │
+│    Library: heroicons.com / lucide.dev / tabler.io           │
+│    Atau buat sendiri: <circle> <rect> <path> <text>          │
+│    Download via: curl -s 'URL' -o icon.svg                   │
+│    CSS: .icon { color: var(--ink-soft); width: 20px; }       │
 │                                                              │
 │  AKSESIBILITAS MINIMAL:                                      │
 │    aria-label untuk icon buttons                             │

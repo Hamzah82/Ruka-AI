@@ -1255,6 +1255,7 @@ File `SKILL/frontendDesignSkill.md` berisi seluruh panduan desain frontend terma
 **⚠️ Aturan wajib:**
 - BACA `SKILL/frontendDesignSkill.md` dulu sebelum membuat UI, terutama di session baru
 - SELALU support dua viewport: mobile dan desktop
+- JANGAN pakai emoji atau karakter unicode sebagai icon/logo — selalu SVG (inline, dari library, atau buat sendiri)
 - JANGAN pakai tampilan AI generik (krem+terracotta, dark+acid-green) kecuali brief eksplisit memintanya
 - Buat rencana desain (warna + font + layout + signature) SEBELUM nulis kode
 - Kritik rencana sendiri: "apakah ini bisa dipakai untuk project lain?" — kalau iya, revisi dulu
