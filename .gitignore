@@ -202,3 +202,6 @@ users.json
 
 # Tests (local only, not for publishing)
 tests/
+
+# AI Development
+CLAUDE.md
