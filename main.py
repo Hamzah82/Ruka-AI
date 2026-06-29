@@ -4429,10 +4429,117 @@ def chat_session(session_name: str = None):
 
 
 # ============================================================
+# AUTO-UPDATE — cek & pull dari remote saat startup
+# ============================================================
+
+def check_for_updates() -> bool:
+    """
+    Cek apakah ada update dari remote repository.
+    Jika ada → git pull → return True (artinya perlu restart).
+    Jika tidak ada / bukan repo → return False (lanjut jalan normal).
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Pastikan folder ini adalah git repo
+    if not os.path.isdir(os.path.join(script_dir, ".git")):
+        return False
+
+    try:
+        # Fetch dulu untuk tahu apakah ada update tanpa mengubah working tree
+        fetch_result = subprocess.run(
+            ["git", "fetch", "--quiet"],
+            cwd=script_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if fetch_result.returncode != 0:
+            # Gagal fetch (misal offline) — skip update check, lanjut jalan
+            return False
+
+        # Bandingkan HEAD lokal dengan remote tracking branch
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain", "--branch"],
+            cwd=script_dir,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if status_result.returncode != 0:
+            return False
+
+        # Parse output: baris pertama berisi info branch
+        # Contoh: "## main...origin/main [behind 3]"  → ada update
+        #         "## main...origin/main"             → sudah up-to-date
+        output_lines = status_result.stdout.strip().splitlines()
+        if not output_lines:
+            return False
+
+        first_line = output_lines[0]  # baris "## branch...origin/branch [info]"
+
+        if "behind" not in first_line:
+            # Sudah up-to-date, tidak ada update
+            return False
+
+        # ── Ada update! Pull dari remote ───────────────────────
+        print()
+        msg = (
+            f"{Style.WARN}�  Update tersedia — menarik perubahan dari remote...{Style.RESET}"
+        )
+        print(msg)
+
+        pull_result = subprocess.run(
+            ["git", "pull", "--quiet"],
+            cwd=script_dir,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if pull_result.returncode != 0:
+            print(
+                f"{Style.ERR}�  Gagal pull update:{Style.RESET}\n"
+                f"  {pull_result.stderr.strip()}"
+            )
+            print(
+                f"{Style.GREY}Coba manual: cd {script_dir} && git pull{Style.RESET}"
+            )
+            return False
+
+        # Pull berhasil — suruh user restart
+        print()
+        print(f"{Style.OK}✓  Update berhasil diunduh!{Style.RESET}")
+        print(f"{Style.GREY}  Perubahan sudah diterapkan ke kode lokal.{Style.RESET}")
+        print()
+        print(f"{Style.BOLD}{Style.ACCENT}  Silakan jalankan ulang script untuk menggunakan versi terbaru.{Style.RESET}")
+        print(f"{Style.GREY}  Tekan Ctrl+C atau ketik 'exit' untuk keluar.{Style.RESET}")
+        print()
+        return True
+
+    except subprocess.TimeoutExpired:
+        # Timeout → skip update
+        return False
+    except FileNotFoundError:
+        # git tidak terinstall → skip
+        return False
+    except Exception:
+        # Error lain → skip update, lanjut jalan normal
+        return False
+
+
+# ============================================================
 # ENTRY POINT
 # ============================================================
 
 if __name__ == "__main__":
+    # ── Cek update dari remote saat startup ──────────────────
+    needs_restart = check_for_updates()
+    if needs_restart:
+        # Update berhasil → suruh user restart & exit
+        sys.exit(0)
+
     # Pastikan folder sessions ada
     _ensure_sessions_dir()
 
