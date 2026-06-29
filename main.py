@@ -396,22 +396,8 @@ class FooterUI:
         delta = new_reserved - old
         if delta == 0:
             return
-
-        # DEBUG: log resize_reserved
-        try:
-            with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
-                import datetime
-                f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] _resize_reserved: old={old} new={new_reserved} delta={delta} H={self.H}\n")
-        except:
-            pass
-
         if delta > 0:
             # Bersihkan baris footer lama agar tidak jadi "sampah" konten saat scroll.
-            try:
-                with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
-                    f.write(f"  → CLEAR baris {self.H - old + 1}-{self.H}\n")
-            except:
-                pass
             for r in range(self.H - old + 1, self.H + 1):
                 self._emit(f"\033[{r};1H\033[2K")
             self._emit("\033[r")                       # region penuh sementara
@@ -428,11 +414,6 @@ class FooterUI:
             # yang kini jadi area konten.
             self._reserved = new_reserved
             self._set_region()
-            try:
-                with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
-                    f.write(f"  → CLEAR baris {self.H - old + 1}-{self.H - new_reserved + 1}\n")
-            except:
-                pass
             for r in range(self.H - old + 1, self.H - new_reserved + 1):
                 self._emit(f"\033[{r};1H\033[2K")
 
@@ -544,33 +525,18 @@ class FooterUI:
         Return True bila berhasil; False bila terminal terlalu kecil.
         """
         old_H = self.H
-        old_W = self.W
         old_reserved = self._reserved
         self._read_size()
         if not self._size_ok():
             return False
 
-        # DEBUG: log resize event ke file
-        try:
-            with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
-                import datetime
-                f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] RESIZE: {old_H}x{old_W} → {self.H}x{self.W}, old_reserved={old_reserved}\n")
-        except:
-            pass
-
-        # JANGAN clear footer lama — apapun ukuran resize-nya. Alasan:
-        # 1. Saat terminal mengecil: footer lama di luar viewport, tidak perlu clear
-        # 2. Saat terminal membesar: koordinat footer lama (mis. baris 44-46 dari
-        #    terminal 46 baris) kini berada DI DALAM scroll region baru (1-74 untuk
-        #    terminal 77 baris). Clear di sana akan MENGHAPUS CONTENT AI yang sudah
-        #    scroll ke posisi itu. Biarkan _render_locked() overwrite footer dengan
-        #    posisi yang benar — overwrite tidak menghapus content di scroll region.
+        # JANGAN clear footer lama — apapun ukuran resize-nya.
+        # Saat terminal mengecil: footer lama di luar viewport, tidak perlu clear.
+        # Saat terminal membesar: koordinat footer lama (mis. baris 44-46 dari
+        # terminal 46 baris) kini berada DI DALAM scroll region baru. Clear di
+        # sana akan MENGHAPUS CONTENT AI. Biarkan _render_locked() overwrite
+        # footer di posisi yang benar — itu aman karena footer di luar scroll region.
         self._emit("\033[r")
-        try:
-            with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
-                f.write(f"  → SKIP clear footer lama (prevent content erasure)\n")
-        except:
-            pass
 
         # JANGAN reset _reserved ke RESERVED di sini. Bila di-reset, _render_locked()
         # akan memanggil _resize_reserved() dengan delta > 0 yang men-scroll SELURUH
