@@ -558,29 +558,19 @@ class FooterUI:
         except:
             pass
 
-        # Saat terminal mengecil drastis (keyboard Termux tutup), JANGAN clear
-        # baris footer lama sama sekali — mereka sudah di luar viewport terminal
-        # baru dan any positioning ke sana akan clamp/wrap ke baris yang visible,
-        # menghapus content. Hanya clear saat terminal MEMBESAR (footer ghost visible).
+        # JANGAN clear footer lama — apapun ukuran resize-nya. Alasan:
+        # 1. Saat terminal mengecil: footer lama di luar viewport, tidak perlu clear
+        # 2. Saat terminal membesar: koordinat footer lama (mis. baris 44-46 dari
+        #    terminal 46 baris) kini berada DI DALAM scroll region baru (1-74 untuk
+        #    terminal 77 baris). Clear di sana akan MENGHAPUS CONTENT AI yang sudah
+        #    scroll ke posisi itu. Biarkan _render_locked() overwrite footer dengan
+        #    posisi yang benar — overwrite tidak menghapus content di scroll region.
         self._emit("\033[r")
-        if self.H > old_H:
-            # Terminal membesar: footer lama kini visible di scroll region, must clear
-            start_clear = max(1, old_H - old_reserved + 1)
-            end_clear = old_H
-            try:
-                with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
-                    f.write(f"  → CLEAR baris {start_clear}-{end_clear}\n")
-            except:
-                pass
-            for r in range(start_clear, end_clear + 1):
-                self._emit(f"\033[{r};1H\033[2K")
-        else:
-            # Terminal mengecil atau sama: footer lama sudah di luar viewport, skip clear
-            try:
-                with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
-                    f.write(f"  → SKIP clear (terminal mengecil/sama)\n")
-            except:
-                pass
+        try:
+            with open(os.path.expanduser("~/ruka_resize_debug.log"), "a") as f:
+                f.write(f"  → SKIP clear footer lama (prevent content erasure)\n")
+        except:
+            pass
 
         # JANGAN reset _reserved ke RESERVED di sini. Bila di-reset, _render_locked()
         # akan memanggil _resize_reserved() dengan delta > 0 yang men-scroll SELURUH
