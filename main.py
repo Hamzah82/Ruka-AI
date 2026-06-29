@@ -553,9 +553,9 @@ class FooterUI:
         self._set_region()                 # pasang region baru (1..H-reserved)
 
         # Replay buffer output AI — konten kembali muncul dengan layout benar.
+        # Gabung semua chunk dulu lalu satu write() → jauh lebih sedikit syscall.
         if self._output_buf:
-            for chunk in self._output_buf:
-                self._real.write(chunk)
+            self._real.write("".join(self._output_buf))
             self._real.flush()
 
         # Simpan posisi konten (akhir replay, atau top area bila buffer kosong).
