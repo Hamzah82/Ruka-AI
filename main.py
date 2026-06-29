@@ -433,9 +433,11 @@ class FooterUI:
         # ukuran sendiri, sehingga bisa merender footer di posisi salah saat
         # self.H basi — \033[2K-nya menimpa & menghapus baris output AI.
         size = shutil.get_terminal_size(fallback=(self.W, self.H))
+        just_resized = False
         if size.lines != self.H or size.columns != self.W:
             if not self._apply_resize():
                 return
+            just_resized = True
 
         lines, crow, ccol = self._wrap_input()
         # Batasi tinggi input agar selalu sisa >=2 baris konten (reserved<=H-2).
@@ -447,8 +449,15 @@ class FooterUI:
         L = len(lines)
 
         new_reserved = 2 + L
-        if new_reserved != self._reserved:
+        # JANGAN panggil _resize_reserved() setelah _apply_resize() — region sudah
+        # di-set dengan benar, dan _resize_reserved() akan salah menghitung posisi
+        # baris footer lama (pakai self.H baru untuk koordinat terminal lama) sehingga
+        # men-clear baris content AI. Hanya resize footer bila ukuran terminal stabil.
+        if new_reserved != self._reserved and not just_resized:
             self._resize_reserved(new_reserved)
+        elif just_resized:
+            # Setelah resize terminal, langsung set _reserved tanpa scroll/clear.
+            self._reserved = new_reserved
 
         sep_row = self.H - 1 - L
         status_row = self.H - L
