@@ -151,6 +151,8 @@ class FooterUI:
 
     RESERVED = 3  # baris dasar: pemisah + status + 1 baris input
 
+    _BUF_LIMIT = 100_000   # maks byte output AI yang di-buffer untuk re-render
+
     def __init__(self):
         self.lock = threading.RLock()
         self.armed = False
@@ -168,6 +170,9 @@ class FooterUI:
         self._fd = None
         self._saved_termios = None
         self._idle_hint = ""
+        # Buffer output AI untuk di-replay saat resize (clear+redraw).
+        self._output_buf = []
+        self._buf_bytes = 0
 
     # ── Util lebar karakter (sadar lebar-ganda) ──────────────
     @staticmethod
@@ -221,6 +226,8 @@ class FooterUI:
 
         with self.lock:
             self._reserved = self.RESERVED
+            self._output_buf = []
+            self._buf_bytes = 0
             # Pesan baris dasar di bawah untuk footer.
             self._emit("\n" * self._reserved)
             self._emit("\033[?2004h")                      # bracketed paste on
@@ -312,6 +319,12 @@ class FooterUI:
             self._real.write(text)         # mengalir alami di dalam region
             self._real.flush()
             self._emit("\0337")            # simpan posisi konten baru
+            # Simpan ke buffer untuk re-render saat resize.
+            self._output_buf.append(text)
+            self._buf_bytes += len(text)
+            while self._buf_bytes > self._BUF_LIMIT and len(self._output_buf) > 1:
+                old = self._output_buf.pop(0)
+                self._buf_bytes -= len(old)
             self._render_locked()
 
     # ── Render footer (positioning absolut, tanpa save/restore) ──
@@ -505,6 +518,8 @@ class FooterUI:
         with self.lock:
             if not self.armed:
                 return
+            self._output_buf = []
+            self._buf_bytes = 0
             self._reserved = self.RESERVED    # kembali ke tinggi dasar
             self._emit("\033[r")              # reset region sementara
             self._emit("\033[2J\033[H")       # bersihkan layar
@@ -520,34 +535,30 @@ class FooterUI:
 
     def _apply_resize(self) -> bool:
         """
-        Bersihkan footer lama, baca ukuran baru, pasang ulang region & simpan
-        posisi konten. Pemanggil HARUS memegang lock.
+        Tangani resize terminal: clear layar, replay buffer output AI, pasang
+        region & footer baru. Pemanggil HARUS memegang lock.
         Return True bila berhasil; False bila terminal terlalu kecil.
         """
-        old_H = self.H
-        old_reserved = self._reserved
         self._read_size()
         if not self._size_ok():
             return False
 
-        self._emit("\033[r")
-        # Saat terminal MEMBESAR: baris footer lama (mis. 44-46 dari terminal
-        # 46-baris) kini masuk ke scroll region baru dan terlihat sebagai ghost.
-        # Aman di-clear karena saat resize terjadi baris itu pasti berisi teks
-        # footer — AI content dibatasi di scroll region lama (1..old_H-old_reserved).
-        # Saat terminal MENGECIL: footer lama sudah di luar viewport, skip clear.
-        if self.H > old_H:
-            for r in range(max(1, old_H - old_reserved + 1), old_H + 1):
-                self._emit(f"\033[{r};1H\033[2K")
-
-        # JANGAN reset _reserved ke RESERVED di sini. Bila di-reset, _render_locked()
-        # akan memanggil _resize_reserved() dengan delta > 0 yang men-scroll SELURUH
-        # konten ke atas — menghapus baris output AI. Pertahankan _reserved saat ini;
-        # hanya koreksi bila nilai lama tidak lagi valid untuk ukuran terminal baru.
+        # Sesuaikan _reserved untuk ukuran terminal baru.
         if self._reserved > self.H - 2:
             self._reserved = self.RESERVED
-        self._set_region()
-        self._emit(f"\033[{self.H - self._reserved};1H")
+
+        # Clear seluruh layar (termasuk ghost footer lama) lalu set region baru.
+        self._emit("\033[r")               # region penuh sementara
+        self._emit("\033[2J\033[H")        # bersihkan semua, cursor ke (1,1)
+        self._set_region()                 # pasang region baru (1..H-reserved)
+
+        # Replay buffer output AI — konten kembali muncul dengan layout benar.
+        if self._output_buf:
+            for chunk in self._output_buf:
+                self._real.write(chunk)
+            self._real.flush()
+
+        # Simpan posisi konten (akhir replay, atau top area bila buffer kosong).
         self._emit("\0337")
         return True
 
