@@ -1947,6 +1947,7 @@ def show_help():
     _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
 
     _help_section("CLI command (dari terminal)")
+    _help_row("resume  / res", "Picker interaktif — pilih session dengan ↑↓ Enter")
     _help_row("listSessions  / ls", "Daftar semua session tersimpan")
     _help_row("searchSessions <kw>  / search <kw>", "Cari session (case-insensitive)")
     _help_row("deleteSession <nama>  / del <nama>", "Hapus session tertentu")
@@ -2049,6 +2050,118 @@ def show_session_list():
         print(f"       {Style.GREY}{s['messages']} pesan · diupdate {s['updated']} · {size_str}{Style.RESET}")
 
     print(f"\n  {Style.GREY}Lanjutkan dengan {Style.GREY_LIGHT}python main.py <nama>{Style.GREY}.{Style.RESET}")
+
+
+def pick_session_interactive() -> "str | None":
+    """
+    TUI picker — ↑↓ untuk navigasi, Enter untuk pilih, q/Esc untuk batal.
+    Fallback ke input nomor jika termios tidak tersedia.
+    Returns: nama session yang dipilih, atau None jika dibatalkan.
+    """
+    sessions = list_sessions()
+    if not sessions:
+        print(f"\n  {Style.GREY}Tidak ada session tersimpan.{Style.RESET}\n")
+        return None
+
+    # Sort: terbaru dulu
+    sessions = sorted(sessions, key=lambda s: s["updated"], reverse=True)
+    n = len(sessions)
+
+    # ── Fallback (non-TTY atau tanpa termios) ─────────────────────
+    if not _HAS_TERMIOS or not sys.stdin.isatty():
+        print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Resume Session{Style.RESET}")
+        print(f"  {_rule()}")
+        for i, s in enumerate(sessions, 1):
+            size_str = _format_size(s["size"])
+            print(f"  {Style.GREY_DARK}{i:>2}{Style.RESET} {Style.GREY_LIGHT}{s['name']}{Style.RESET}")
+            print(f"       {Style.GREY}{s['messages']} pesan · {s['updated']} · {size_str}{Style.RESET}")
+        try:
+            choice = input(f"\n  {Style.GREY}Nomor atau nama (Enter untuk batal): {Style.RESET}").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not choice:
+            return None
+        if choice.isdigit():
+            i = int(choice) - 1
+            return sessions[i]["name"] if 0 <= i < n else None
+        return next((s["name"] for s in sessions if s["name"] == choice), None)
+
+    # ── TUI interaktif ────────────────────────────────────────────
+    idx = 0
+    # Jumlah \n yang dicetak per render: "" + header + rule + n×2 baris = 2 + n*2
+    SCROLL_LINES = 2 + n * 2
+
+    def _render(selected: int, first_draw: bool):
+        if not first_draw:
+            sys.stdout.write(f"\033[{SCROLL_LINES}A\r\033[J")
+        out = [""]  # baris kosong di atas header
+        out.append(
+            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Resume Session{Style.RESET} "
+            f"{Style.GREY}— ↑↓ pilih · Enter buka · q/Esc batal{Style.RESET}"
+        )
+        out.append(f"  {_rule()}")
+        for i, s in enumerate(sessions):
+            is_sel = (i == selected)
+            if is_sel:
+                marker     = f"{Style.ACCENT}❯{Style.RESET}"
+                name_style = f"{Style.ACCENT}{Style.BOLD}"
+                meta_style = Style.GREY_LIGHT
+            else:
+                marker     = " "
+                name_style = Style.GREY_LIGHT
+                meta_style = Style.GREY
+            size_str = _format_size(s["size"])
+            out.append(f"  {marker} {name_style}{s['name']}{Style.RESET}")
+            out.append(f"       {meta_style}{s['messages']} pesan · {s['updated']} · {size_str}{Style.RESET}")
+        sys.stdout.write("\n".join(out))
+        sys.stdout.flush()
+
+    _render(idx, first_draw=True)
+
+    fd = sys.stdin.fileno()
+    old_attrs = termios.tcgetattr(fd)
+    try:
+        new_attrs = termios.tcgetattr(fd)
+        # Raw input — BIARKAN OPOST aktif agar \n → \r\n tetap berlaku
+        new_attrs[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
+        new_attrs[6][termios.VMIN] = 1
+        new_attrs[6][termios.VTIME] = 0
+        termios.tcsetattr(fd, termios.TCSADRAIN, new_attrs)
+
+        while True:
+            ch = sys.stdin.read(1)
+
+            if ch == "\x1b":
+                # Cek apakah ini escape sequence (arrow key) atau bare Esc
+                readable, _, _ = select.select([sys.stdin], [], [], 0.05)
+                if readable:
+                    nxt = sys.stdin.read(1)
+                    if nxt == "[":
+                        arrow = sys.stdin.read(1)
+                        if arrow == "A":    # ↑
+                            idx = (idx - 1) % n
+                            _render(idx, first_draw=False)
+                        elif arrow == "B":  # ↓
+                            idx = (idx + 1) % n
+                            _render(idx, first_draw=False)
+                    # Sequence lain (Home, End, dll) — abaikan
+                else:
+                    # Bare Esc → batal
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return None
+
+            elif ch in ("\r", "\n"):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return sessions[idx]["name"]
+
+            elif ch in ("q", "Q", "\x03"):  # q / Ctrl-C
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return None
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
 
 
 def show_history_on_resume(messages: list):
@@ -4592,8 +4705,9 @@ if __name__ == "__main__":
         "help", "--help", "-h",
         "listSessions", "deleteSession", "renameSession",
         "clearSessions", "searchSessions",
+        "resume",
         # alias pendek
-        "ls", "del", "ren", "clear", "search",
+        "ls", "del", "ren", "clear", "search", "res",
     }
 
     if len(sys.argv) > 1:
@@ -4620,6 +4734,10 @@ if __name__ == "__main__":
             keyword = " ".join(sys.argv[2:])
             result = search_sessions(keyword)
             print(result)
+        elif arg in ("resume", "res"):
+            name = pick_session_interactive()
+            if name:
+                chat_session(name)
 
         # ── Workspace path + optional session name ──────────
         elif not arg.startswith("-"):
