@@ -1947,11 +1947,11 @@ def show_help():
     _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
 
     _help_section("CLI command (dari terminal)")
-    _help_row("listSessions", "Daftar semua session tersimpan")
-    _help_row("searchSessions <keyword>", "Cari session (case-insensitive)")
-    _help_row("deleteSession <nama>", "Hapus session tertentu")
-    _help_row("renameSession <l> <b>", "Rename session")
-    _help_row("clearSessions", "Hapus semua session auto-generated")
+    _help_row("listSessions  / ls", "Daftar semua session tersimpan")
+    _help_row("searchSessions <kw>  / search <kw>", "Cari session (case-insensitive)")
+    _help_row("deleteSession <nama>  / del <nama>", "Hapus session tertentu")
+    _help_row("renameSession <l> <b>  / ren <l> <b>", "Rename session")
+    _help_row("clearSessions  / clear", "Hapus semua session auto-generated")
 
     _help_section("Tips")
     print(f"    {Style.GREY}•{Style.RESET} {Style.GREY}Ketik {Style.GREY_LIGHT}q{Style.GREY} saat AI memproses untuk interupsi.{Style.RESET}")
@@ -4203,11 +4203,11 @@ def get_system_prompt(session_name: str = None) -> str:
             f"User bisa melihat daftar sesi dengan '/sessions', mulai sesi baru dengan '/new', "
             f"melihat riwayat dengan '/history', hapus sesi dengan '/delete-session <nama>', "
             f"dan rename sesi dengan '/rename-session <lama> <baru>'. "
-            f"CLI command (dari terminal): python main.py listSessions, "
-            f"python main.py deleteSession <nama>, "
-            f"python main.py renameSession <lama> <baru>, "
-            f"python main.py clearSessions (hapus semua session tanpa nama), "
-            f"python main.py searchSessions <keyword> (cari session berdasarkan nama)."
+            f"CLI command (dari terminal): python main.py listSessions (alias: ls), "
+            f"python main.py deleteSession <nama> (alias: del), "
+            f"python main.py renameSession <lama> <baru> (alias: ren), "
+            f"python main.py clearSessions (alias: clear), "
+            f"python main.py searchSessions <keyword> (alias: search)."
         )
 
     skills_content = _load_skills()
@@ -4592,6 +4592,8 @@ if __name__ == "__main__":
         "help", "--help", "-h",
         "listSessions", "deleteSession", "renameSession",
         "clearSessions", "searchSessions",
+        # alias pendek
+        "ls", "del", "ren", "clear", "search",
     }
 
     if len(sys.argv) > 1:
@@ -4600,21 +4602,21 @@ if __name__ == "__main__":
         # ── CLI commands (jalan di workspace apapun) ────────
         if arg in ("help", "--help", "-h"):
             show_help()
-        elif arg == "listSessions":
+        elif arg in ("listSessions", "ls"):
             show_session_list()
-        elif arg == "deleteSession" and len(sys.argv) > 2:
+        elif arg in ("deleteSession", "del") and len(sys.argv) > 2:
             target = sys.argv[2]
             result = delete_session(target)
             print(result)
-        elif arg == "renameSession" and len(sys.argv) > 3:
+        elif arg in ("renameSession", "ren") and len(sys.argv) > 3:
             old_name = sys.argv[2]
             new_name = sys.argv[3]
             result = rename_session(old_name, new_name)
             print(result)
-        elif arg == "clearSessions":
+        elif arg in ("clearSessions", "clear"):
             result = clear_sessions()
             print(result)
-        elif arg == "searchSessions" and len(sys.argv) > 2:
+        elif arg in ("searchSessions", "search") and len(sys.argv) > 2:
             keyword = " ".join(sys.argv[2:])
             result = search_sessions(keyword)
             print(result)
