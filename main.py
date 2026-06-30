@@ -2208,29 +2208,31 @@ def pick_session_interactive() -> "str | None":
 
 def delete_session_interactive():
     """
-    Picker interaktif untuk menghapus session.
-    Tampilkan picker → konfirmasi → hapus.
+    Picker interaktif untuk menghapus session, looping sampai q/Esc atau Ctrl+C.
+    Setiap iterasi: tampilkan picker → konfirmasi → hapus → kembali ke picker.
     """
-    name = pick_session_interactive()
-    if not name:
-        print(f"\n  {Style.GREY}Batal.{Style.RESET}\n")
-        return
-
     try:
-        confirm = input(
-            f"\n  {Style.ERR}⏺{Style.RESET} Hapus"
-            f" {Style.GREY_LIGHT}'{name}'{Style.RESET}?"
-            f" {Style.GREY}(y/N){Style.RESET} "
-        ).strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print(f"\n  {Style.GREY}Batal.{Style.RESET}")
-        return
+        while True:
+            name = pick_session_interactive()
+            if not name:
+                break
 
-    if confirm in ("y", "yes"):
-        result = delete_session(name)
-        print(f"\n{result}\n")
-    else:
-        print(f"\n  {Style.GREY}Batal.{Style.RESET}\n")
+            try:
+                confirm = input(
+                    f"\n  {Style.ERR}⏺{Style.RESET} Hapus"
+                    f" {Style.GREY_LIGHT}'{name}'{Style.RESET}?"
+                    f" {Style.GREY}(y/N){Style.RESET} "
+                ).strip().lower()
+            except EOFError:
+                break
+
+            if confirm in ("y", "yes"):
+                result = delete_session(name)
+                print(f"\n{result}\n")
+            else:
+                print(f"\n  {Style.GREY}Batal.{Style.RESET}\n")
+    except KeyboardInterrupt:
+        print(f"\n  {Style.GREY}Keluar.{Style.RESET}\n")
 
 
 def show_history_on_resume(messages: list):
