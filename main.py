@@ -1950,7 +1950,7 @@ def show_help():
     _help_row("resume  / res", "Picker interaktif — pilih session dengan ↑↓ Enter")
     _help_row("listSessions  / ls", "Daftar semua session tersimpan")
     _help_row("searchSessions <kw>  / search <kw>", "Cari session (case-insensitive)")
-    _help_row("deleteSession <nama>  / del <nama>", "Hapus session tertentu")
+    _help_row("deleteSession [nama]  / del [nama]", "Hapus session (tanpa nama → picker)")
     _help_row("renameSession <l> <b>  / ren <l> <b>", "Rename session")
     _help_row("clearSessions  / clear", "Hapus semua session auto-generated")
 
@@ -2204,6 +2204,33 @@ def pick_session_interactive() -> "str | None":
                 return None
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+
+
+def delete_session_interactive():
+    """
+    Picker interaktif untuk menghapus session.
+    Tampilkan picker → konfirmasi → hapus.
+    """
+    name = pick_session_interactive()
+    if not name:
+        print(f"\n  {Style.GREY}Batal.{Style.RESET}\n")
+        return
+
+    try:
+        confirm = input(
+            f"\n  {Style.ERR}⏺{Style.RESET} Hapus"
+            f" {Style.GREY_LIGHT}'{name}'{Style.RESET}?"
+            f" {Style.GREY}(y/N){Style.RESET} "
+        ).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(f"\n  {Style.GREY}Batal.{Style.RESET}")
+        return
+
+    if confirm in ("y", "yes"):
+        result = delete_session(name)
+        print(f"\n{result}\n")
+    else:
+        print(f"\n  {Style.GREY}Batal.{Style.RESET}\n")
 
 
 def show_history_on_resume(messages: list):
@@ -4760,10 +4787,12 @@ if __name__ == "__main__":
             show_help()
         elif arg in ("listSessions", "ls"):
             show_session_list()
-        elif arg in ("deleteSession", "del") and len(sys.argv) > 2:
-            target = sys.argv[2]
-            result = delete_session(target)
-            print(result)
+        elif arg in ("deleteSession", "del"):
+            if len(sys.argv) > 2:
+                result = delete_session(sys.argv[2])
+                print(result)
+            else:
+                delete_session_interactive()
         elif arg in ("renameSession", "ren") and len(sys.argv) > 3:
             old_name = sys.argv[2]
             new_name = sys.argv[3]
