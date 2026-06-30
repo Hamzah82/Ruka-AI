@@ -229,7 +229,7 @@ Session saat ini akan otomatis tersimpan, lalu session baru dimulai.
 python main.py deleteSession kerja-proyek
 
 # Dari dalam chat:
-❯ /delete-session kerja-proyek
+❯ /delete kerja-proyek
 ```
 
 ### Rename Session
@@ -239,7 +239,7 @@ python main.py deleteSession kerja-proyek
 python main.py renameSession nama-lama nama-baru
 
 # Dari dalam chat:
-❯ /rename-session nama-lama nama-baru
+❯ /rename nama-baru
 ```
 
 ### Tips Awal Session
@@ -337,8 +337,8 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - `/new` — Mulai session baru (session lama auto-save)
 - `/history` — Tampilkan riwayat chat sesi saat ini
 - `/clear` — Bersihkan layar
-- `/delete-session <nama>` — Hapus session tertentu
-- `/rename-session <lama> <baru>` — Rename session
+- `/delete <nama>` — Hapus session tertentu
+- `/rename <nama baru>` — Rename session aktif
 
 > Slash command tetap menggunakan format kebab-case dengan prefix `/`.
 

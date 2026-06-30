@@ -519,8 +519,8 @@ Perintah ini di-handle oleh program, BUKAN oleh AI:
 - `/sessions` — Lihat daftar semua sesi
 - `/new` — Mulai sesi baru
 - `/history` — Lihat riwayat chat sesi ini
-- `/delete-session <nama>` — Hapus sesi tertentu
-- `/rename-session <lama> <baru>` — Rename sesi
+- `/delete <nama>` — Hapus sesi tertentu
+- `/rename <nama baru>` — Rename sesi aktif
 - `exit` / `quit` / `keluar` — Keluar dari program
 
 ### Auto-Save
@@ -1301,8 +1301,8 @@ Round 4: Konfirmasi hasil — jelaskan pilihan desain yang dibuat
 │                                                          │
 │  SESSION:                                                │
 │    /sessions, /new, /history                             │
-│    /delete-session <nama>                                │
-│    /rename-session <lama> <baru>                         │
+│    /delete <nama>                                        │
+│    /rename <nama baru>                                   │
 │                                                          │
 │  SELF-REFLECTION:                                        │
 │    Planning → Eksekusi → Verification → Quality Check     │

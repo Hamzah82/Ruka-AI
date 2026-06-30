@@ -17,14 +17,14 @@ Session Management:
   python main.py <workspacePath> <namaSesi> → session tertentu di workspace tertentu
   python main.py listSessions              → tampilkan daftar semua sesi (CLI)
   python main.py deleteSession <nama>      → hapus sesi tertentu (CLI)
-  python main.py renameSession <lama> <baru> → rename sesi (CLI)
+  python main.py renameSession <lama> <baru> → rename sesi spesifik (CLI)
   python main.py clearSessions             → hapus semua session tanpa nama (CLI)
   python main.py searchSessions <keyword>   → cari session berdasarkan nama (CLI)
   /sessions                               → tampilkan daftar semua sesi (slash command)
   /new                                    → mulai sesi baru (slash command)
   /history                                → tampilkan riwayat chat sesi saat ini (slash command)
-  /delete-session <nama>                  → hapus sesi tertentu (slash command)
-  /rename-session <lama> <baru>           → rename sesi (slash command)
+  /delete <nama>                          → hapus sesi tertentu (slash command)
+  /rename <nama baru>                     → rename sesi aktif (slash command)
 """
 
 import os
@@ -1942,8 +1942,8 @@ def show_help():
     _help_row("/new", "Mulai session baru (lama auto-save)")
     _help_row("/history", "Lihat riwayat chat sesi ini")
     _help_row("/clear", "Bersihkan layar")
-    _help_row("/delete-session <nama>", "Hapus session tertentu")
-    _help_row("/rename-session <l> <b>", "Rename session")
+    _help_row("/delete <nama>", "Hapus session tertentu")
+    _help_row("/rename <nama baru>", "Rename session aktif")
     _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
 
     _help_section("CLI command (dari terminal)")
@@ -1951,7 +1951,7 @@ def show_help():
     _help_row("listSessions  / ls", "Daftar semua session tersimpan")
     _help_row("searchSessions <kw>  / search <kw>", "Cari session (case-insensitive)")
     _help_row("deleteSession [nama]  / del [nama]", "Hapus session (tanpa nama → picker)")
-    _help_row("renameSession <l> <b>  / ren <l> <b>", "Rename session")
+    _help_row("renameSession <l> <b>  / ren <l> <b>", "Rename session spesifik (CLI)")
     _help_row("clearSessions  / clear", "Hapus semua session auto-generated")
 
     _help_section("Tips")
@@ -4401,8 +4401,8 @@ def get_system_prompt(session_name: str = None) -> str:
             f"Nama session: {session_name}\n"
             f"Session tersimpan otomatis di folder 'sessions/'.\n"
             f"User bisa melihat daftar sesi dengan '/sessions', mulai sesi baru dengan '/new', "
-            f"melihat riwayat dengan '/history', hapus sesi dengan '/delete-session <nama>', "
-            f"dan rename sesi dengan '/rename-session <lama> <baru>'. "
+            f"melihat riwayat dengan '/history', hapus sesi dengan '/delete <nama>', "
+            f"dan rename sesi aktif dengan '/rename <nama baru>'. "
             f"CLI command (dari terminal): python main.py listSessions (alias: ls), "
             f"python main.py deleteSession <nama> (alias: del), "
             f"python main.py renameSession <lama> <baru> (alias: ren), "
@@ -4568,10 +4568,10 @@ def chat_session(session_name: str = None):
                 show_session_history(messages, session_name)
                 continue
 
-            if user_input.lower().startswith("/delete-session"):
+            if user_input.lower().startswith("/delete"):
                 parts = user_input.split(maxsplit=1)
                 if len(parts) < 2:
-                    print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/delete-session <nama>{Style.RESET}")
+                    print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/delete <nama>{Style.RESET}")
                 else:
                     target_name = parts[1].strip()
                     result = delete_session(target_name)
@@ -4580,15 +4580,15 @@ def chat_session(session_name: str = None):
                     print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
                 continue
 
-            if user_input.lower().startswith("/rename-session"):
-                parts = user_input.split(maxsplit=2)
-                if len(parts) < 3:
-                    print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/rename-session <lama> <baru>{Style.RESET}")
+            if user_input.lower().startswith("/rename"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) < 2 or not parts[1].strip():
+                    print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/rename <nama baru>{Style.RESET}")
                 else:
-                    old_name = parts[1].strip()
-                    new_name = parts[2].strip()
+                    new_name = parts[1].strip()
+                    old_name = session_name
                     result = rename_session(old_name, new_name)
-                    if old_name == session_name:
+                    if "berhasil" in result.lower():
                         session_name = new_name
                     ok = "berhasil" in result.lower()
                     dot = Style.OK if ok else Style.ERR

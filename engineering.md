@@ -210,8 +210,8 @@ Slash commands dalam sesi:
 /sessions           → daftar semua session
 /new                → mulai session baru
 /history            → tampilkan riwayat chat sesi ini
-/delete-session <n> → hapus session
-/rename-session <l> <b> → rename session
+/delete <n> → hapus session
+/rename <nama baru> → rename session aktif
 /help               → tampilkan bantuan
 /clear              → bersihkan layar
 ```
@@ -425,8 +425,8 @@ Session disimpan di 2 titik:
 | `/sessions` | Daftar semua session |
 | `/new` | Session baru |
 | `/history` | Riwayat chat sesi ini |
-| `/delete-session <nama>` | Hapus session |
-| `/rename-session <l> <b>` | Rename session |
+| `/delete <nama>` | Hapus session |
+| `/rename <nama baru>` | Rename session aktif |
 | `python main.py listSessions` | CLI: list sessions |
 | `python main.py clearSessions` | CLI: hapus semua session auto-generated |
 | `python main.py searchSessions <kw>` | CLI: cari session by nama |
