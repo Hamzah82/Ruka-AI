@@ -2052,11 +2052,15 @@ def show_session_list():
     print(f"\n  {Style.GREY}Lanjutkan dengan {Style.GREY_LIGHT}python main.py <nama>{Style.GREY}.{Style.RESET}")
 
 
-def pick_session_interactive() -> "str | None":
+def pick_session_interactive(title: str = "Resume Session", action: str = "buka") -> "str | None":
     """
     TUI picker — ↑↓ navigasi dalam halaman, ←→ ganti halaman, Enter pilih, q/Esc batal.
     Maks 20 sesi per halaman. Menggunakan os.read(fd) langsung agar raw mode berjalan.
     Fallback ke input nomor jika termios tidak tersedia.
+    
+    Args:
+        title: Judul yang ditampilkan di header (default: "Resume Session")
+        action: Kata kerja untuk aksi Enter (default: "buka", untuk delete: "hapus")
     Returns: nama session yang dipilih, atau None jika dibatalkan.
     """
     sessions = list_sessions()
@@ -2071,7 +2075,7 @@ def pick_session_interactive() -> "str | None":
 
     # ── Fallback (non-TTY atau tanpa termios) ─────────────────────
     if not _HAS_TERMIOS or not sys.stdin.isatty():
-        print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Resume Session{Style.RESET}")
+        print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}{title}{Style.RESET}")
         print(f"  {_rule()}")
         for i, s in enumerate(sessions, 1):
             size_str = _format_size(s["size"])
@@ -2118,9 +2122,9 @@ def pick_session_interactive() -> "str | None":
             pg_hint = ""
 
         out.append(
-            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Resume Session{Style.RESET}"
+            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}{title}{Style.RESET}"
             f"  {Style.GREY}({n} sesi){Style.RESET}"
-            f"  {Style.GREY_DARK}↑↓ pilih · Enter buka · q batal{Style.RESET}"
+            f"  {Style.GREY_DARK}↑↓ pilih · Enter {action} · q batal{Style.RESET}"
             f"{pg_hint}"
         )
         out.append(f"  {_rule()}")
@@ -2213,7 +2217,10 @@ def delete_session_interactive():
     """
     try:
         while True:
-            name = pick_session_interactive()
+            name = pick_session_interactive(
+                title="Delete Session",
+                action="hapus"
+            )
             if not name:
                 break
 
