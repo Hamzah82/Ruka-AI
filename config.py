@@ -61,11 +61,11 @@ SESSIONS_DIR = os.path.join(SCRIPT_DIR, "sessions")
 DEFAULT_CMD_TIMEOUT = 60
 
 # Jumlah maksimum retry saat request API gagal
-MAX_RETRIES = 5
+MAX_RETRIES = 7
 
 # Delay dasar untuk exponential backoff (detik)
 # Retry delays: 5s, 10s, 20s, 40s, 80s
-RETRY_BASE_DELAY = 5
+RETRY_BASE_DELAY = 2
 
 # ============================================================
 # OUTPUT LIMITS — batasi volume output tool ke message history
