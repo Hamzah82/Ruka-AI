@@ -2054,7 +2054,8 @@ def show_session_list():
 
 def pick_session_interactive() -> "str | None":
     """
-    TUI picker — ↑↓ untuk navigasi, Enter untuk pilih, q/Esc untuk batal.
+    TUI picker — ↑↓ navigasi dalam halaman, ←→ ganti halaman, Enter pilih, q/Esc batal.
+    Maks 20 sesi per halaman. Menggunakan os.read(fd) langsung agar raw mode berjalan.
     Fallback ke input nomor jika termios tidak tersedia.
     Returns: nama session yang dipilih, atau None jika dibatalkan.
     """
@@ -2063,9 +2064,10 @@ def pick_session_interactive() -> "str | None":
         print(f"\n  {Style.GREY}Tidak ada session tersimpan.{Style.RESET}\n")
         return None
 
-    # Sort: terbaru dulu
     sessions = sorted(sessions, key=lambda s: s["updated"], reverse=True)
     n = len(sessions)
+    PAGE_SIZE = 20
+    total_pages = (n + PAGE_SIZE - 1) // PAGE_SIZE
 
     # ── Fallback (non-TTY atau tanpa termios) ─────────────────────
     if not _HAS_TERMIOS or not sys.stdin.isatty():
@@ -2087,21 +2089,44 @@ def pick_session_interactive() -> "str | None":
         return next((s["name"] for s in sessions if s["name"] == choice), None)
 
     # ── TUI interaktif ────────────────────────────────────────────
-    idx = 0
-    # Jumlah \n yang dicetak per render: "" + header + rule + n×2 baris = 2 + n*2
-    SCROLL_LINES = 2 + n * 2
+    page = 0
+    idx  = 0
 
-    def _render(selected: int, first_draw: bool):
+    def _page_items(p):
+        start = p * PAGE_SIZE
+        return sessions[start:start + PAGE_SIZE]
+
+    # Jumlah \n per render = 2 (blank+header+rule → 2 join-newline) + items*2
+    # Di-track dinamis karena halaman terakhir mungkin lebih sedikit item.
+    prev_scroll = [2 + len(_page_items(0)) * 2]
+
+    def _render(p, sel, first_draw):
+        items = _page_items(p)
+        cur_scroll = 2 + len(items) * 2
+
         if not first_draw:
-            sys.stdout.write(f"\033[{SCROLL_LINES}A\r\033[J")
-        out = [""]  # baris kosong di atas header
+            sys.stdout.write(f"\033[{prev_scroll[0]}A\r\033[J")
+
+        out = [""]  # baris kosong sebelum header
+
+        if total_pages > 1:
+            pg_hint = (
+                f"  {Style.GREY}Hal. {p + 1}/{total_pages}"
+                f"  {Style.GREY_DARK}← →{Style.RESET}"
+            )
+        else:
+            pg_hint = ""
+
         out.append(
-            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Resume Session{Style.RESET} "
-            f"{Style.GREY}— ↑↓ pilih · Enter buka · q/Esc batal{Style.RESET}"
+            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Resume Session{Style.RESET}"
+            f"  {Style.GREY}({n} sesi){Style.RESET}"
+            f"  {Style.GREY_DARK}↑↓ pilih · Enter buka · q batal{Style.RESET}"
+            f"{pg_hint}"
         )
         out.append(f"  {_rule()}")
-        for i, s in enumerate(sessions):
-            is_sel = (i == selected)
+
+        for i, s in enumerate(items):
+            is_sel = (i == sel)
             if is_sel:
                 marker     = f"{Style.ACCENT}❯{Style.RESET}"
                 name_style = f"{Style.ACCENT}{Style.BOLD}"
@@ -2113,38 +2138,55 @@ def pick_session_interactive() -> "str | None":
             size_str = _format_size(s["size"])
             out.append(f"  {marker} {name_style}{s['name']}{Style.RESET}")
             out.append(f"       {meta_style}{s['messages']} pesan · {s['updated']} · {size_str}{Style.RESET}")
+
         sys.stdout.write("\n".join(out))
         sys.stdout.flush()
+        prev_scroll[0] = cur_scroll
 
-    _render(idx, first_draw=True)
+    _render(page, idx, first_draw=True)
 
     fd = sys.stdin.fileno()
     old_attrs = termios.tcgetattr(fd)
+
+    def _read1():
+        return os.read(fd, 1).decode("latin-1")
+
     try:
         new_attrs = termios.tcgetattr(fd)
-        # Raw input — BIARKAN OPOST aktif agar \n → \r\n tetap berlaku
+        # Raw input — BIARKAN c_oflag (OPOST/ONLCR) aktif agar \n → \r\n
         new_attrs[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
-        new_attrs[6][termios.VMIN] = 1
+        new_attrs[6][termios.VMIN]  = 1
         new_attrs[6][termios.VTIME] = 0
         termios.tcsetattr(fd, termios.TCSADRAIN, new_attrs)
 
         while True:
-            ch = sys.stdin.read(1)
+            ch = _read1()
 
             if ch == "\x1b":
-                # Cek apakah ini escape sequence (arrow key) atau bare Esc
-                readable, _, _ = select.select([sys.stdin], [], [], 0.05)
-                if readable:
-                    nxt = sys.stdin.read(1)
+                # Cek 50ms apakah ada lanjutan sequence (arrow key vs bare Esc)
+                r, _, _ = select.select([fd], [], [], 0.05)
+                if r:
+                    nxt = _read1()
                     if nxt == "[":
-                        arrow = sys.stdin.read(1)
-                        if arrow == "A":    # ↑
-                            idx = (idx - 1) % n
-                            _render(idx, first_draw=False)
-                        elif arrow == "B":  # ↓
-                            idx = (idx + 1) % n
-                            _render(idx, first_draw=False)
-                    # Sequence lain (Home, End, dll) — abaikan
+                        arrow = _read1()
+                        items = _page_items(page)
+                        if arrow == "A":      # ↑
+                            idx = (idx - 1) % len(items)
+                            _render(page, idx, first_draw=False)
+                        elif arrow == "B":    # ↓
+                            idx = (idx + 1) % len(items)
+                            _render(page, idx, first_draw=False)
+                        elif arrow == "C":    # → next page
+                            if total_pages > 1:
+                                page = (page + 1) % total_pages
+                                idx  = 0
+                                _render(page, idx, first_draw=False)
+                        elif arrow == "D":    # ← prev page
+                            if total_pages > 1:
+                                page = (page - 1) % total_pages
+                                idx  = 0
+                                _render(page, idx, first_draw=False)
+                        # Sequence lain (Home, End, PgUp, dll) — abaikan
                 else:
                     # Bare Esc → batal
                     sys.stdout.write("\n")
@@ -2154,7 +2196,7 @@ def pick_session_interactive() -> "str | None":
             elif ch in ("\r", "\n"):
                 sys.stdout.write("\n")
                 sys.stdout.flush()
-                return sessions[idx]["name"]
+                return _page_items(page)[idx]["name"]
 
             elif ch in ("q", "Q", "\x03"):  # q / Ctrl-C
                 sys.stdout.write("\n")
