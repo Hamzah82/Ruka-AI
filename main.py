@@ -3655,6 +3655,10 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
         while True:
             round_num += 1
 
+            # ── Cek interrupt di awal setiap putaran ────────────────
+            if _is_interrupted():
+                break
+
             # ── Batas putaran (hanya berlaku jika max_rounds > 0) ───
             if max_rounds > 0 and round_num > max_rounds:
                 print(
@@ -3755,6 +3759,18 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
                     )
                     _emit_agent_text(err)
 
+                # ── Stop diskusi segera jika user menekan q ──────────
+                if _is_interrupted():
+                    break
+
+            # ── Stop jika interrupt terdeteksi setelah putaran member ─
+            if _is_interrupted():
+                print(
+                    f"\n  {Style.WARN}◈ Diskusi diinterupsi oleh user "
+                    f"— menghentikan diskusi.{Style.RESET}"
+                )
+                break
+
             # ── Koordinator mengevaluasi setelah putaran selesai ────
             print(
                 f"\n  {Style.GREY_DARK}◈ Koordinator mengevaluasi putaran "
@@ -3785,7 +3801,7 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
 
         # ── Sintesis akhir oleh Koordinator ────────────────────────
         synthesis = ""
-        if discussion:
+        if discussion and not _is_interrupted():
             _show_team_member_header(
                 "Koordinator",
                 "Merangkum dan mensintesis hasil diskusi tim",
