@@ -18,7 +18,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 # Bisa di-override via environment variable RUKA_MODEL (atau lewat .env, karena
 # load_dotenv jalan sebelum import config di main.py). Nilai kosong/whitespace
 # → fallback ke default agar payload API tidak rusak.
-_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
+_DEFAULT_MODEL = "openrouter/free"
 MODEL = (os.getenv("RUKA_MODEL") or "").strip() or _DEFAULT_MODEL
 
 # URL endpoint API
