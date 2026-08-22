@@ -1427,27 +1427,171 @@ class TerminalFormatter:
     # ── Code Blocks ──────────────────────────────────────────
     @classmethod
     def _format_code_blocks(cls, text: str) -> str:
+        """Format fenced code blocks jadi kotak rapi + nomor baris + highlight."""
+
+        pattern = r'```\s*(\w+)?\s*\n(.*?)^\s*```'
+
         def replace_block(match):
-            lang = match.group(1) or ""
+            lang = (match.group(1) or "").strip().lower()
             code = match.group(2).rstrip('\n')
 
+            if not code.strip():
+                return "```" + (f"{lang}\n" if lang else "") + "```"
+
             code_lines = code.split("\n")
-            result_lines = [""]
+            num_lines = len(code_lines)
+            w = cls._term_width() - 4
 
-            # Label bahasa tipis di atas (mis. "python")
-            if lang:
-                result_lines.append(f"  {Style.GREY_DARK}{lang}{Style.RESET}")
+            result_lines = []
 
-            # Gaya Claude Code: garis kiri tipis + teks kode VERBATIM
-            # (jangan strip markdown/indentasi — kode harus apa adanya)
-            for cl in code_lines:
-                result_lines.append(f"  {Style.GREY_DARK}│{Style.RESET} {Style.GREY_LIGHT}{cl}{Style.RESET}")
+            if lang and lang != "code":
+                label = cls._get_language_name(lang)
+                result_lines.append(
+                    f"  {Style.DIM}╭─ {label} {'─' * max(1, w - len(label) - 2)}╮{Style.RESET}"
+                )
 
+            result_lines.append(f"  {Style.DIM}╭{'─' * w}╮{Style.RESET}")
+
+            for idx, line in enumerate(code_lines):
+                ln = f"{idx + 1:>4}" if num_lines else "    "
+                hl = cls._apply_syntax_highlighting(line, lang)
+                result_lines.append(
+                    f"  {Style.DIM}│{Style.RESET} {Style.GREY_DARK}{ln}{Style.RESET} "
+                    f"{Style.GREY_LIGHT}{hl}{Style.RESET}"
+                )
+
+            result_lines.append(f"  {Style.DIM}╰{'─' * w}╯{Style.RESET}")
             result_lines.append("")
             return "\n".join(result_lines)
 
-        return re.sub(r'```(\w*)\n(.*?)```', replace_block, text, flags=re.DOTALL)
+        return re.sub(pattern, replace_block, text, flags=re.DOTALL | re.MULTILINE)
 
+    @classmethod
+    def _get_language_name(cls, lang: str) -> str:
+        names = {
+            "python": "Python", "javascript": "JavaScript", "js": "JavaScript",
+            "typescript": "TypeScript", "ts": "TypeScript",
+            "bash": "Bash/Shell", "shell": "Bash/Shell", "zsh": "Zsh",
+            "json": "JSON", "html": "HTML", "css": "CSS", "sql": "SQL",
+            "java": "Java", "c++": "C++", "cpp": "C++", "c": "C",
+            "go": "Go", "rust": "Rust", "php": "PHP", "ruby": "Ruby",
+            "swift": "Swift", "kotlin": "Kotlin", "yaml": "YAML", "yml": "YAML",
+            "markdown": "Markdown", "md": "Markdown", "txt": "Text", "xml": "XML",
+            "dockerfile": "Dockerfile", "makefile": "Makefile", "diff": "Diff",
+            "ini": "INI", "toml": "TOML",
+        }
+        return names.get(lang, lang.upper())
+    @classmethod
+    def _apply_syntax_highlighting(cls, line: str, lang: str) -> str:
+        """Syntax highlighting SINGLE-PASS agar ANSI tidak di-scan ulang."""
+        if not lang or lang == "code":
+            return line
+        line = line.rstrip()
+
+        if lang == "python":
+            pat = re.compile(
+                r"(#[^\n]*)"
+                r"|" + r"\b(def|class|import|from|return|if|elif|else|for|while|"
+                r"try|except|finally|with|as|pass|break|continue|and|or|"
+                r"not|in|is|None|True|False|lambda|yield|global|nonlocal|"
+                r"async|await)\b"
+                r"|" + r"('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")"
+                r"|" + r"(\b\d+(?:\.\d+)?\b)"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.DIM}{Style.GREEN}{m.group(1)}{Style.RESET}" if m.group(1) else
+                    f"{Style.BOLD}{Style.YELLOW}{m.group(2)}{Style.RESET}" if m.group(2) else
+                    f"{Style.OK}{m.group(3)}{Style.RESET}" if m.group(3) else
+                    f"{Style.ORANGE}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    m.group(0)
+                ), line)
+
+        if lang in ("javascript", "js", "typescript", "ts"):
+            pat = re.compile(
+                r"(//[^\n]*)"
+                r"|" + r"\b(const|let|var|function|return|if|else|for|while|do|"
+                r"switch|case|break|continue|try|catch|finally|new|this|"
+                r"class|extends|export|import|from|async|await|typeof|"
+                r"instanceof|default)\b"
+                r"|" + r"('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")"
+                r"|" + r"(`[^`]*`)"
+                r"|" + r"(\b\d+(?:\.\d+)?\b)"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.DIM}{Style.GREEN}{m.group(1)}{Style.RESET}" if m.group(1) else
+                    f"{Style.BOLD}{Style.YELLOW}{m.group(2)}{Style.RESET}" if m.group(2) else
+                    f"{Style.OK}{m.group(3)}{Style.RESET}" if m.group(3) else
+                    f"{Style.ORANGE}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    f"{Style.ORANGE}{m.group(5)}{Style.RESET}" if m.group(5) else
+                    m.group(0)
+                ), line)
+
+        if lang in ("bash", "shell", "zsh"):
+            pat = re.compile(
+                r"(#[^\n]*)"
+                r"|" + r"\b(echo|cd|ls|pwd|mkdir|rm|cp|mv|cat|grep|find|ps|kill|"
+                r"sudo|chmod|chown|ssh|git|npm|pip|apt|yum|dnf|systemctl|"
+                r"service|nohup|screen|tmux|export|source|alias|unalias|"
+                r"curl|wget|tar|unzip|head|tail|sed|awk|python|node|pnpm|yarn)\b"
+                r"|" + r"(\$\w+|\$\{[^}]+\})"
+                r"|" + r"('[^']*'|\"[^\"]*\")"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.DIM}{Style.GREEN}{m.group(1)}{Style.RESET}" if m.group(1) else
+                    f"{Style.BOLD}{Style.CYAN}{m.group(2)}{Style.RESET}" if m.group(2) else
+                    f"{Style.PINK}{m.group(3)}{Style.RESET}" if m.group(3) else
+                    f"{Style.OK}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    m.group(0)
+                ), line)
+
+        if lang == "json":
+            pat = re.compile(
+                r'("(?:[^"\\]|\\.)*")(\s*:)'
+                r"|" + r"(\btrue\b|\bfalse\b|\bnull\b)"
+                r"|" + r"(-?\d+(?:\.\d+)?)"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.BOLD}{Style.CYAN}{m.group(1)}{Style.RESET}{m.group(2)}" if m.group(1) else
+                    f"{Style.OK}{m.group(3)}{Style.RESET}" if m.group(3) else
+                    f"{Style.ORANGE}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    m.group(0)
+                ), line)
+
+        if lang == "html":
+            pat = re.compile(
+                r'(</?)([\w-]+)([^>]*?)(/?>)'
+                r"|" + r"([\s])([\w-]+)(=)"
+                r"|" + r"('[^']*'|\"[^\"]*\")"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{m.group(1)}{Style.MAGENTA}{m.group(2)}{Style.RESET}"
+                    f"{m.group(3)}{Style.MAGENTA}{m.group(4)}{Style.RESET}" if m.group(1) else
+                    f"{m.group(5)}{Style.BLUE}{m.group(6)}{Style.RESET}{m.group(7)}" if m.group(5) else
+                    f"{Style.OK}{m.group(8)}{Style.RESET}" if m.group(8) else
+                    m.group(0)
+                ), line)
+
+        if lang == "css":
+            pat = re.compile(
+                r"([.#][\w-]+|:[\w-]+|\*|\{|\})"
+                r"|" + r"([\w-]+)(\s*:)"
+                r"|" + r"(#[0-9a-fA-F]{3,8}|[\w.-]+)(?=\s*;)"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.MAGENTA}{m.group(1)}{Style.RESET}" if m.group(1) else
+                    f"{Style.BLUE}{m.group(2)}{Style.RESET}{m.group(3)}" if m.group(2) else
+                    f"{Style.ORANGE}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    m.group(0)
+                ), line)
+
+        return line
+    # ── Blockquotes ──────────────────────────────────────────
     # ── Blockquotes ──────────────────────────────────────────
     @classmethod
     def _format_blockquotes(cls, text: str) -> str:
