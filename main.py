@@ -969,23 +969,24 @@ class Style:
 # UI HELPER — primitif tampilan ala Claude Code
 # ============================================================
 
-# Lebar konten panel & garis — DINAMIS mengikuti terminal, di-clamp agar terbaca
-# di Termux (sempit) dan tak meraksasa di monitor lebar.
-UI_WIDTH_MIN = 40   # batas bawah keterbacaan boks/tabel
-UI_WIDTH_MAX = 100  # batas atas (≈ tampilan lama di terminal lebar)
-
+# Lebar konten panel & garis — DINAMIS mengikuti terminal SEJATI tanpa clamp
+# kotak mengecil/membesar sesuai ukuran layar terminal agar tidak rusak
+UI_WIDTH_MIN = 0     # tanpa batas bawah — kotak mengikuti layar sempit sekalipun
+UI_WIDTH_MAX = None  # tanpa batas atas
 
 def _term_cols(fallback: int = 80) -> int:
     """
-    Lebar terminal NYATA saat ini, di-clamp ke [UI_WIDTH_MIN..UI_WIDTH_MAX].
-    Memakai shutil.get_terminal_size (sama seperti FooterUI) yang fail-safe:
+    Lebar terminal NYATA saat ini (tanpa clamp bawah/atas).
+    Memakai shutil.get_terminal_size yang fail-safe:
     tanpa TTY / COLUMNS kosong → fallback (default 80).
     """
     try:
         cols = shutil.get_terminal_size(fallback=(fallback, 24)).columns
     except Exception:
         cols = fallback
-    return max(UI_WIDTH_MIN, min(UI_WIDTH_MAX, cols))
+    if UI_WIDTH_MAX is not None:
+        cols = min(UI_WIDTH_MAX, cols)
+    return max(UI_WIDTH_MIN, cols)
 
 _ANSI_RE = re.compile(r'\033\[[0-9;]*m')
 
