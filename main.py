@@ -1448,12 +1448,20 @@ class TerminalFormatter:
 
             # Lebar kotak = lebar terminal real-time dikurangi margin kiri.
             term_w = cls._term_width()
-            box_w = max(20, term_w - 4)
+            # Formatter output akan diprefix 2 spasi oleh _emit_agent_text (print loop).
+            # Agar total tidak meluber: kurangi box_w sebesar indentasi tersebut.
+            box_w = max(16, term_w - 6)
 
             # Lebar area isi di dalam kotak (di antara dua pipa).
-            # Komponen: 1 spasi + nomor baris (6 kolom) + 1 spasi + kode.
+            # Komponen tetap baris konten (di luar kode): 2 indent + │ + 1 spasi
+            # + nomor baris (NUMBER_COLS) + 1 spasi + 1 spasi + │ = 13 kolom.
+            # Agar baris konten (13 + inner) PERSIS selebar border atas/bawah
+            # (box_w + 4 == lebar terminal), inner harus = box_w - 9.
+            # Nilai lama (box_w - 8) membuat baris konten 1 kolom lebih lebar
+            # dari layar → border kanan "│" terpotong di tepi terminal.
             NUMBER_COLS = 6
-            inner_code_w = max(1, box_w - NUMBER_COLS - 2)
+            FIXED_CONTENT = 2 + 1 + 1 + NUMBER_COLS + 1 + 1 + 1   # = 13
+            inner_code_w = max(1, box_w + 4 - FIXED_CONTENT)      # = box_w - 9
 
             code_lines = code.split("\n")
             total_lines = len(code_lines)
@@ -1464,8 +1472,13 @@ class TerminalFormatter:
             if lang and lang != "code":
                 label = cls._get_language_name(lang)
                 label_seg = f"╭─ {label} "
-                # Sisa dashes menyesuaikan sisa lebar kotak
-                dash_n = max(1, box_w - _visible_len(label_seg))
+                # Sisa dashes mengisi sampai border kanan. Struktur baris label
+                # (dengan 2 indent): 2 + "╭─ "(3) + label(L) + spasi(1) + dashes(D)
+                # + "╮"(1) = 7 + L + D. Agar total == border atas/bawah (box_w+4),
+                # maka D = box_w - 3 - L. Versi lama memakai basis box_w+2 yang
+                # menghasilkan baris 1 kolom lebih panjang (label & dashes tidak
+                # sejajar dengan border atas/bawah).
+                dash_n = max(1, box_w - 3 - _visible_len(label))
                 result_lines.append(
                     f"  {Style.DIM}{label_seg}{'─' * dash_n}╮{Style.RESET}"
                 )
