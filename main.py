@@ -969,23 +969,24 @@ class Style:
 # UI HELPER — primitif tampilan ala Claude Code
 # ============================================================
 
-# Lebar konten panel & garis — DINAMIS mengikuti terminal, di-clamp agar terbaca
-# di Termux (sempit) dan tak meraksasa di monitor lebar.
-UI_WIDTH_MIN = 40   # batas bawah keterbacaan boks/tabel
-UI_WIDTH_MAX = 100  # batas atas (≈ tampilan lama di terminal lebar)
-
+# Lebar konten panel & garis — DINAMIS mengikuti terminal SEJATI tanpa clamp
+# kotak mengecil/membesar sesuai ukuran layar terminal agar tidak rusak
+UI_WIDTH_MIN = 0     # tanpa batas bawah — kotak mengikuti layar sempit sekalipun
+UI_WIDTH_MAX = None  # tanpa batas atas
 
 def _term_cols(fallback: int = 80) -> int:
     """
-    Lebar terminal NYATA saat ini, di-clamp ke [UI_WIDTH_MIN..UI_WIDTH_MAX].
-    Memakai shutil.get_terminal_size (sama seperti FooterUI) yang fail-safe:
+    Lebar terminal NYATA saat ini (tanpa clamp bawah/atas).
+    Memakai shutil.get_terminal_size yang fail-safe:
     tanpa TTY / COLUMNS kosong → fallback (default 80).
     """
     try:
         cols = shutil.get_terminal_size(fallback=(fallback, 24)).columns
     except Exception:
         cols = fallback
-    return max(UI_WIDTH_MIN, min(UI_WIDTH_MAX, cols))
+    if UI_WIDTH_MAX is not None:
+        cols = min(UI_WIDTH_MAX, cols)
+    return max(UI_WIDTH_MIN, cols)
 
 _ANSI_RE = re.compile(r'\033\[[0-9;]*m')
 
@@ -1427,27 +1428,250 @@ class TerminalFormatter:
     # ── Code Blocks ──────────────────────────────────────────
     @classmethod
     def _format_code_blocks(cls, text: str) -> str:
+        """Format fenced code blocks jadi kotak rapi + nomor baris + highlight.
+        
+        Kotak menyesuaikan dengan lebar terminal secara DINAMIS:
+          - Lebar dihitung real-time setiap render (via _term_cols()).
+          - Baris kode yang lebih panjang dari lebar terminal otomatis
+            di-wrap agar tidak merusak border kanan.
+          - Baris pendek di-pad dengan spasi agar border kanan rata.
+        """
+
+        pattern = r'```\s*(\w+)?\s*\n(.*?)^\s*```'
+
         def replace_block(match):
-            lang = match.group(1) or ""
+            lang = (match.group(1) or "").strip().lower()
             code = match.group(2).rstrip('\n')
 
+            if not code.strip():
+                return "```" + (f"{lang}\n" if lang else "") + "```"
+
+            # Lebar kotak = lebar terminal real-time dikurangi margin kiri.
+            term_w = cls._term_width()
+            # Formatter output akan diprefix 2 spasi oleh _emit_agent_text (print loop).
+            # Agar total tidak meluber: kurangi box_w sebesar indentasi tersebut.
+            box_w = max(16, term_w - 6)
+
+            # Lebar area isi di dalam kotak (di antara dua pipa).
+            # Komponen tetap baris konten (di luar kode): 2 indent + │ + 1 spasi
+            # + nomor baris (NUMBER_COLS) + 1 spasi + 1 spasi + │ = 13 kolom.
+            # Agar baris konten (13 + inner) PERSIS selebar border atas/bawah
+            # (box_w + 4 == lebar terminal), inner harus = box_w - 9.
+            # Nilai lama (box_w - 8) membuat baris konten 1 kolom lebih lebar
+            # dari layar → border kanan "│" terpotong di tepi terminal.
+            NUMBER_COLS = 6
+            FIXED_CONTENT = 2 + 1 + 1 + NUMBER_COLS + 1 + 1 + 1   # = 13
+            inner_code_w = max(1, box_w + 4 - FIXED_CONTENT)      # = box_w - 9
+
             code_lines = code.split("\n")
-            result_lines = [""]
+            total_lines = len(code_lines)
 
-            # Label bahasa tipis di atas (mis. "python")
-            if lang:
-                result_lines.append(f"  {Style.GREY_DARK}{lang}{Style.RESET}")
+            result_lines = []
 
-            # Gaya Claude Code: garis kiri tipis + teks kode VERBATIM
-            # (jangan strip markdown/indentasi — kode harus apa adanya)
-            for cl in code_lines:
-                result_lines.append(f"  {Style.GREY_DARK}│{Style.RESET} {Style.GREY_LIGHT}{cl}{Style.RESET}")
+            # ── Border atas + label bahasa ──────────────────────
+            if lang and lang != "code":
+                label = cls._get_language_name(lang)
+                label_seg = f"╭─ {label} "
+                # Sisa dashes mengisi sampai border kanan. Struktur baris label
+                # (dengan 2 indent): 2 + "╭─ "(3) + label(L) + spasi(1) + dashes(D)
+                # + "╮"(1) = 7 + L + D. Agar total == border atas/bawah (box_w+4),
+                # maka D = box_w - 3 - L. Versi lama memakai basis box_w+2 yang
+                # menghasilkan baris 1 kolom lebih panjang (label & dashes tidak
+                # sejajar dengan border atas/bawah).
+                dash_n = max(1, box_w - 3 - _visible_len(label))
+                result_lines.append(
+                    f"  {Style.DIM}{label_seg}{'─' * dash_n}╮{Style.RESET}"
+                )
 
+            result_lines.append(f"  {Style.DIM}╭{'─' * box_w}╮{Style.RESET}")
+
+            # ── Baris kode ──────────────────────────────────────
+            for idx, line in enumerate(code_lines):
+                hl = cls._apply_syntax_highlighting(line, lang)
+
+                # Wrap baris yang lebih panjang dari kapasitas kotak.
+                if _visible_len(hl) > inner_code_w:
+                    wrapped = cls._wrap_plain(line, inner_code_w)
+                    for j, wl in enumerate(wrapped):
+                        # Baris pertama pakai nomor baris asli, kelanjutan kosong.
+                        ln = f"{idx + 1:>{NUMBER_COLS}}" if j == 0 else " " * NUMBER_COLS
+                        hl_j = cls._apply_syntax_highlighting(wl, lang)
+                        vis = _visible_len(hl_j)
+                        pad = max(0, inner_code_w - vis)
+                        result_lines.append(
+                            f"  {Style.DIM}│{Style.RESET} {Style.GREY_DARK}{ln}{Style.RESET} "
+                            f"{Style.GREY_LIGHT}{hl_j}{Style.RESET}{' ' * pad}"
+                            f" {Style.DIM}│{Style.RESET}"
+                        )
+                else:
+                    ln = f"{idx + 1:>{NUMBER_COLS}}" if total_lines else " " * NUMBER_COLS
+                    vis = _visible_len(hl)
+                    pad = max(0, inner_code_w - vis)
+                    result_lines.append(
+                        f"  {Style.DIM}│{Style.RESET} {Style.GREY_DARK}{ln}{Style.RESET} "
+                        f"{Style.GREY_LIGHT}{hl}{Style.RESET}{' ' * pad}"
+                        f" {Style.DIM}│{Style.RESET}"
+                    )
+
+            # ── Border bawah ────────────────────────────────────
+            result_lines.append(f"  {Style.DIM}╰{'─' * box_w}╯{Style.RESET}")
             result_lines.append("")
             return "\n".join(result_lines)
 
-        return re.sub(r'```(\w*)\n(.*?)```', replace_block, text, flags=re.DOTALL)
+        return re.sub(pattern, replace_block, text, flags=re.DOTALL | re.MULTILINE)
 
+    @classmethod
+    def _wrap_plain(cls, line: str, max_cols: int) -> list:
+        """Wrap teks polos (tanpa ANSI) agar tidak melewati max_cols.
+        Memakai indentation-aware wrap: baris lanjutan di-align dengan
+        awal teks baris pertama. Mengembalikan daftar baris hasil wrap."""
+        if max_cols <= 0:
+            return [line]
+        words = line.split(" ")
+        lines_out = []
+        cur = ""
+        for word in words:
+            trial = word if not cur else cur + " " + word
+            if _visible_len(trial) <= max_cols:
+                cur = trial
+            else:
+                if cur:
+                    lines_out.append(cur)
+                # Kata tunggal lebih panjang dari max_cols → pecah paksa
+                while _visible_len(word) > max_cols:
+                    lines_out.append(word[:max_cols])
+                    word = word[max_cols:]
+                cur = word
+        if cur:
+            lines_out.append(cur)
+        return lines_out or [""]
+
+    @classmethod
+    def _get_language_name(cls, lang: str) -> str:
+        names = {
+            "python": "Python", "javascript": "JavaScript", "js": "JavaScript",
+            "typescript": "TypeScript", "ts": "TypeScript",
+            "bash": "Bash/Shell", "shell": "Bash/Shell", "zsh": "Zsh",
+            "json": "JSON", "html": "HTML", "css": "CSS", "sql": "SQL",
+            "java": "Java", "c++": "C++", "cpp": "C++", "c": "C",
+            "go": "Go", "rust": "Rust", "php": "PHP", "ruby": "Ruby",
+            "swift": "Swift", "kotlin": "Kotlin", "yaml": "YAML", "yml": "YAML",
+            "markdown": "Markdown", "md": "Markdown", "txt": "Text", "xml": "XML",
+            "dockerfile": "Dockerfile", "makefile": "Makefile", "diff": "Diff",
+            "ini": "INI", "toml": "TOML",
+        }
+        return names.get(lang, lang.upper())
+    @classmethod
+    def _apply_syntax_highlighting(cls, line: str, lang: str) -> str:
+        """Syntax highlighting SINGLE-PASS agar ANSI tidak di-scan ulang."""
+        if not lang or lang == "code":
+            return line
+        line = line.rstrip()
+
+        if lang == "python":
+            pat = re.compile(
+                r"(#[^\n]*)"
+                r"|" + r"\b(def|class|import|from|return|if|elif|else|for|while|"
+                r"try|except|finally|with|as|pass|break|continue|and|or|"
+                r"not|in|is|None|True|False|lambda|yield|global|nonlocal|"
+                r"async|await)\b"
+                r"|" + r"('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")"
+                r"|" + r"(\b\d+(?:\.\d+)?\b)"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.DIM}{Style.GREEN}{m.group(1)}{Style.RESET}" if m.group(1) else
+                    f"{Style.BOLD}{Style.YELLOW}{m.group(2)}{Style.RESET}" if m.group(2) else
+                    f"{Style.OK}{m.group(3)}{Style.RESET}" if m.group(3) else
+                    f"{Style.ORANGE}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    m.group(0)
+                ), line)
+
+        if lang in ("javascript", "js", "typescript", "ts"):
+            pat = re.compile(
+                r"(//[^\n]*)"
+                r"|" + r"\b(const|let|var|function|return|if|else|for|while|do|"
+                r"switch|case|break|continue|try|catch|finally|new|this|"
+                r"class|extends|export|import|from|async|await|typeof|"
+                r"instanceof|default)\b"
+                r"|" + r"('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")"
+                r"|" + r"(`[^`]*`)"
+                r"|" + r"(\b\d+(?:\.\d+)?\b)"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.DIM}{Style.GREEN}{m.group(1)}{Style.RESET}" if m.group(1) else
+                    f"{Style.BOLD}{Style.YELLOW}{m.group(2)}{Style.RESET}" if m.group(2) else
+                    f"{Style.OK}{m.group(3)}{Style.RESET}" if m.group(3) else
+                    f"{Style.ORANGE}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    f"{Style.ORANGE}{m.group(5)}{Style.RESET}" if m.group(5) else
+                    m.group(0)
+                ), line)
+
+        if lang in ("bash", "shell", "zsh"):
+            pat = re.compile(
+                r"(#[^\n]*)"
+                r"|" + r"\b(echo|cd|ls|pwd|mkdir|rm|cp|mv|cat|grep|find|ps|kill|"
+                r"sudo|chmod|chown|ssh|git|npm|pip|apt|yum|dnf|systemctl|"
+                r"service|nohup|screen|tmux|export|source|alias|unalias|"
+                r"curl|wget|tar|unzip|head|tail|sed|awk|python|node|pnpm|yarn)\b"
+                r"|" + r"(\$\w+|\$\{[^}]+\})"
+                r"|" + r"('[^']*'|\"[^\"]*\")"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.DIM}{Style.GREEN}{m.group(1)}{Style.RESET}" if m.group(1) else
+                    f"{Style.BOLD}{Style.CYAN}{m.group(2)}{Style.RESET}" if m.group(2) else
+                    f"{Style.PINK}{m.group(3)}{Style.RESET}" if m.group(3) else
+                    f"{Style.OK}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    m.group(0)
+                ), line)
+
+        if lang == "json":
+            pat = re.compile(
+                r'("(?:[^"\\]|\\.)*")(\s*:)'
+                r"|" + r"(\btrue\b|\bfalse\b|\bnull\b)"
+                r"|" + r"(-?\d+(?:\.\d+)?)"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.BOLD}{Style.CYAN}{m.group(1)}{Style.RESET}{m.group(2)}" if m.group(1) else
+                    f"{Style.OK}{m.group(3)}{Style.RESET}" if m.group(3) else
+                    f"{Style.ORANGE}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    m.group(0)
+                ), line)
+
+        if lang == "html":
+            pat = re.compile(
+                r'(</?)([\w-]+)([^>]*?)(/?>)'
+                r"|" + r"([\s])([\w-]+)(=)"
+                r"|" + r"('[^']*'|\"[^\"]*\")"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{m.group(1)}{Style.MAGENTA}{m.group(2)}{Style.RESET}"
+                    f"{m.group(3)}{Style.MAGENTA}{m.group(4)}{Style.RESET}" if m.group(1) else
+                    f"{m.group(5)}{Style.BLUE}{m.group(6)}{Style.RESET}{m.group(7)}" if m.group(5) else
+                    f"{Style.OK}{m.group(8)}{Style.RESET}" if m.group(8) else
+                    m.group(0)
+                ), line)
+
+        if lang == "css":
+            pat = re.compile(
+                r"([.#][\w-]+|:[\w-]+|\*|\{|\})"
+                r"|" + r"([\w-]+)(\s*:)"
+                r"|" + r"(#[0-9a-fA-F]{3,8}|[\w.-]+)(?=\s*;)"
+            )
+            return pat.sub(
+                lambda m: (
+                    f"{Style.MAGENTA}{m.group(1)}{Style.RESET}" if m.group(1) else
+                    f"{Style.BLUE}{m.group(2)}{Style.RESET}{m.group(3)}" if m.group(2) else
+                    f"{Style.ORANGE}{m.group(4)}{Style.RESET}" if m.group(4) else
+                    m.group(0)
+                ), line)
+
+        return line
+    # ── Blockquotes ──────────────────────────────────────────
     # ── Blockquotes ──────────────────────────────────────────
     @classmethod
     def _format_blockquotes(cls, text: str) -> str:
@@ -2052,11 +2276,15 @@ def show_session_list():
     print(f"\n  {Style.GREY}Lanjutkan dengan {Style.GREY_LIGHT}python main.py <nama>{Style.GREY}.{Style.RESET}")
 
 
-def pick_session_interactive() -> "str | None":
+def pick_session_interactive(title: str = "Resume Session", action: str = "buka") -> "str | None":
     """
     TUI picker — ↑↓ navigasi dalam halaman, ←→ ganti halaman, Enter pilih, q/Esc batal.
     Maks 20 sesi per halaman. Menggunakan os.read(fd) langsung agar raw mode berjalan.
     Fallback ke input nomor jika termios tidak tersedia.
+    
+    Args:
+        title: Judul yang ditampilkan di header (default: "Resume Session")
+        action: Kata kerja untuk aksi Enter (default: "buka", untuk delete: "hapus")
     Returns: nama session yang dipilih, atau None jika dibatalkan.
     """
     sessions = list_sessions()
@@ -2071,7 +2299,7 @@ def pick_session_interactive() -> "str | None":
 
     # ── Fallback (non-TTY atau tanpa termios) ─────────────────────
     if not _HAS_TERMIOS or not sys.stdin.isatty():
-        print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Resume Session{Style.RESET}")
+        print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}{title}{Style.RESET}")
         print(f"  {_rule()}")
         for i, s in enumerate(sessions, 1):
             size_str = _format_size(s["size"])
@@ -2118,9 +2346,9 @@ def pick_session_interactive() -> "str | None":
             pg_hint = ""
 
         out.append(
-            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Resume Session{Style.RESET}"
+            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}{title}{Style.RESET}"
             f"  {Style.GREY}({n} sesi){Style.RESET}"
-            f"  {Style.GREY_DARK}↑↓ pilih · Enter buka · q batal{Style.RESET}"
+            f"  {Style.GREY_DARK}↑↓ pilih · Enter {action} · q batal{Style.RESET}"
             f"{pg_hint}"
         )
         out.append(f"  {_rule()}")
@@ -2213,7 +2441,10 @@ def delete_session_interactive():
     """
     try:
         while True:
-            name = pick_session_interactive()
+            name = pick_session_interactive(
+                title="Delete Session",
+                action="hapus"
+            )
             if not name:
                 break
 
