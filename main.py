@@ -1427,7 +1427,14 @@ class TerminalFormatter:
     # ── Code Blocks ──────────────────────────────────────────
     @classmethod
     def _format_code_blocks(cls, text: str) -> str:
-        """Format fenced code blocks jadi kotak rapi + nomor baris + highlight."""
+        """Format fenced code blocks jadi kotak rapi + nomor baris + highlight.
+        
+        Kotak menyesuaikan dengan lebar terminal secara DINAMIS:
+          - Lebar dihitung real-time setiap render (via _term_cols()).
+          - Baris kode yang lebih panjang dari lebar terminal otomatis
+            di-wrap agar tidak merusak border kanan.
+          - Baris pendek di-pad dengan spasi agar border kanan rata.
+        """
 
         pattern = r'```\s*(\w+)?\s*\n(.*?)^\s*```'
 
@@ -1438,33 +1445,92 @@ class TerminalFormatter:
             if not code.strip():
                 return "```" + (f"{lang}\n" if lang else "") + "```"
 
+            # Lebar kotak = lebar terminal real-time dikurangi margin kiri.
+            term_w = cls._term_width()
+            box_w = max(20, term_w - 4)
+
+            # Lebar area isi di dalam kotak (di antara dua pipa).
+            # Komponen: 1 spasi + nomor baris (6 kolom) + 1 spasi + kode.
+            NUMBER_COLS = 6
+            inner_code_w = max(1, box_w - NUMBER_COLS - 2)
+
             code_lines = code.split("\n")
-            num_lines = len(code_lines)
-            w = cls._term_width() - 4
+            total_lines = len(code_lines)
 
             result_lines = []
 
+            # ── Border atas + label bahasa ──────────────────────
             if lang and lang != "code":
                 label = cls._get_language_name(lang)
+                label_seg = f"╭─ {label} "
+                # Sisa dashes menyesuaikan sisa lebar kotak
+                dash_n = max(1, box_w - _visible_len(label_seg))
                 result_lines.append(
-                    f"  {Style.DIM}╭─ {label} {'─' * max(1, w - len(label) - 2)}╮{Style.RESET}"
+                    f"  {Style.DIM}{label_seg}{'─' * dash_n}╮{Style.RESET}"
                 )
 
-            result_lines.append(f"  {Style.DIM}╭{'─' * w}╮{Style.RESET}")
+            result_lines.append(f"  {Style.DIM}╭{'─' * box_w}╮{Style.RESET}")
 
+            # ── Baris kode ──────────────────────────────────────
             for idx, line in enumerate(code_lines):
-                ln = f"{idx + 1:>4}" if num_lines else "    "
                 hl = cls._apply_syntax_highlighting(line, lang)
-                result_lines.append(
-                    f"  {Style.DIM}│{Style.RESET} {Style.GREY_DARK}{ln}{Style.RESET} "
-                    f"{Style.GREY_LIGHT}{hl}{Style.RESET}"
-                )
 
-            result_lines.append(f"  {Style.DIM}╰{'─' * w}╯{Style.RESET}")
+                # Wrap baris yang lebih panjang dari kapasitas kotak.
+                if _visible_len(hl) > inner_code_w:
+                    wrapped = cls._wrap_plain(line, inner_code_w)
+                    for j, wl in enumerate(wrapped):
+                        # Baris pertama pakai nomor baris asli, kelanjutan kosong.
+                        ln = f"{idx + 1:>{NUMBER_COLS}}" if j == 0 else " " * NUMBER_COLS
+                        hl_j = cls._apply_syntax_highlighting(wl, lang)
+                        vis = _visible_len(hl_j)
+                        pad = max(0, inner_code_w - vis)
+                        result_lines.append(
+                            f"  {Style.DIM}│{Style.RESET} {Style.GREY_DARK}{ln}{Style.RESET} "
+                            f"{Style.GREY_LIGHT}{hl_j}{Style.RESET}{' ' * pad}"
+                            f" {Style.DIM}│{Style.RESET}"
+                        )
+                else:
+                    ln = f"{idx + 1:>{NUMBER_COLS}}" if total_lines else " " * NUMBER_COLS
+                    vis = _visible_len(hl)
+                    pad = max(0, inner_code_w - vis)
+                    result_lines.append(
+                        f"  {Style.DIM}│{Style.RESET} {Style.GREY_DARK}{ln}{Style.RESET} "
+                        f"{Style.GREY_LIGHT}{hl}{Style.RESET}{' ' * pad}"
+                        f" {Style.DIM}│{Style.RESET}"
+                    )
+
+            # ── Border bawah ────────────────────────────────────
+            result_lines.append(f"  {Style.DIM}╰{'─' * box_w}╯{Style.RESET}")
             result_lines.append("")
             return "\n".join(result_lines)
 
         return re.sub(pattern, replace_block, text, flags=re.DOTALL | re.MULTILINE)
+
+    @classmethod
+    def _wrap_plain(cls, line: str, max_cols: int) -> list:
+        """Wrap teks polos (tanpa ANSI) agar tidak melewati max_cols.
+        Memakai indentation-aware wrap: baris lanjutan di-align dengan
+        awal teks baris pertama. Mengembalikan daftar baris hasil wrap."""
+        if max_cols <= 0:
+            return [line]
+        words = line.split(" ")
+        lines_out = []
+        cur = ""
+        for word in words:
+            trial = word if not cur else cur + " " + word
+            if _visible_len(trial) <= max_cols:
+                cur = trial
+            else:
+                if cur:
+                    lines_out.append(cur)
+                # Kata tunggal lebih panjang dari max_cols → pecah paksa
+                while _visible_len(word) > max_cols:
+                    lines_out.append(word[:max_cols])
+                    word = word[max_cols:]
+                cur = word
+        if cur:
+            lines_out.append(cur)
+        return lines_out or [""]
 
     @classmethod
     def _get_language_name(cls, lang: str) -> str:
