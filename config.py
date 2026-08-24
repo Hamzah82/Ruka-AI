@@ -76,14 +76,20 @@ RETRY_BASE_DELAY = 2
 # Nilai di sini tunable tanpa menyentuh main.py.
 
 # read_file: batas baris & karakter untuk pembacaan penuh (tanpa offset/limit).
-MAX_READ_LINES = 20_000
-MAX_READ_CHARS = 1_000_000
+# Dikurangi dari 20K/1M jadi 5K/250K untuk hemat context (default cukup untuk sebagian besar kasus)
+MAX_READ_LINES = 5_000         # ↓ dari 20,000 → hemat ~75% chars
+MAX_READ_CHARS = 250_000       # ↓ dari 1,000,000 → hemat 75% chars
 
 # exec_command: batas karakter stdout & stderr (masing-masing) sebelum di-return.
-MAX_EXEC_OUTPUT_CHARS = 200_000
+# Dikurangi dari 200K jadi 80K untuk command yang biasanya menghasilkan output pendek-sedang
+MAX_EXEC_OUTPUT_CHARS = 80_000  # ↓ dari 200,000 → hemat 60% chars
 
 # Jumlah byte awal yang disampel untuk mendeteksi file biner di read_file.
 BINARY_SNIFF_BYTES = 8192
+
+# Limit baru: truncation threshold untuk file yang terlalu panjang
+# Jika file > limit ini, baca 3 bagian saja (awal + tengah + akhir) + summary
+TRUNCATION_THRESHOLD = 4_000    # garis/file untuk trigger mode ringkas
 
 # ============================================================
 # HISTORY / CONTEXT WINDOW — hard-trim riwayat sebelum kirim API
@@ -94,9 +100,29 @@ BINARY_SNIFF_BYTES = 8192
 # Catatan ambang: estimasi token memakai char/4 (cenderung UNDER-estimate teks
 # non-ASCII/Indonesia) dan TIDAK menghitung schema TOOLS + system + completion
 # yang juga memakan window → dibuat KONSERVATIF dengan margin. Tunable.
-MAX_HISTORY_TOKENS = 800_000     # ambang estimasi token (char/4) riwayat yang DIKIRIM (1M context)
-KEEP_RECENT_MESSAGES = 1_000_000 # lantai keras: minimal pesan terbaru dipertahankan
+MAX_HISTORY_TOKENS = 400_000     # ambang estimasi token (char/4) riwayat yang DIKIRIM (↓ dari 800K — lebih konservatif untuk hemat token)
+KEEP_RECENT_MESSAGES = 500_000   # lantai keras: minimal pesan terbaru dipertahankan (↓ dari 1M — batasi riwayat agar tidak boros)
 HISTORY_TRIM_NOTICE = True       # tampilkan notice 1 baris (sekali per giliran) saat trim
+
+# ============================================================
+# SUMMARIZATION — ringkas riwayat lama secara cerdas (LLM)
+# ============================================================
+# Saat riwayat mendekati batas MAX_HISTORY_TOKENS, segmen PALING TUA
+# diringkas jadi 1-2 pesan ringkas (bukan dibuang mentah) supaya konteks
+# tetap terjaga TANPA mengirim teks penuh. Ini komplementer dengan
+# _trim_history() yang deterministik — summarization dipakai untuk
+# "memadatkan" segmen lama yang masih relevan.
+ENABLE_SUMMARIZATION = True      # aktifkan ringkasan LLM untuk riwayat lama
+SUMMARIZE_TRIGGER_RATIO = 0.7    # mulai ringkas saat riwayat ≥70% dari MAX_HISTORY_TOKENS
+SUMMARIZE_CHUNK_SIZE = 80        # pesan per chunk yang diringkas dalam satu call LLM
+SUMMARIZE_MAX_CHARS = 6_000      # panjang maks ringkasan per chunk (agar hemat token)
+SUMMARIZE_MODEL = None           # None → pakai MODEL aktif; bisa di-set model murah khusus ringkasan
+SUMMARIZE_TEMPERATURE = 0.2      # deterministik untuk ringkasan
+SUMMARIZE_MAX_TOKENS = 2_000     # token maks output ringkasan per call
+
+# Token estimation — estimasi token dari teks (char/4 untuk ASCII, lebih akurat
+# untuk campuran). Bisa disetel per-karakter untuk model tertentu.
+ESTIMATE_CHARS_PER_TOKEN = 4     # rasio char→token untuk estimasi (konservatif: 4 char = 1 token)
 
 # ============================================================
 # SECURITY — BLOCKED COMMANDS

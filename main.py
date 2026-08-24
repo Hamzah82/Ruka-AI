@@ -4296,6 +4296,154 @@ def _drop_orphan_tools(messages: list) -> list:
     return out
 
 
+# ============================================================
+# SUMMARIZATION — ringkas segmen riwayat lama jadi 1 pesan
+# ============================================================
+
+def _summarize_and_trim(messages: list, max_tokens: int = None, keep_recent: int = None) -> tuple:
+    """
+    Ringkas segmen tertua dari messages dengan LLM (bukan dibuang mentah).
+    
+    Strategy:
+      1. Pecah body (setelah system prompt) jadi segmen per 'user'
+      2. Ambil 1-2 segmen tertua (sekitar CHUNK_SIZE pesan)
+      3. Kirim ke LLM untuk ringkas dalam ≤ SUMMARIZE_MAX_CHARS
+      4. Ganti segmen tertua dengan ringkasan
+      5. Return messages baru + jumlah pesan yang dibuang/ditransformasi
+    
+    Returns: (messages_ringkas, dropped_count) atau (None, 0) jika gagal
+    """
+    try:
+        # Guard anti-rekursi: jangan ringkas jika sudah di dalam summarization
+        if getattr(_summarize_and_trim, "_in_progress", False):
+            return None, 0
+        _summarize_and_trim._in_progress = True
+        try:
+            return _summarize_and_trim_impl(messages, max_tokens, keep_recent)
+        finally:
+            _summarize_and_trim._in_progress = False
+    except Exception:
+        return None, 0
+
+
+def _summarize_and_trim_impl(messages: list, max_tokens: int = None, keep_recent: int = None) -> tuple:
+    try:
+        if max_tokens is None:
+            max_tokens = getattr(config, "MAX_HISTORY_TOKENS", 400_000)
+        if keep_recent is None:
+            keep_recent = getattr(config, "KEEP_RECENT_MESSAGES", 500_000)
+        
+        estimated_before = _estimate_tokens(messages)
+        if estimated_before <= max_tokens:
+            return messages, 0
+        
+        # Prefix system & split body jadi segmen
+        i = 0
+        head = []
+        while i < len(messages) and messages[i].get("role") == "system":
+            head.append(messages[i])
+            i += 1
+        body = messages[i:]
+        
+        segments, cur = [], []
+        for m in body:
+            if m.get("role") == "user" and cur:
+                segments.append(cur)
+                cur = []
+            cur.append(m)
+        if cur:
+            segments.append(cur)
+        
+        if not segments or len(segments) <= 1:
+            return messages, 0  # tidak ada apa-apa untuk diringkas
+        
+        # Ambil 1 segmen tertua untuk diringkas
+        chunk_to_summarize = segments[0]  # ambil tertua
+        remaining_segments = segments[1:]
+        
+        # Bangun context untuk summarization — batasi isi agar tidak besar
+        chunk_text = []
+        for m in chunk_to_summarize:
+            content = (m.get("content") or "").strip()
+            # Potong tiap pesan agar tidak meledakkan prompt ringkasan
+            if len(content) > 1500:
+                content = content[:1500] + "...[truncated]"
+            chunk_text.append(f"{m.get('role', '?')}: {content}")
+        chunk_payload = "\n---\n".join(chunk_text)
+        # Batasi total payload ringkasan
+        if len(chunk_payload) > 20000:
+            chunk_payload = chunk_payload[:20000] + "\n...[truncated]"
+        
+        summarize_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Kamu adalah asisten yang ahli merangkum percakapan.\n\n"
+                    "TUGAS: RINGKAS percakapan di bawah ini menjadi PARAGRAF PANJANG "
+                    "yang mencakup:\n"
+                    "- Inti pertanyaan/tugas user di setiap round\n"
+                    "- Tindakan yang telah dilakukan agent (tools call)\n"
+                    "- Hasil/konklusi penting dari setiap step\n"
+                    "\n"
+                    "ATURAN:\n"
+                    "- Gunakan Bahasa Indonesia\n"
+                    "- Panjang maksimal 600 karakter\n"
+                    "- Jangan sebut 'chat sebelumnya' atau 'round' — tulis seperti narasi kontinyu\n"
+                    "- Sertakan detail teknis penting: nama file, path, error message singkat\n"
+                    "- Hapus repetisi, urutan waktu eksplisit, marker timestamp\n"
+                    "- Format: 1-2 paragraf padat, tanpa bullet point panjang\n"
+                    "- Fokus pada isi & hasil, bukan proses internal agent\n"
+                )
+            },
+            {
+                "role": "user", 
+                "content": "Ringkas percakapan ini:\n\n" + chunk_payload
+            }
+        ]
+        
+        # Panggil LLM untuk ringkas — tanpa tools agar ringan & murah
+        model_for_summary = getattr(config, "SUMMARIZE_MODEL", None) or MODEL
+        temperature = getattr(config, "SUMMARIZE_TEMPERATURE", 0.2)
+        max_summary_tokens = getattr(config, "SUMMARIZE_MAX_TOKENS", 2000)
+        
+        summary_response = chat(
+            summarize_messages,
+            temperature=temperature,
+            max_tokens=max_summary_tokens,
+            include_tools=False  # hemat: tidak perlu tool untuk ringkasan
+        )
+        
+        summary_content = (summary_response["choices"][0]["message"]["content"] or "").strip()
+        if not summary_content:
+            return None, 0
+        
+        # Batasi panjang ringkasan agar benar-benar hemat
+        max_chars = getattr(config, "SUMMARIZE_MAX_CHARS", 6000)
+        if len(summary_content) > max_chars:
+            summary_content = summary_content[:max_chars]
+        
+        # Ganti segmen tertua dengan ringkasan
+        summarized_segment = [{
+            "role": "system",
+            "content": f"\n\n📋 RINGKASAN PERCAKAPAN SEBELUMNYA:\n{summary_content}"
+        }]
+        
+        new_messages = head + summarized_segment
+        for seg in remaining_segments:
+            new_messages.extend(seg)
+        
+        # Bersihkan orphan tools hasil penggantian segmen
+        new_messages = _drop_orphan_tools(new_messages)
+        
+        dropped = len(chunk_to_summarize) - len(summarized_segment)
+        return new_messages, dropped
+        
+    except Exception:
+        # Fallback: gagal → biarkan hard-trim yang menangani
+        return None, 0
+    return out
+
+
 def _trim_history(messages: list, max_tokens: int = None, keep_recent: int = None) -> tuple:
     """
     Hard-trim DETERMINISTIK untuk PAYLOAD API — TIDAK memutasi input.
@@ -4312,39 +4460,65 @@ def _trim_history(messages: list, max_tokens: int = None, keep_recent: int = Non
         max_tokens = config.MAX_HISTORY_TOKENS
     if keep_recent is None:
         keep_recent = config.KEEP_RECENT_MESSAGES
-    if _estimate_tokens(messages) <= max_tokens:
-        return messages, 0
 
-    # Prefix system (tak pernah dibuang).
-    i = 0
-    head = []
-    while i < len(messages) and messages[i].get("role") == "system":
-        head.append(messages[i])
-        i += 1
-    body = messages[i:]
+    messages = list(messages)  # copy agar tidak memutasi input
+    total_dropped = 0
 
-    # Pecah body jadi segmen (boundary: role == 'user').
-    segments, cur = [], []
-    for m in body:
-        if m.get("role") == "user" and cur:
+    while True:
+        estimated = _estimate_tokens(messages)
+        if estimated <= max_tokens:
+            return messages, total_dropped
+
+        # ── Summarization (opsional) — ringkas segmen tertua jika aktif ─────────
+        # Bila riwayat sudah ≥ SUMMARIZE_TRIGGER_RATIO dari ambang, coba padatkan
+        # segmen paling tua jadi ringkasan LLM (bukan buang mentah). Jika gagal
+        # (mis. API error) → fallback ke hard-trim deterministik di bawah.
+        if getattr(config, "ENABLE_SUMMARIZATION", False):
+            ratio = estimated / max_tokens if max_tokens else 0
+            if ratio >= getattr(config, "SUMMARIZE_TRIGGER_RATIO", 0.7):
+                try:
+                    summarized, dropped = _summarize_and_trim(messages, max_tokens, keep_recent)
+                    if summarized is not None and len(summarized) < len(messages):
+                        messages = summarized
+                        total_dropped += dropped
+                        continue  # loop ulang: cek apakah masih > max_tokens
+                except Exception:
+                    pass  # fallback ke hard-trim di bawah
+
+        # ── Hard-trim deterministik (fallback / setelah summarization) ─────────
+        # Prefix system (tak pernah dibuang).
+        i = 0
+        head = []
+        while i < len(messages) and messages[i].get("role") == "system":
+            head.append(messages[i])
+            i += 1
+        body = messages[i:]
+
+        # Pecah body jadi segmen (boundary: role == 'user').
+        segments, cur = [], []
+        for m in body:
+            if m.get("role") == "user" and cur:
+                segments.append(cur)
+                cur = []
+            cur.append(m)
+        if cur:
             segments.append(cur)
-            cur = []
-        cur.append(m)
-    if cur:
-        segments.append(cur)
 
-    # Buang segmen dari KEPALA selama: >1 segmen, masih di atas ambang, & tak
-    # melanggar lantai keep_recent.
-    while len(segments) > 1:
-        if _estimate_tokens(head + [m for s in segments for m in s]) <= max_tokens:
-            break
-        remaining = sum(len(s) for s in segments)
-        if remaining - len(segments[0]) < keep_recent:
-            break
-        segments.pop(0)
+        if not segments or len(segments) <= 1:
+            return messages, total_dropped  # sudah minimal, tak bisa trim lagi
 
-    trimmed = _drop_orphan_tools(head + [m for s in segments for m in s])
-    return trimmed, len(messages) - len(trimmed)
+        # Buang segmen dari KEPALA selama: >1 segmen, masih di atas ambang.
+        while len(segments) > 1:
+            if _estimate_tokens(head + [m for s in segments for m in s]) <= max_tokens:
+                break
+            remaining = sum(len(s) for s in segments)
+            if remaining - len(segments[0]) < keep_recent:
+                break
+            total_dropped += len(segments.pop(0))
+
+        trimmed = _drop_orphan_tools(head + [m for s in segments for m in s])
+        drop_count = len(messages) - len(trimmed)
+        return trimmed, total_dropped + drop_count
 
 
 def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
@@ -4624,6 +4798,72 @@ def _load_skills() -> str:
     return _load_skills._cache
 
 
+import re
+
+# ============================================================
+# AUTO-LOAD SKILL — DETECT & INJECT SPESIALISASI
+# ============================================================
+
+_SKILL_CACHE = {}  # Cache untuk load_file: path → content
+
+
+def _detect_and_load_skill(user_message: str) -> tuple[str, str]:
+    """
+    Detect skill spesialis yang dibutuhkan dari query user.
+    Return: (notice_ringkas_untuk_user, konten_skill_untuk_inject)
+
+    Strategy: keyword-based detection (regex) + lazy-load hanya skill yang
+    benar-benar dibutuhkan untuk task ini. Konten di-cache agar tidak baca
+    file berulang-ulang.
+    """
+    if not user_message:
+        return "", ""
+
+    msg_lower = user_message.lower()
+    loaded_paths = []
+    notices = []
+
+    # Mapping: (regex pattern, deskripsi, relative path)
+    skill_rules = [
+        (r"\b(ppt|powerpoint|presentasi|slide)\b", "presentasi PPT", "SKILL/pptSkill.md"),
+        (r"\b(pptx)\b", "file powerpoint", "SKILL/pptSkill.md"),
+        (r"\b(cari info|browse|search online|web scraping|scraping|berita|info terkini|carikan|kurs|exchange rate)\b", "info online/web scraping", "SKILL/browsingSkill.md"),
+        (r"\b(deploy.*vercel|vercel.*deploy|konfigurasi vercel|vercel)\b", "deploy/konfigurasi Vercel", "SKILL/vercelSkill.md"),
+        (r"\b(kirim email|send email|setup email|msmtp|smtp)\b", "kirim/setup email", "SKILL/emailSkill.md"),
+        (r"\b(website|landing page|web design|halaman web|desain web|buat.*ui|frontend)\b", "desain website/frontend/UI", "SKILL/frontendDesignSkill.md"),
+    ]
+
+    for pattern, desc, path in skill_rules:
+        if re.search(pattern, msg_lower):
+            if path not in loaded_paths:
+                loaded_paths.append(path)
+                notices.append(desc)
+
+    # Load setiap skill yang terdeteksi (dengan caching) — ambil KONTEN
+    contents = []
+    for path in loaded_paths:
+        full_path = os.path.join(SCRIPT_DIR, path)
+        if full_path not in _SKILL_CACHE:
+            try:
+                with open(full_path, "r", encoding="utf-8") as f:
+                    _SKILL_CACHE[full_path] = f.read()
+            except Exception:
+                continue
+        contents.append(_SKILL_CACHE[full_path])
+
+    if not contents:
+        return "", ""
+
+    # Konten gabungan untuk di-inject ke konteks (pesan system temporary)
+    skill_content = "\n\n---\n\n".join(contents)
+
+    # Notice ringkas HANYA untuk ditampilkan ke user (1 baris), bukan konten
+    skill_names = [os.path.basename(p) for p in loaded_paths]
+    notice = "📚 Skill auto-loaded: " + ", ".join(skill_names)
+
+    return notice, skill_content
+
+
 def get_system_prompt(session_name: str = None) -> str:
     session_info = ""
     if session_name:
@@ -4881,6 +5121,31 @@ def chat_session(session_name: str = None):
 
             # ── Normal chat flow ────────────────────────────────────
             show_separator()
+            
+            # Auto-load skill berdasarkan query user (lazy loading)
+            skill_notice, skill_content = _detect_and_load_skill(user_input)
+            if skill_notice:
+                print(f"\n  {Style.GREY}⏺{Style.RESET} {Style.GREY_LIGHT}📚 Skill auto-loaded: {skill_notice.splitlines()[0]}{Style.RESET}")
+            
+            # Inject skill sebagai system message temporary (hanya untuk task ini)
+            # Skill disisipkan SETELAH system prompt utama, agar model menerimanya
+            # sebagai konteks tambahan. Setelah giliran selesai, pesan ini DIHAPUS
+            # dari messages agar tidak bocor ke task berikutnya / session file.
+            skill_injected = False
+            if skill_content:
+                # Simpan system prompt asli, tambahkan skill sebagai pesan terpisah
+                # tepat setelah system prompt utama (index 0)
+                messages.insert(1, {
+                    "role": "system",
+                    "content": (
+                        "\n\n🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED:\n"
+                        "Ikuti panduan dari skill berikut untuk menyelesaikan tugas ini.\n"
+                        "Skill ini DIMUAT khusus untuk task saat ini dan tidak perlu dimuat lagi di task lain.\n"
+                        "---\n" + skill_content
+                    )
+                })
+                skill_injected = True
+            
             messages.append({"role": "user", "content": user_input})
 
             # Mulai timer giliran — titik nol yang bertahan menembus semua tool call
@@ -4902,12 +5167,30 @@ def chat_session(session_name: str = None):
                 # Ringkasan kecil & redup: berapa lama giliran ini berjalan + token
                 show_turn_summary(turn_secs, _spinner.turn_tokens)
 
+                # CLEANUP: Hapus temporary skill message jika ada (agar tidak bocor ke session)
+                # Skill hanya relevan untuk task ini, bukan untuk task berikutnya
+                if skill_injected and len(messages) > 1:
+                    for i, msg in enumerate(messages):
+                        if (msg.get("role") == "system" and 
+                            "CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED" in msg.get("content", "")):
+                            del messages[i]
+                            break
+                
                 # Auto-save setelah setiap exchange
                 save_session(session_name, messages)
 
             except Exception as e:
                 _spinner.end_turn()
                 show_error(str(e)[:80])
+                
+                # CLEANUP: Hapus temporary skill message jika ada (agar tidak bocor ke session)
+                if skill_injected and len(messages) > 1:
+                    for i, msg in enumerate(messages):
+                        if (msg.get("role") == "system" and 
+                            "CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED" in msg.get("content", "")):
+                            del messages[i]
+                            break
+                
                 # Tetap save meski error
                 save_session(session_name, messages)
     finally:
