@@ -65,6 +65,30 @@ except ImportError:
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # ============================================================
+# SECURITY: Validasi & logging credential startup
+# ============================================================
+
+def _validate_security() -> None:
+    """Validasi sederhana: cek format API key di startup."""
+    import re
+    key = os.getenv("OPENROUTER_API_KEY", "")
+    if key and not re.match(r'^sk-or-v1-[a-f0-9]{64}$', key):
+        print(f"  ⚠️  Warning: OPENROUTER_API_KEY format tidak dikenal — pastikan key valid.")
+
+# Import security logger untuk audit trail credential access
+try:
+    from security_logger import log_credential_access
+    if os.getenv("OPENROUTER_API_KEY"):
+        log_credential_access('OPENROUTER_API_KEY')
+except ImportError:
+    pass  # security_logger opsional (tidak memblokir startup)
+
+_validate_security()
+
+# ============================================================
+# AKHIR BAGIAN SEKURITI
+
+# ============================================================
 # KONFIGURASI — dimuat dari config.py
 # ============================================================
 import config
@@ -3616,10 +3640,14 @@ def tool_list_all(max_depth: int = 3) -> str:
 # user (SSH_AUTH_SOCK, GPG_TTY, KEYBOARD_LAYOUT, dsb.).
 _SENSITIVE_ENV_VARS = frozenset({
     "OPENROUTER_API_KEY",   # dipakai Ruka (config.py:14, .env)
-    # Pengaman ke depan — nama eksak rahasia umum, BUKAN pola substring:
+    # Pengaman ke depan - nama eksak rahasia umum, BUKAN pola substring:
     "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_KEY",
     "HF_TOKEN", "HUGGINGFACE_TOKEN", "HUGGING_FACE_HUB_TOKEN",
     "GROQ_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+    # Tambahan untuk defense-in-depth (jika user punya env vars ini):
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+    "AZURE_STORAGE_ACCOUNT_KEY", "GCP_SA_KEY",
+    "DATABASE_URL", "REDIS_URL", "SECRET_KEY",
 })
 
 

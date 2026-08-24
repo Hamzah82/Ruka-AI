@@ -200,6 +200,34 @@ SKILL/config/email/
 SKILL/config/moltbook/
 users.json
 
+# ============================================================
+# SECURITY: file kredensial & rahasia — WAJIB tetap di-ignore
+# ============================================================
+# API keys & credential files (jangan pernah di-commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.pub
+*.secret
+secrets.json
+credentials.json
+msmtprc
+*.msmtprc
+
+# Log files yang bisa berisi info sensitif
+*.log
+*.audit
+
+# Backup files yang mungkin berisi kredensial
+*.backup
+*.bak
+backup/
+
 # Tests (local only, not for publishing)
 tests/
 
