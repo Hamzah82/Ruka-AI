@@ -1,0 +1,29 @@
+Gabungkan isi dari dua file berikut:
+
+- "SKILL/skills.md"
+- "SKILL/skills.md.backup"
+
+Tujuan: menghasilkan satu file "SKILL/skills.md" yang merupakan gabungan lengkap dari kedua file tersebut.
+
+Aturan WAJIB:
+
+1. Jangan menghilangkan satu pun poin, instruksi, aturan, section, atau detail dari kedua file.
+2. Pertahankan seluruh informasi yang hanya terdapat di "skills.md".
+3. Pertahankan seluruh informasi yang hanya terdapat di "skills.md.backup".
+4. Jika ada bagian yang sama atau mirip, jangan langsung menghapus salah satunya. Gabungkan secara hati-hati sehingga seluruh informasi unik dari kedua versi tetap dipertahankan.
+5. Jika terdapat konflik atau perbedaan instruksi, pertahankan kedua informasi tersebut dan susun menjadi aturan yang konsisten tanpa mengorbankan detail dari salah satu file.
+6. Jangan melakukan simplifikasi, pemangkasan, atau peringkasan.
+7. Pertahankan struktur Markdown, heading, numbering, bullet points, code blocks, contoh, dan formatting penting.
+8. Setelah digabungkan, lakukan pengecekan ulang dengan membandingkan hasil akhir terhadap kedua file sumber untuk memastikan tidak ada informasi yang hilang.
+9. Hasil akhir harus menjadi versi paling lengkap dari kedua file.
+10. Jangan overwrite file sumber sebelum proses validasi selesai. Buat hasil gabungan terlebih dahulu, validasi, kemudian gunakan hasil tersebut sebagai "SKILL/skills.md".
+
+Sebelum menyelesaikan tugas, pastikan secara eksplisit bahwa:
+
+- Semua poin dari "skills.md" sudah masuk.
+- Semua poin dari "skills.md.backup" sudah masuk.
+- Tidak ada instruksi yang hilang.
+- Tidak ada section yang hilang.
+- Tidak ada contoh atau kode yang hilang.
+
+Prioritas utama: completeness > brevity. Jika ragu apakah suatu bagian perlu dipertahankan, pertahankan bagian tersebut.
