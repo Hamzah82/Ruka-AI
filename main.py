@@ -2132,6 +2132,95 @@ def rename_session(old_name: str, new_name: str) -> str:
 
 
 # ============================================================
+# COMMAND: CHANGE CONFIG (endpoint & API key)
+# ============================================================
+
+def handle_change_config():
+    """Command 'ruka change' — interaktif ubah endpoint model dan API key di config.json."""
+    
+    config_path = os.path.join(SCRIPT_DIR, "config.json")
+    
+    if not os.path.exists(config_path):
+        # Buat file baru jika belum ada
+        default_config = {
+            "api_endpoint": "https://ai.meongtopup.my.id/v1/chat/completions",
+            "model": "meng/deepseek-v4-flash",
+            "api_key": "",
+            "updated_at": None
+        }
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(default_config, f, indent=2, ensure_ascii=False)
+            print()
+            print(f"  {Style.GREY}⏺{Style.RESET} {Style.GREY_LIGHT}File config.json dibuat.{Style.RESET}")
+        except Exception as e:
+            print(f"\n  {Style.ERR}⏺{Style.RESET} {Style.ERR}Gagal membuat file config: {e}{Style.RESET}")
+            return
+    
+    try:
+        # Baca config saat ini
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_data = json.load(f)
+        
+        current_endpoint = config_data.get("api_endpoint", "")
+        current_model = config_data.get("model", "")
+        api_key_exists = bool(config_data.get("api_key", "").strip())
+        
+        # Tampilkan info saat ini
+        print()
+        print(f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Ubah Konfigurasi API{Style.RESET}")
+        print(f"  {_rule()}")
+        print(f"  Endpoint saat ini:   {Style.GREY_LIGHT}{current_endpoint or '(kosong)'}{Style.RESET}")
+        print(f"  Model saat ini:      {Style.GREY_LIGHT}{current_model or '(kosong)'}{Style.RESET}")
+        print(f"  API Key tersimpan:   {Style.OK if api_key_exists else Style.WARN}{'Ada ✓' if api_key_exists else 'Belum set'}{Style.RESET}")
+        print()
+        
+        # Input endpoint baru
+        new_endpoint = input(f"  {Style.ACCENT}❯{Style.RESET} Endpoint baru (Enter untuk tetap '{current_endpoint or '(default)'}'): ").strip()
+        if not new_endpoint:
+            new_endpoint = current_endpoint
+        
+        # Input model baru  
+        new_model = input(f"  {Style.ACCENT}❯{Style.RESET} Model baru (Enter untuk tetap '{current_model or '(default)'}'): ").strip()
+        if not new_model:
+            new_model = current_model
+        
+        # Input atau hapus API key
+        api_key_input = input(f"  {Style.ACCENT}❯{Style.RESET} API Key baru (Ketik ENTER saja untuk HAPUS API key yang ada): ").strip()
+        
+        # Simpan perubahan
+        config_data["api_endpoint"] = new_endpoint if new_endpoint else (config_data.get("api_endpoint", "") or "https://ai.meongtopup.my.id/v1/chat/completions")
+        config_data["model"] = new_model if new_model else (config_data.get("model", "") or "meng/deepseek-v4-flash")
+        config_data["api_key"] = api_key_input  # Kosong jika user hanya tekan Enter
+        config_data["updated_at"] = datetime.now().isoformat()
+        
+        # Tulis kembali ke file
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=2, ensure_ascii=False)
+        
+        # Verifikasi penyimpanan
+        with open(config_path, "r", encoding="utf-8") as f:
+            saved_data = json.load(f)
+        
+        msg = (
+            f"{Style.OK}✓{Style.RESET} Konfigurasi berhasil diubah!\n"
+            f"  • Endpoint:   {Style.ACCENT_DIM}{saved_data['api_endpoint']}{Style.RESET}\n"
+            f"  • Model:      {Style.ACCENT_DIM}{saved_data['model']}{Style.RESET}" + 
+            (f"\n  • API Key:    {Style.OK}••••••••••••✓{Style.RESET}" if saved_data.get("api_key") else "\n  • API Key:    {Style.WARN}(tidak diset){Style.RESET}")
+        )
+        print(f"\n{msg}")
+        
+        print(f"\n  {Style.GREY}•{Style.RESET} Konfigurasi tersimpan di {Style.GREY_LIGHT}{config_path}{Style.RESET}")
+        print(f"  {Style.GREY}•{Style.RESET} File config.json sudah ditambahkan ke {Style.GREY_LIGHT}.gitignore{Style.RESET}")
+        print(f"  {Style.GREY}•{Style.RESET} Untuk menggunakan konfigurasi baru, silakan restart Ruka AI.")
+        
+    except json.JSONDecodeError:
+        print(f"\n  {Style.ERR}⏺{Style.RESET} {Style.ERR}File config.json rusak atau tidak valid JSON.{Style.RESET}")
+    except Exception as e:
+        print(f"\n  {Style.ERR}⏺{Style.RESET} {Style.ERR}Terjadi kesalahan: {e}{Style.RESET}")
+
+
+# ============================================================
 # UI FUNCTIONS - RUKA AI (KURA-KURA)
 # ============================================================
 
@@ -2159,6 +2248,7 @@ def show_help():
     _help_row("ruka <path> <namaSesi>", "Override workspace ke path tertentu")
     _help_row("ruka <path>", "Override workspace ke path tertentu")
     _help_row("ruka \"<prompt>\"", "Mode prompt tunggal (langsung jawab)")
+    _help_row("ruka change", "Ubah endpoint model dan API key di config.json")
 
     _help_section("Slash command (dalam sesi)")
     _help_row("/help", "Tampilkan bantuan ini")
@@ -2177,6 +2267,7 @@ def show_help():
     _help_row("deleteSession [nama]  / del [nama]", "Hapus session (tanpa nama → picker)")
     _help_row("renameSession <l> <b>  / ren <l> <b>", "Rename session spesifik (CLI)")
     _help_row("clearSessions  / clear", "Hapus semua session auto-generated")
+    _help_row("changeConfig  / chg", "Ubah endpoint model dan API key")
 
     _help_section("Tips")
     print(f"    {Style.GREY}•{Style.RESET} {Style.GREY}Ketik {Style.GREY_LIGHT}q{Style.GREY} saat AI memproses untuk interupsi.{Style.RESET}")
@@ -5318,9 +5409,9 @@ if __name__ == "__main__":
         "help", "--help", "-h",
         "listSessions", "deleteSession", "renameSession",
         "clearSessions", "searchSessions",
-        "resume",
+        "resume", "changeConfig",
         # alias pendek
-        "ls", "del", "ren", "clear", "search", "res",
+        "ls", "del", "ren", "clear", "search", "res", "chg", "change",
     }
 
     if len(sys.argv) > 1:
@@ -5353,6 +5444,8 @@ if __name__ == "__main__":
             name = pick_session_interactive()
             if name:
                 chat_session(name)
+        elif arg in ("changeConfig", "chg", "change"):
+            handle_change_config()
 
         # ── Workspace path + optional session name ──────────
         elif not arg.startswith("-"):

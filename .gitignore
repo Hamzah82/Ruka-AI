@@ -205,3 +205,6 @@ tests/
 
 # AI Development
 CLAUDE.md
+
+# Sensitive configuration (API keys & endpoints)
+config.json

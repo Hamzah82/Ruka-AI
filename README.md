@@ -20,6 +20,7 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Lapisan Keamanan Best-Effort** — Pembatasan path (realpath+commonpath ke BASE_DIR/SCRIPT_DIR), denylist perintah destruktif (best-effort, **bukan sandbox**), scrub API key dari env subprocess, dan cap output. Lihat bagian [Keamanan](#-keamanan) untuk model ancaman
 - **Unlimited Rounds** — Tidak ada batas maksimum round per sesi
 - **Workspace = Folder Pemanggil** — Workspace otomatis mengikuti folder tempat kamu menjalankan perintah (cwd). Pasang alias `ruka` lewat `install.sh`, lalu `cd` ke folder mana pun dan ketik `ruka`. Bisa juga di-override dengan `python main.py <path> <namaSesi>`. Folder `SKILL/`, `sessions/`, dan `.env` selalu diakses dari folder instalasi
+- **Konfigurasi Fleksibel via CLI** — Ubah endpoint API, model AI, dan API key dengan mudah menggunakan command `ruka change`. Konfigurasi disimpan di `config.json` dan aman dari commit Git
 
 ---
 
@@ -189,6 +190,21 @@ python main.py kerja-proyek
 
 Jika session `kerja-proyek` sudah ada, percakapan sebelumnya akan dimulai. Jika belum, session baru akan dibuat.
 
+### Mengubah Konfigurasi API
+
+```bash
+python main.py change
+# atau gunakan alias pendek:
+python main.py chg
+```
+
+Command ini membuka interface interaktif untuk mengubah:
+- **Endpoint API** - URL endpoint model AI
+- **Model AI** - Nama model yang digunakan  
+- **API Key** - Kunci autentikasi API
+
+Konfigurasi tersimpan di `config.json` dan otomatis ditambahkan ke `.gitignore` untuk keamanan. Untuk detail lebih lanjut, lihat [CHANGE_CONFIG_GUIDE.md](CHANGE_CONFIG_GUIDE.md).
+
 ### Melihat Daftar Session
 
 ```bash
@@ -352,6 +368,7 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - `python main.py renameSession <lama> <baru>` — Rename session dari CLI
 - `python main.py clearSessions` — Hapus semua session tanpa nama (auto-generated) dari CLI
 - `python main.py searchSessions <keyword>` — Cari session berdasarkan keyword dari CLI
+- `python main.py change` — Ubah konfigurasi API endpoint, model, dan API key
 - `python main.py help` — Tampilkan menu help lengkap
 
 > **Catatan:** CLI command menggunakan **camelCase** (tanpa tanda `-`), sedangkan slash command di dalam chat tetap menggunakan kebab-case dengan prefix `/`.
@@ -389,6 +406,14 @@ Output contoh:
    2 ⏺ proyek-akhir
        23 pesan · diupdate 2025-07-05 18:22 · 58.7 KB
 ```
+
+### Mengubah Konfigurasi API dari CLI
+
+```bash
+python main.py change
+```
+
+Untuk mengubah endpoint model AI, API key, atau konfigurasi lainnya dengan mudah melalui interface interaktif. File konfigurasi otomatis ditambahkan ke `.gitignore`. Lihat [CHANGE_CONFIG_GUIDE.md](CHANGE_CONFIG_GUIDE.md) untuk panduan lengkap.
 
 ### Menghapus Session Tanpa Nama
 
@@ -434,6 +459,8 @@ Ruka AI dilengkapi dengan beberapa lapisan keamanan:
 Ruka-AI/
 ├── main.py           # Source code utama — seluruh logic agent
 ├── config.py         # Konfigurasi (API key, model, BASE_DIR, SCRIPT_DIR)
+├── config.json       # Konfigurasi API endpoint & model (disimpan lokal, tidak di-push)
+├── CHANGE_CONFIG_GUIDE.md  # Panduan penggunaan command 'ruka change'
 ├── install.sh        # Installer alias `ruka` ke ~/.bashrc
 ├── requirements.txt  # Dependensi Python yang dibutuhkan
 ├── .env.example      # Template konfigurasi API key
