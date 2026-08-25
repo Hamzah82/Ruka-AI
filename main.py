@@ -65,22 +65,43 @@ except ImportError:
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # ============================================================
-# KONFIGURASI — dimuat dari config.py
+# KONFIGURASI DINAMIS — dimuat dari config.json
 # ============================================================
-import config
-from config import (
-    OPENROUTER_API_KEY,
-    MODEL,
-    API_URL,
-    HEADERS,
-    BASE_DIR,
-    SCRIPT_DIR,
-    SESSIONS_DIR,
-    DEFAULT_CMD_TIMEOUT,
-    MAX_RETRIES,
-    RETRY_BASE_DELAY,
-    BLOCKED_COMMANDS,
-)
+import json
+from dynamic_config import get_dynamic_config
+
+# Load konfigurasi gabungan dari config.json + fallback ke config.py
+dynamic_cfg = get_dynamic_config()
+
+# Buat namespace konfigurasi seperti sebelumnya
+class DynamicConfig:
+    pass
+
+config = DynamicConfig()
+config.OPENROUTER_API_KEY = dynamic_cfg['OPENROUTER_API_KEY']
+config.MODEL = dynamic_cfg['MODEL']
+config.API_URL = dynamic_cfg['API_URL']
+config.HEADERS = dynamic_cfg['HEADERS']
+config.BASE_DIR = dynamic_cfg['BASE_DIR']
+config.SCRIPT_DIR = dynamic_cfg['SCRIPT_DIR']
+config.SESSIONS_DIR = dynamic_cfg['SESSIONS_DIR']
+config.DEFAULT_CMD_TIMEOUT = dynamic_cfg['DEFAULT_CMD_TIMEOUT']
+config.MAX_RETRIES = dynamic_cfg['MAX_RETRIES']
+config.RETRY_BASE_DELAY = dynamic_cfg['RETRY_BASE_DELAY']
+config.BLOCKED_COMMANDS = dynamic_cfg['BLOCKED_COMMANDS']
+
+# Variabel global MODEL dan HEADERS harus bisa diakses langsung
+MODEL = config.MODEL
+API_URL = config.API_URL
+HEADERS = config.HEADERS
+OPENROUTER_API_KEY = config.OPENROUTER_API_KEY
+MAX_RETRIES = config.MAX_RETRIES
+RETRY_BASE_DELAY = config.RETRY_BASE_DELAY
+DEFAULT_CMD_TIMEOUT = config.DEFAULT_CMD_TIMEOUT
+BLOCKED_COMMANDS = config.BLOCKED_COMMANDS
+SESSIONS_DIR = config.SESSIONS_DIR
+BASE_DIR = config.BASE_DIR
+SCRIPT_DIR = config.SCRIPT_DIR
 
 # ============================================================
 # INTERRUPT MECHANISM — queue-based, single input source
