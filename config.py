@@ -76,20 +76,20 @@ RETRY_BASE_DELAY = 2
 # Nilai di sini tunable tanpa menyentuh main.py.
 
 # read_file: batas baris & karakter untuk pembacaan penuh (tanpa offset/limit).
-# Dikurangi dari 20K/1M jadi 5K/250K untuk hemat context (default cukup untuk sebagian besar kasus)
-MAX_READ_LINES = 5_000         # ↓ dari 20,000 → hemat ~75% chars
-MAX_READ_CHARS = 250_000       # ↓ dari 1,000,000 → hemat 75% chars
+# Dinaikkan untuk model 1M context window - dapat membaca dan menulis file lebih banyak
+MAX_READ_LINES = 25_000        # ↑ dari 5,000 → naik 5x untuk file besar
+MAX_READ_CHARS = 1_500_000     # ↑ dari 250,000 → naik 6x untuk content panjang
 
 # exec_command: batas karakter stdout & stderr (masing-masing) sebelum di-return.
-# Dikurangi dari 200K jadi 80K untuk command yang biasanya menghasilkan output pendek-sedang
-MAX_EXEC_OUTPUT_CHARS = 80_000  # ↓ dari 200,000 → hemat 60% chars
+# Dinaikkan untuk output yang lebih panjang
+MAX_EXEC_OUTPUT_CHARS = 200_000  # ↑ dari 80,000 → naik 2.5x untuk command verbose
 
 # Jumlah byte awal yang disampel untuk mendeteksi file biner di read_file.
-BINARY_SNIFF_BYTES = 8192
+BINARY_SNIFF_BYTES = 16384     # ↑ dari 8192 → sample lebih besar untuk deteksi akurat
 
 # Limit baru: truncation threshold untuk file yang terlalu panjang
 # Jika file > limit ini, baca 3 bagian saja (awal + tengah + akhir) + summary
-TRUNCATION_THRESHOLD = 4_000    # garis/file untuk trigger mode ringkas
+TRUNCATION_THRESHOLD = 20_000  # ↑ dari 4,000 → naik 5x untuk model 1M context
 
 # ============================================================
 # HISTORY / CONTEXT WINDOW — hard-trim riwayat sebelum kirim API
@@ -100,8 +100,8 @@ TRUNCATION_THRESHOLD = 4_000    # garis/file untuk trigger mode ringkas
 # Catatan ambang: estimasi token memakai char/4 (cenderung UNDER-estimate teks
 # non-ASCII/Indonesia) dan TIDAK menghitung schema TOOLS + system + completion
 # yang juga memakan window → dibuat KONSERVATIF dengan margin. Tunable.
-MAX_HISTORY_TOKENS = 400_000     # ambang estimasi token (char/4) riwayat yang DIKIRIM (↓ dari 800K — lebih konservatif untuk hemat token)
-KEEP_RECENT_MESSAGES = 500_000   # lantai keras: minimal pesan terbaru dipertahankan (↓ dari 1M — batasi riwayat agar tidak boros)
+MAX_HISTORY_TOKENS = 800_000     # ↑ dari 400,000 → naik 2x untuk model 1M context
+KEEP_RECENT_MESSAGES = 2_000_000  # ↑ dari 500,000 → naik 4x untuk menyimpan history lebih panjang
 HISTORY_TRIM_NOTICE = True       # tampilkan notice 1 baris (sekali per giliran) saat trim
 
 # ============================================================
@@ -122,7 +122,7 @@ SUMMARIZE_MAX_TOKENS = 2_000     # token maks output ringkasan per call
 
 # Token estimation — estimasi token dari teks (char/4 untuk ASCII, lebih akurat
 # untuk campuran). Bisa disetel per-karakter untuk model tertentu.
-ESTIMATE_CHARS_PER_TOKEN = 4     # rasio char→token untuk estimasi (konservatif: 4 char = 1 token)
+ESTIMATE_CHARS_PER_TOKEN = 3     # ↑ dari 4 → lebih aggressive untuk 1M context window
 
 # ============================================================
 # SECURITY — BLOCKED COMMANDS
