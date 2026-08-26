@@ -2324,6 +2324,64 @@ def handle_change_model():
     except Exception as e:
         print(f"\n  {Style.ERR}⏺{Style.RESET} {Style.ERR}Terjadi kesalahan: {e}{Style.RESET}")
 
+
+# ============================================================
+# COMMAND: SET ACTIVE MODEL (dalam sesi — /model <namaModel>)
+# ============================================================
+
+def set_active_model(new_model: str) -> str:
+    """
+    Ganti model AI aktif TANPA restart — dipanggil dari slash command
+    '/model <namaModel>' di dalam sesi.
+
+    - Simpan model baru ke config.json (persisten antar-restart).
+    - Update config.MODEL dan variabel global MODEL seketika.
+    - Kembalikan pesan status untuk ditampilkan ke user.
+    """
+    global MODEL
+
+    config_path = os.path.join(SCRIPT_DIR, "config.json")
+    new_model = (new_model or "").strip()
+
+    if not new_model:
+        return "Nama model tidak boleh kosong. Gunakan: /model <namaModel>"
+
+    # Baca config.json saat ini (buat jika belum ada)
+    config_data = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            config_data = {}
+    else:
+        config_data = {
+            "api_endpoint": "https://ai.meongtopup.my.id/v1/chat/completions",
+            "api_key": "",
+        }
+
+    old_model = config_data.get("model", "") or MODEL
+
+    # Tidak ada perubahan → beri tahu user
+    if old_model == new_model:
+        return f"Model sudah aktif: {new_model}"
+
+    # Simpan ke config.json (persisten antar-restart)
+    config_data["model"] = new_model
+    config_data["updated_at"] = datetime.now().isoformat()
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return f"Gagal menyimpan model ke config.json: {e}"
+
+    # Update model aktif seketika (tanpa restart)
+    config.MODEL = new_model
+    MODEL = new_model
+
+    return f"Model diubah: {old_model} → {new_model}"
+
+
 # UI FUNCTIONS - RUKA AI (KURA-KURA)
 # ============================================================
 
@@ -2361,6 +2419,7 @@ def show_help():
     _help_row("/clear", "Bersihkan layar")
     _help_row("/delete <nama>", "Hapus session tertentu")
     _help_row("/rename <nama baru>", "Rename session aktif")
+    _help_row("/model <namaModel>", "Ganti model AI aktif tanpa restart")
     _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
 
     _help_section("CLI command (dari terminal)")
@@ -5269,6 +5328,20 @@ def chat_session(session_name: str = None):
                     if "berhasil" in result.lower():
                         session_name = new_name
                     ok = "berhasil" in result.lower()
+                    dot = Style.OK if ok else Style.ERR
+                    print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+                continue
+
+            # ── /model — ganti model aktif dalam sesi ────────────────────
+            if user_input.lower().startswith("/model"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) < 2 or not parts[1].strip():
+                    print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/model <namaModel>{Style.RESET}")
+                    print(f"  {Style.GREY}Model aktif saat ini: {Style.GREY_LIGHT}{MODEL}{Style.RESET}")
+                else:
+                    new_model = parts[1].strip()
+                    result = set_active_model(new_model)
+                    ok = ("diubah" in result) or ("aktif" in result) or ("sudah" in result)
                     dot = Style.OK if ok else Style.ERR
                     print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
                 continue
