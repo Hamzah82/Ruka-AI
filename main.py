@@ -2329,6 +2329,80 @@ def handle_change_model():
 # COMMAND: SET ACTIVE MODEL (dalam sesi — /model <namaModel>)
 # ============================================================
 
+def _read_config_data() -> dict:
+    """Baca config.json sebagai dict; buat default bila belum ada / rusak."""
+    config_path = os.path.join(SCRIPT_DIR, "config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {
+        "api_endpoint": "https://ai.meongtopup.my.id/v1/chat/completions",
+        "api_key": "",
+    }
+
+
+def _write_config_data(config_data: dict) -> None:
+    """Tulis dict ke config.json (dengan updated_at otomatis)."""
+    config_path = os.path.join(SCRIPT_DIR, "config.json")
+    config_data["updated_at"] = datetime.now().isoformat()
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config_data, f, indent=2, ensure_ascii=False)
+
+
+def _resolve_alias(value: str, config_data: dict) -> str:
+    """Resolve alias ke nama model penuh; selain itu return as-is."""
+    aliases = config_data.get("model_aliases", {}) or {}
+    return aliases.get(value, value)
+
+
+def list_model_aliases() -> str:
+    """Tampilkan daftar alias model yang tersimpan."""
+    config_data = _read_config_data()
+    aliases = config_data.get("model_aliases", {}) or {}
+    if not aliases:
+        return "Belum ada alias. Gunakan: /model set <alias>|<namaModel>"
+    lines = [f"{a} → {m}" for a, m in aliases.items()]
+    return "Alias model:\n" + "\n".join(lines)
+
+
+def set_model_alias(alias: str, model: str) -> str:
+    """Simpan alias → nama model penuh ke config.json (persisten)."""
+    alias = (alias or "").strip()
+    model = (model or "").strip()
+    if not alias or not model:
+        return "Gunakan: /model set <alias>|<namaModel>"
+    if "|" in alias or "|" in model:
+        return "Alias/nama model tidak boleh mengandung karakter '|'"
+    config_data = _read_config_data()
+    if not isinstance(config_data.get("model_aliases"), dict):
+        config_data["model_aliases"] = {}
+    aliases = config_data["model_aliases"]
+    aliases[alias] = model
+    try:
+        _write_config_data(config_data)
+    except Exception as e:
+        return f"Gagal menyimpan alias: {e}"
+    return f"Alias disimpan: {alias} → {model}"
+
+
+def remove_model_alias(alias: str) -> str:
+    """Hapus alias dari config.json."""
+    alias = (alias or "").strip()
+    config_data = _read_config_data()
+    aliases = config_data.get("model_aliases", {}) or {}
+    if not alias or alias not in aliases:
+        return f"Alias '{alias}' tidak ditemukan."
+    del aliases[alias]
+    try:
+        _write_config_data(config_data)
+    except Exception as e:
+        return f"Gagal menghapus alias: {e}"
+    return f"Alias '{alias}' dihapus."
+
+
 def set_active_model(new_model: str) -> str:
     """
     Ganti model AI aktif TANPA restart — dipanggil dari slash command
@@ -2340,38 +2414,25 @@ def set_active_model(new_model: str) -> str:
     """
     global MODEL
 
-    config_path = os.path.join(SCRIPT_DIR, "config.json")
     new_model = (new_model or "").strip()
-
     if not new_model:
         return "Nama model tidak boleh kosong. Gunakan: /model <namaModel>"
 
-    # Baca config.json saat ini (buat jika belum ada)
-    config_data = {}
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            config_data = {}
-    else:
-        config_data = {
-            "api_endpoint": "https://ai.meongtopup.my.id/v1/chat/completions",
-            "api_key": "",
-        }
+    config_data = _read_config_data()
+
+    # Resolve alias ke nama model penuh jika input cocok dengan alias tersimpan
+    resolved = _resolve_alias(new_model, config_data)
+    if resolved != new_model:
+        new_model = resolved
 
     old_model = config_data.get("model", "") or MODEL
 
-    # Tidak ada perubahan → beri tahu user
     if old_model == new_model:
         return f"Model sudah aktif: {new_model}"
 
-    # Simpan ke config.json (persisten antar-restart)
     config_data["model"] = new_model
-    config_data["updated_at"] = datetime.now().isoformat()
     try:
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, indent=2, ensure_ascii=False)
+        _write_config_data(config_data)
     except Exception as e:
         return f"Gagal menyimpan model ke config.json: {e}"
 
@@ -2420,6 +2481,9 @@ def show_help():
     _help_row("/delete <nama>", "Hapus session tertentu")
     _help_row("/rename <nama baru>", "Rename session aktif")
     _help_row("/model <namaModel>", "Ganti model AI aktif tanpa restart")
+    _help_row("/model set <alias>|<model>", "Set alias singkat untuk model")
+    _help_row("/model alias", "Daftar alias model yang tersimpan")
+    _help_row("/model rm <alias>", "Hapus alias model")
     _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
 
     _help_section("CLI command (dari terminal)")
@@ -5332,12 +5396,57 @@ def chat_session(session_name: str = None):
                     print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
                 continue
 
-            # ── /model — ganti model aktif dalam sesi ────────────────────
+            # ── /model — ganti model aktif dalam sesi (dengan alias) ───────────
             if user_input.lower().startswith("/model"):
                 parts = user_input.split(maxsplit=1)
                 if len(parts) < 2 or not parts[1].strip():
                     print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/model <namaModel>{Style.RESET}")
                     print(f"  {Style.GREY}Model aktif saat ini: {Style.GREY_LIGHT}{MODEL}{Style.RESET}")
+                    print(f"  {Style.GREY}Alias tersedia:{Style.GREY_LIGHT} gunakan '/model alias' untuk daftar{Style.RESET}")
+                    continue
+
+                subcommand = parts[1].strip().lower()
+                
+                # Subcommand: list aliases
+                if subcommand in ("alias", "aliases", "list", "daftar"):
+                    result = list_model_aliases()
+                    dot = Style.ACCENT_DIM
+                    print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+                    continue
+                
+                # Subcommand: set alias
+                elif subcommand.startswith("set ") or subcommand == "set":
+                    if subcommand == "set":
+                        print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/model set <alias>|<namaModel>{Style.RESET}")
+                        continue
+                    alias_and_model = parts[1].strip()[4:].strip()
+                    if "|" not in alias_and_model:
+                        print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/model set <alias>|<namaModel>{Style.RESET}")
+                        continue
+                    alias_str, model_full = alias_and_model.split("|", 1)
+                    result = set_model_alias(alias_str.strip(), model_full.strip())
+                    ok = "disimpan" in result.lower()
+                    dot = Style.OK if ok else Style.ERR
+                    print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+                    continue
+                
+                # Subcommand: remove/hapus alias
+                elif subcommand.split()[0] in ("remove", "del", "rm", "hapus"):
+                    args = parts[1].strip()
+                    command_word = args.split()[0]
+                    rest = args[len(command_word):].strip()
+                    if rest:
+                        alias = rest
+                    else:
+                        print(f"\n  {Style.WARN}■{Style.RESET}  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/model rm <alias>{Style.RESET}")
+                        continue
+                    result = remove_model_alias(alias)
+                    ok = "dihapus" in result.lower()
+                    dot = Style.OK if ok else Style.WARN
+                    print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+                    continue
+                
+                # Normal mode: ganti model atau alias
                 else:
                     new_model = parts[1].strip()
                     result = set_active_model(new_model)
