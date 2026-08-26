@@ -20,7 +20,8 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Lapisan Keamanan Best-Effort** — Pembatasan path (realpath+commonpath ke BASE_DIR/SCRIPT_DIR), denylist perintah destruktif (best-effort, **bukan sandbox**), scrub API key dari env subprocess, dan cap output. Lihat bagian [Keamanan](#-keamanan) untuk model ancaman
 - **Unlimited Rounds** — Tidak ada batas maksimum round per sesi
 - **Workspace = Folder Pemanggil** — Workspace otomatis mengikuti folder tempat kamu menjalankan perintah (cwd). Pasang alias `ruka` lewat `install.sh`, lalu `cd` ke folder mana pun dan ketik `ruka`. Bisa juga di-override dengan `python main.py <path> <namaSesi>`. Folder `SKILL/`, `sessions/`, dan `.env` selalu diakses dari folder instalasi
-- **Konfigurasi Fleksibel via CLI** — Ubah endpoint API, model AI, dan API key dengan mudah menggunakan command `ruka change`. Konfigurasi disimpan di `config.json` dan aman dari commit Git
+- **Konfigurasi Fleksibel via CLI** — Ubah endpoint API, model AI, dan API key dengan mudah menggunakan command `ruka change` (atau `ruka model` untuk ganti model saja). Konfigurasi disimpan di `config.json` dan aman dari commit Git
+- **Ganti Model dalam Sesi** — Slash command `/model <namaModel>` untuk mengganti model AI aktif tanpa restart, lengkap dengan **sistem alias** supaya tidak perlu mengetik nama model panjang: `/model set <alias>|<namaModel>` lalu cukup `/model <alias>`
 
 ---
 
@@ -39,7 +40,7 @@ Ruka AI mengadopsi gaya antarmuka **bersih dan minimalis ala Claude Code** — f
 ╰────────────────────────────────────────────────────────────────╯
 
   cwd      • ~/Ruka-AI
-  model    • openrouter/owl-alpha
+  model    • meng/deepseek-v4-flash
   session  • kerja-proyek (42 pesan · dibuat 2026-06-20 14:30)
 
   Ketik /help untuk bantuan, exit untuk keluar, q untuk interupsi.
@@ -203,6 +204,14 @@ Command ini membuka interface interaktif untuk mengubah:
 - **Model AI** - Nama model yang digunakan  
 - **API Key** - Kunci autentikasi API
 
+Untuk **hanya mengganti model** (tanpa mengubah endpoint/key), gunakan:
+
+```bash
+python main.py model
+# atau alias pendek:
+python main.py mdl
+```
+
 Konfigurasi tersimpan di `config.json` dan otomatis ditambahkan ke `.gitignore` untuk keamanan. Untuk detail lebih lanjut, lihat [CHANGE_CONFIG_GUIDE.md](CHANGE_CONFIG_GUIDE.md).
 
 ### Melihat Daftar Session
@@ -257,6 +266,43 @@ python main.py renameSession nama-lama nama-baru
 # Dari dalam chat:
 ❯ /rename nama-baru
 ```
+
+### Ganti Model dalam Sesi (Tanpa Restart)
+
+Slash command `/model` memungkinkan mengganti model AI aktif langsung di dalam sesi berjalan, tanpa perlu keluar dan restart.
+
+**Ganti model langsung:**
+
+```
+❯ /model meng/deepseek-v4-flash
+```
+
+**Set alias untuk model (agar tidak perlu mengetik nama panjang):**
+
+```
+❯ /model set flash|meng/deepseek-v4-flash
+```
+
+Setelah alias diset, cukup gunakan alias untuk ganti model:
+
+```
+❯ /model flash
+```
+
+**Lihat daftar alias tersimpan:**
+
+```
+❯ /model alias
+```
+
+**Hapus alias:**
+
+```
+❯ /model rm flash
+# atau: /model del flash / /model remove flash
+```
+
+Alias disimpan persisten di `config.json` (key `model_aliases`), jadi tetap tersedia walau aplikasi di-restart.
 
 ### Tips Awal Session
 
@@ -355,6 +401,11 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - `/clear` — Bersihkan layar
 - `/delete <nama>` — Hapus session tertentu
 - `/rename <nama baru>` — Rename session aktif
+- `/model <namaModel>` — Ganti model AI aktif tanpa restart
+- `/model set <alias>|<model>` — Set alias singkat untuk model
+- `/model alias` — Daftar alias model yang tersimpan
+- `/model rm <alias>` — Hapus alias model
+- `/team <tugas>` — Bentuk tim & diskusi kolaboratif multi-agent
 
 > Slash command tetap menggunakan format kebab-case dengan prefix `/`.
 
@@ -459,7 +510,8 @@ Ruka AI dilengkapi dengan beberapa lapisan keamanan:
 Ruka-AI/
 ├── main.py           # Source code utama — seluruh logic agent
 ├── config.py         # Konfigurasi (API key, model, BASE_DIR, SCRIPT_DIR)
-├── config.json       # Konfigurasi API endpoint & model (disimpan lokal, tidak di-push)
+├── dynamic_config.py # Gabungan konfigurasi config.json (prioritas) + config.py
+├── config.json       # Konfigurasi API endpoint & model + alias (disimpan lokal, tidak di-push)
 ├── CHANGE_CONFIG_GUIDE.md  # Panduan penggunaan command 'ruka change'
 ├── install.sh        # Installer alias `ruka` ke ~/.bashrc
 ├── requirements.txt  # Dependensi Python yang dibutuhkan
@@ -484,15 +536,19 @@ Ruka-AI/
 
 ## ⚙️ Konfigurasi
 
-Variabel konfigurasi yang dapat diubah di `config.py`:
+Konfigurasi dapat diatur di `config.py` (hardcode) atau `config.json` (dinamis, prioritas lebih tinggi):
 
-- `MODEL` — Default: `openrouter/owl-alpha` — Model AI yang digunakan via OpenRouter
+- `MODEL` — Default: `meng/deepseek-v4-flash` — Model AI yang digunakan via OpenRouter (bisa di-override via env `RUKA_MODEL`)
 - `DEFAULT_CMD_TIMEOUT` — Default: `60` — Timeout default untuk eksekusi perintah (detik)
-- `MAX_RETRIES` — Default: `5` — Jumlah maksimum retry jika request gagal
-- `RETRY_BASE_DELAY` — Default: `5` — Delay dasar untuk exponential backoff (detik)
+- `MAX_RETRIES` — Default: `7` — Jumlah maksimum retry jika request gagal
+- `RETRY_BASE_DELAY` — Default: `2` — Delay dasar untuk exponential backoff (detik)
 - `BASE_DIR` — Default: `os.getcwd()` (folder tempat user memanggil) — Workspace tempat file dikelola (bisa di-override via CLI)
 - `SCRIPT_DIR` — Path absolut ke folder main.py — dipakai untuk akses SKILL/, .env, dan file internal (tidak pernah berubah)
 - `SESSIONS_DIR` — Default: `<SCRIPT_DIR>/sessions/` — Folder penyimpanan session (selalu di folder instalasi, bukan workspace)
+
+### Model Aktif vs config.json
+
+`config.json` memiliki prioritas tertinggi untuk `api_endpoint`, `model`, dan `api_key`. File ini juga menyimpan **alias model** di key `model_aliases` (hasil dari `/model set`). Saat runtime, `dynamic_config.py` menggabungkan `config.json` (prioritas) dengan fallback ke `config.py`.
 
 ---
 

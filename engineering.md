@@ -36,7 +36,7 @@ Ruka AI adalah **CLI-based AI agent** yang memungkinkan user berinteraksi dengan
 - **Local-first** — Semua operasi file dan terminal berjalan di mesin lokal
 - **Workspace = cwd** — Agent bekerja di folder tempat user menjalankan `ruka`, bukan folder instalasi
 - **Session-based** — Percakapan disimpan persisten di folder instalasi, bisa dilanjutkan
-- **Model-agnostic** — Default `openrouter/owl-alpha`, bisa di-override via `RUKA_MODEL` env var
+- **Model-agnostic** — Default `meng/deepseek-v4-flash`, bisa di-override via `RUKA_MODEL` env var, `config.json`, atau slash command `/model` di dalam sesi
 - **Interruptible** — Ketik `q` kapan saja untuk menghentikan proses
 - **Floating prompt** — Prompt input mengambang di bawah layar via FooterUI (scroll region ANSI)
 
@@ -113,42 +113,48 @@ Ini memungkinkan alias `ruka` dipakai dari folder mana pun: `cd ~/proyek && ruka
 
 ### External Services
 
-- **OpenRouter API** — `https://openrouter.ai/api/v1/chat/completions` (OpenAI-compatible)
+- **OpenRouter API** — `https://ai.meongtopup.my.id/v1/chat/completions` (OpenAI-compatible)
 
 ### Model Default
 
-- **openrouter/owl-alpha** — ~1M token context window, dioptimalkan untuk agentic tool use
-- Override: set `RUKA_MODEL=provider/model-name` di `.env` atau environment
+- **meng/deepseek-v4-flash** — default model aktif
+- Override (prioritas dari tinggi ke rendah): `config.json` (key `model`) → `RUKA_MODEL` env var → `config.py` → `/model <namaModel>` di dalam sesi (seketika, tanpa restart)
 
 ---
 
 ## 4. Struktur Kode
 
-`main.py` — **4641 baris**. Seluruh logic agent ada di sini.
+`main.py` — **±4.900 baris**. Seluruh logic agent ada di sini.
 `config.py` — **~120 baris**. Semua konstanta konfigurasi; tunable tanpa sentuh `main.py`.
+`dynamic_config.py` — **~100 baris**. Menggabungkan `config.json` (prioritas) dengan `config.py`.
 
 ### 4.1 config.py — Konstanta Konfigurasi
 
 ```
 OPENROUTER_API_KEY   → API key (dari .env)
-MODEL                → Model aktif (default owl-alpha, override via RUKA_MODEL)
-API_URL              → https://openrouter.ai/api/v1/chat/completions
+MODEL                → Model aktif (default meng/deepseek-v4-flash, override via RUKA_MODEL/config.json)
+API_URL              → https://ai.meongtopup.my.id/v1/chat/completions
 HEADERS              → HTTP headers untuk request API
 BASE_DIR             → os.getcwd() — workspace user
 SCRIPT_DIR           → dirname(__file__) — folder instalasi
 SESSIONS_DIR         → SCRIPT_DIR/sessions/
 DEFAULT_CMD_TIMEOUT  → 60 detik (exec_command)
-MAX_RETRIES          → 5
-RETRY_BASE_DELAY     → 5 detik (delays: 5s → 10s → 20s → 40s → 80s)
+MAX_RETRIES          → 7
+RETRY_BASE_DELAY     → 2 detik (delays: 2s → 4s → 8s → 16s → 32s → 64s → 128s)
 BLOCKED_COMMANDS     → List perintah yang diblokir
-MAX_READ_LINES       → 20.000 baris (batas read_file tanpa offset/limit)
-MAX_READ_CHARS       → 1.000.000 karakter
+MAX_READ_LINES       → 25.000 baris (batas read_file tanpa offset/limit)
+MAX_READ_CHARS       → 1.500.000 karakter
 MAX_EXEC_OUTPUT_CHARS→ 200.000 karakter (stdout+stderr masing-masing)
-BINARY_SNIFF_BYTES   → 8.192 byte (deteksi file biner)
+BINARY_SNIFF_BYTES   → 16.384 byte (deteksi file biner)
+TRUNCATION_THRESHOLD → 20.000 (baca 3 bagian + summary untuk file sangat besar)
 MAX_HISTORY_TOKENS   → 800.000 token estimasi (trim riwayat sebelum kirim API)
-KEEP_RECENT_MESSAGES → 1.000.000 (lantai keras pesan terbaru dipertahankan)
+KEEP_RECENT_MESSAGES → 2.000.000 (lantai keras pesan terbaru dipertahankan)
 HISTORY_TRIM_NOTICE  → True (tampilkan notice saat trim)
+ENABLE_SUMMARIZATION → True (ringkas riwayat lama secara LLM)
+ESTIMATE_CHARS_PER_TOKEN → 3 (estimasi token dari teks)
 ```
+
+> Konfigurasi juga bisa di-set via `config.json`. Prioritas: `config.json` (untuk `api_endpoint`, `model`, `api_key`) menimpa `config.py`; nilai lain mengikuti `config.py`.
 
 ### 4.2 Interrupt Mechanism
 
@@ -203,18 +209,42 @@ python main.py deleteSession <nama>       # hapus session (CLI)
 python main.py renameSession <lama> <baru># rename session (CLI)
 python main.py clearSessions              # hapus semua session auto-generated
 python main.py searchSessions <keyword>   # cari session by nama
+python main.py change                     # ubah endpoint, model & API key (CLI)
+python main.py model                      # ganti model AI saja (CLI)
 ```
 
 Slash commands dalam sesi:
 ```
-/sessions           → daftar semua session
-/new                → mulai session baru
-/history            → tampilkan riwayat chat sesi ini
-/delete <n> → hapus session
-/rename <nama baru> → rename session aktif
-/help               → tampilkan bantuan
-/clear              → bersihkan layar
+/sessions               → daftar semua session
+/new                    → mulai session baru
+/history                → tampilkan riwayat chat sesi ini
+/delete <nama>          → hapus session
+/rename <nama baru>     → rename session aktif
+/model <namaModel>      → ganti model aktif tanpa restart
+/model set <alias>|<m>  → set alias singkat untuk model
+/model alias            → daftar alias model
+/model rm <alias>       → hapus alias model
+/team <tugas>           → bentuk tim & diskusi kolaboratif multi-agent
+/help                   → tampilkan bantuan
+/clear                  → bersihkan layar
 ```
+
+### Ganti Model dalam Sesi — `/model`
+
+Slash command `/model` mengubah model aktif **seketika tanpa restart**:
+
+1. `set_active_model(nama)` dipanggil dari loop `chat_session`.
+2. Input di-resolve lewat `_resolve_alias()` — jika cocok dengan alias tersimpan di `config.json` (key `model_aliases`), dipetakan ke nama model penuh.
+3. Model baru ditulis ke `config.json` (persisten) lalu `config.MODEL` dan variabel global `MODEL` di-update seketika.
+4. Round berikutnya, payload API langsung memakai `MODEL` yang baru.
+
+Fungsi pendukung:
+- `set_model_alias(alias, model)` — simpan alias persisten.
+- `list_model_aliases()` — tampilkan daftar alias.
+- `remove_model_alias(alias)` — hapus alias.
+- `_read_config_data()` / `_write_config_data()` — helper baca/tulis `config.json` yang dipakai semua fungsi konfigurasi (termasuk `set_active_model`).
+
+> Catatan bugfix: jangan pakai pola `setdefault(...) or {}` — saat dict kosong, `or {}` membuat objek **baru** sehingga perubahan alias tidak tersimpan. Gunakan cek `isinstance()` lalu mutate langsung referensi yang sama.
 
 ---
 
@@ -427,9 +457,15 @@ Session disimpan di 2 titik:
 | `/history` | Riwayat chat sesi ini |
 | `/delete <nama>` | Hapus session |
 | `/rename <nama baru>` | Rename session aktif |
+| `/model <namaModel>` | Ganti model aktif tanpa restart |
+| `/model set <alias>|<model>` | Set alias singkat untuk model |
+| `/model alias` | Daftar alias model |
+| `/model rm <alias>` | Hapus alias model |
+| `/team <tugas>` | Diskusi multi-agent |
 | `python main.py listSessions` | CLI: list sessions |
 | `python main.py clearSessions` | CLI: hapus semua session auto-generated |
 | `python main.py searchSessions <kw>` | CLI: cari session by nama |
+| `python main.py model` | CLI: ganti model AI saja |
 
 ---
 
@@ -493,32 +529,46 @@ Jika semua retry gagal, user menerima pesan error yang menjelaskan penyebabnya.
 
 ## 13. Konfigurasi
 
-Semua konfigurasi ada di `config.py`. Edit file ini tanpa menyentuh `main.py`.
+Konfigurasi tersebar di `config.py` (hardcode fallback) dan `config.json` (prioritas dinamis), digabung oleh `dynamic_config.py` saat startup.
 
 ### Environment Variables (`.env` di SCRIPT_DIR)
 
 ```
 OPENROUTER_API_KEY=sk-or-v1-xxxxx   # wajib
-RUKA_MODEL=openrouter/model-name     # opsional, override model
+RUKA_MODEL=model-name               # opsional, override model default
 ```
 
-### Mengganti Model
+### Mengganti Model (3 cara)
 
-Via `.env`:
-```
-RUKA_MODEL=openrouter/anthropic/claude-sonnet-4
+**1. Via `config.json` (prioritas tertinggi, persisten):**
+```json
+{ "model": "meng/deepseek-v4-flash" }
 ```
 
-Via `config.py` (hardcode fallback):
-```python
-_DEFAULT_MODEL = "openrouter/owl-alpha"
+**2. Via `.env` / env var:**
 ```
+RUKA_MODEL=meng/deepseek-v4-flash
+```
+
+**3. Saat runtime dalam sesi (tanpa restart):**
+```
+/model meng/deepseek-v4-flash
+```
+Plus sistem alias:
+```
+/model set flash|meng/deepseek-v4-flash   # daftarkan alias
+/model flash                              # ganti model pakai alias
+/model alias                              # lihat daftar alias
+/model rm flash                           # hapus alias
+```
+
+Urutan prioritas model aktif: `config.json` → `RUKA_MODEL` env → `config.py` default → `/model` (mengubah runtime & menulis ke `config.json`).
 
 ### Tuning Output Limits
 
 Edit di `config.py`:
 ```python
-MAX_READ_LINES = 20_000         # baca file
+MAX_READ_LINES = 25_000         # baca file
 MAX_EXEC_OUTPUT_CHARS = 200_000 # output command
 MAX_HISTORY_TOKENS = 800_000    # context window trim
 ```
@@ -633,17 +683,17 @@ Folder instalasi bukan git repo, atau tidak ada koneksi. Coba manual: `cd ~/Ruka
 ```
 Language         : Python 3.10+
 Dependencies     : requests, python-dotenv (+ termios stdlib)
-Architecture     : Single-file CLI agent (main.py ~4641 baris) + config.py
+Architecture     : Single-file CLI agent (main.py ~4.900 baris) + config.py + dynamic_config.py
 AI Backend       : OpenRouter API (OpenAI-compatible)
-Default Model    : openrouter/owl-alpha (~1M context window)
-Model Override   : RUKA_MODEL env var atau config.py
+Default Model    : meng/deepseek-v4-flash
+Model Override   : config.json → RUKA_MODEL env → config.py → /model dalam sesi (dengan alias)
 Tools            : 13 (file ops, folder ops, exec_command, discuss)
 Session Format   : JSON files di SCRIPT_DIR/sessions/
 Workspace        : os.getcwd() — folder tempat user menjalankan `ruka`
 Security         : Path traversal protection, command filter, timeout
-Retry            : 5x, exponential backoff 5s → 80s
-History Trim     : 800K token estimasi, deterministik (bukan LLM summary)
-Output Limits    : 20K baris / 1M chars (read), 200K chars (exec)
+Retry            : 7x, exponential backoff 2s → 128s
+History Trim     : 800K token estimasi, deterministik + LLM summarization opsional
+Output Limits    : 25K baris / 1.5M chars (read), 200K chars (exec)
 Interrupt        : Queue-based real-time ('q' untuk stop)
 UI               : FooterUI floating prompt (ANSI scroll region) + fallback linear
 Output Format    : Markdown → TerminalFormatter (ANSI styled)
@@ -657,8 +707,10 @@ Skills Dir       : SKILL/ (skills.md, browsingSkill.md, pptSkill.md, dll.)
 
 ```
 Ruka-AI/
-├── main.py              # Logic utama (~4641 baris)
-├── config.py            # Semua konstanta konfigurasi
+├── main.py              # Logic utama (~4.900 baris)
+├── config.py            # Konstanta konfigurasi (fallback)
+├── dynamic_config.py    # Gabungan config.json (prioritas) + config.py
+├── config.json          # Konfigurasi dinamis + model_aliases (lokal, tidak di-push)
 ├── requirements.txt     # Dependensi Python
 ├── install.sh           # Setup alias `ruka`
 ├── pyproject.toml       # Project metadata & test config
