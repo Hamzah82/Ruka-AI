@@ -5292,8 +5292,8 @@ def get_system_prompt(session_name: str = None) -> str:
         "- File 'skills.md' (yang sedang kamu baca sekarang) SELALU ter-load otomatis.\n"
         "- Skill tambahan (pptSkill.md, browsingSkill.md, emailSkill.md, vercelSkill.md,\n"
         "  frontendDesignSkill.md) AKAN TER-INJECT OTOMATIS saat kamu mendeteksi keyword.\n"
-        "- Skill ter-inject ditandai pesan system ber-header\n"
-        "  '🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED' tepat setelah prompt ini.\n"
+        "- Skill ter-inject ditandai pesan system ber-header CONTEXT ADDITION\n"
+        "  (TASK-SPECIFIC SKILL) tepat setelah prompt ini.\n"
         "- JIKA skill yang dibutuhkan TIDAK ter-inject (misal keyword tak cocok regex),\n"
         "  BACA MANUAL dengan read_file('SKILL/<nama_skill>.md') sebagai fallback — itu sah.\n"
         "- Contoh trigger:\n"
@@ -5599,11 +5599,15 @@ def chat_session(session_name: str = None):
                 show_turn_summary(turn_secs, _spinner.turn_tokens)
 
                 # CLEANUP: Hapus temporary skill message jika ada (agar tidak bocor ke session)
-                # Skill hanya relevan untuk task ini, bukan untuk task berikutnya
+                # Skill hanya relevan untuk task ini, bukan untuk task berikutnya.
+                # PENTING: targetkan HANYA skill message, bukan system prompt utama.
+                # Skill message selalu diawali frase unik "Ikuti panduan dari skill berikut"
+                # (jangan pakai substring "CONTEXT ADDITION" saja karena itu juga muncul
+                # sebagai instruksi di dalam system prompt utama → bisa hapus prompt utama).
                 if skill_injected and len(messages) > 1:
                     for i, msg in enumerate(messages):
-                        if (msg.get("role") == "system" and 
-                            "CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED" in msg.get("content", "")):
+                        if (msg.get("role") == "system" and
+                            "Ikuti panduan dari skill berikut untuk menyelesaikan tugas ini" in msg.get("content", "")):
                             del messages[i]
                             break
                 
@@ -5617,8 +5621,8 @@ def chat_session(session_name: str = None):
                 # CLEANUP: Hapus temporary skill message jika ada (agar tidak bocor ke session)
                 if skill_injected and len(messages) > 1:
                     for i, msg in enumerate(messages):
-                        if (msg.get("role") == "system" and 
-                            "CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED" in msg.get("content", "")):
+                        if (msg.get("role") == "system" and
+                            "Ikuti panduan dari skill berikut untuk menyelesaikan tugas ini" in msg.get("content", "")):
                             del messages[i]
                             break
                 
