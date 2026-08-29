@@ -5142,13 +5142,15 @@ def _detect_and_load_skill(user_message: str) -> tuple[str, str]:
     notices = []
 
     # Mapping: (regex pattern, deskripsi, relative path)
+    # Regex diperluas agar menangkap lebih banyak variasi permintaan umum
+    # (browse, cari sendirian, deploy sendirian, bikin web, dll).
     skill_rules = [
         (r"\b(ppt|powerpoint|presentasi|slide)\b", "presentasi PPT", "SKILL/pptSkill.md"),
         (r"\b(pptx)\b", "file powerpoint", "SKILL/pptSkill.md"),
-        (r"\b(cari info|browse|search online|web scraping|scraping|berita|info terkini|carikan|kurs|exchange rate)\b", "info online/web scraping", "SKILL/browsingSkill.md"),
-        (r"\b(deploy.*vercel|vercel.*deploy|konfigurasi vercel|vercel)\b", "deploy/konfigurasi Vercel", "SKILL/vercelSkill.md"),
-        (r"\b(kirim email|send email|setup email|msmtp|smtp)\b", "kirim/setup email", "SKILL/emailSkill.md"),
-        (r"\b(website|landing page|web design|halaman web|desain web|buat.*ui|frontend)\b", "desain website/frontend/UI", "SKILL/frontendDesignSkill.md"),
+        (r"\b(cari info|cari (harga|info|berita|data|kurs|cuaca|jadwal)|browse|browsing|search|search online|googling|web scraping|scraping|berita|info terkini|carikan|kurs|exchange rate|harga (emas|dollar|dolar|bitcoin|saham|minyak)|cuaca|jadwal|info terbaru)\b", "info online/web scraping", "SKILL/browsingSkill.md"),
+        (r"\b(deploy|vercel|konfigurasi vercel)\b", "deploy/konfigurasi Vercel", "SKILL/vercelSkill.md"),
+        (r"\b(kirim email|send email|setup email|email|msmtp|smtp)\b", "kirim/setup email", "SKILL/emailSkill.md"),
+        (r"\b(website|landing page|web design|halaman web|desain web|buat.*ui|buat.*web|bikin.*web|frontend|company profile|web profil|homepage|portofolio web)\b", "desain website/frontend/UI", "SKILL/frontendDesignSkill.md"),
     ]
 
     for pattern, desc, path in skill_rules:
@@ -5245,8 +5247,10 @@ def get_system_prompt(session_name: str = None) -> str:
         "- File 'skills.md' (yang sedang kamu baca sekarang) SELALU ter-load otomatis.\n"
         "- Skill tambahan (pptSkill.md, browsingSkill.md, emailSkill.md, vercelSkill.md,\n"
         "  frontendDesignSkill.md) AKAN TER-INJECT OTOMATIS saat kamu mendeteksi keyword.\n"
-        "- JANGAN baca skill dengan read_file() — sistem sudah auto-inject konten skill\n"
-        "  ke konteks percakapan saat keyword terdeteksi.\n"
+        "- Skill ter-inject ditandai pesan system ber-header\n"
+        "  '🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED' tepat setelah prompt ini.\n"
+        "- JIKA skill yang dibutuhkan TIDAK ter-inject (misal keyword tak cocok regex),\n"
+        "  BACA MANUAL dengan read_file('SKILL/<nama_skill>.md') sebagai fallback — itu sah.\n"
         "- Contoh trigger:\n"
         "  • ppt/powerpoint/presentasi → auto-inject pptSkill.md\n"
         "  • browse/search/cari info/web scraping → auto-inject browsingSkill.md\n"
@@ -5293,6 +5297,21 @@ def chat_session(session_name: str = None):
                 "content": get_system_prompt(session_name)
             }
         ]
+    else:
+        # Sesi di-resume: pastikan pesan system PERTAMA (prompt utama) selalu
+        # memakai versi TERBARU. Ini penting karena skills.md & instruksi skill
+        # dapat berubah antar versi; sesi lama yang tersimpan harus mengikuti
+        # panduan terbaru, bukan instruksi usang yang ter-cache di file JSON.
+        try:
+            new_prompt = get_system_prompt(session_name)
+            # Ganti hanya pesan system yang merupakan "prompt utama" (pesan
+            # system pertama / yang mengandung 'Kamu adalah Ruka AI').
+            for i, m in enumerate(messages):
+                if m.get("role") == "system" and "Kamu adalah Ruka AI" in m.get("content", ""):
+                    messages[i] = {"role": "system", "content": new_prompt}
+                    break
+        except Exception:
+            pass  # gagal update prompt lama → biarkan apa adanya (aman)
 
     # ── Aktifkan prompt mengambang di bawah layar (jika TTY) ───
     global _footer

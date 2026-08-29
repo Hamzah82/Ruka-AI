@@ -25,19 +25,19 @@
 
 ## 📦 SKILL TAMBAHAN (Auto-Inject)
 
-> `skills.md` (ini) SELALU ter-load otomatis. Skill spesialis AKAN TER-INJECT OTOMATIS saat keyword terdeteksi — **JANGAN manual read_file()**.
+> `skills.md` (ini) SELALU ter-load otomatis. Skill spesialis AKAN TER-INJECT OTOMATIS saat keyword terdeteksi. Deteksi memakai regex — jika sebuah tugas membutuhkan skill tapi TIDAK ter-inject otomatis (keyword tidak cocok dengan regex), **silakan baca manual** dengan `read_file("SKILL/<nama_skill>.md")` (path relatif). Manual read_file adalah **fallback yang sah**, bukan pelanggaran.
 
-Sistem secara otomatis meng-inject konten skill ke context kamu saat mendeteksi keyword. Konten skill sudah tersedia di prompt tanpa perlu dibaca manual.
+Ciri skill ter-inject: ada pesan system ber-header `🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED` tepat setelah system prompt utama.
 
-| Skill | Trigger Auto-Inject |
-|---|---|
-| `pptSkill.md` | ppt/powerpoint/presentasi/slide/.pptx |
-| `browsingSkill.md` | browse/search/cari info/web scraping/berita/ Kurs |
-| `vercelSkill.md` | vercel/deploy/konfigurasi Vercel |
-| `emailSkill.md` | kirim email/send email/msmtp/smtp |
-| `frontendDesignSkill.md` | website/landing page/frontend/UI/web design |
+| Skill | Path | Trigger Umum |
+|---|---|---|
+| `pptSkill.md` | `SKILL/pptSkill.md` | ppt/powerpoint/presentasi/slide/.pptx |
+| `browsingSkill.md` | `SKILL/browsingSkill.md` | browse/search/cari/cari info/web scraping/berita/kurs/cuaca |
+| `vercelSkill.md` | `SKILL/vercelSkill.md` | vercel/deploy |
+| `emailSkill.md` | `SKILL/emailSkill.md` | kirim email/send email/msmtp/smtp/email |
+| `frontendDesignSkill.md` | `SKILL/frontendDesignSkill.md` | website/landing page/frontend/UI/web design/company profile |
 
-**Alur sekarang:** kenali tugas → sistem auto-inject skill terkait → langsung follow panduan skill. Tidak perlu `read_file()` skill — content sudah di context.
+**Alur yang benar:** kenali tugas → cek apakah skill yang relevan sudah ter-inject (cari header `🔧 CONTEXT ADDITION` di konteks) → jika YA, ikuti panduan skill itu → jika TIDAK, baca manual via `read_file("SKILL/<nama_skill>.md")`. Jangan bingung: auto-inject adalah jalur utama, manual read_file adalah safety net yang sah.
 
 ---
 
@@ -393,19 +393,19 @@ SKILL (auto-inject):
 
 ## 📦 SKILL TAMBAHAN (Auto-Inject)
 
-> `skills.md` (ini) SELALU ter-load otomatis. Skill spesialis AKAN TER-INJECT OTOMATIS saat keyword terdeteksi — **JANGAN manual read_file()**.
+> `skills.md` (ini) SELALU ter-load otomatis. Skill spesialis AKAN TER-INJECT OTOMATIS saat keyword terdeteksi. Deteksi memakai regex — jika sebuah tugas membutuhkan skill tapi TIDAK ter-inject otomatis (keyword tidak cocok dengan regex), **silakan baca manual** dengan `read_file("SKILL/<nama_skill>.md")` (path relatif). Manual read_file adalah **fallback yang sah**, bukan pelanggaran.
 
-Sistem secara otomatis meng-inject konten skill ke context kamu saat mendeteksi keyword. Konten skill sudah tersedia di prompt tanpa perlu dibaca manual.
+Ciri skill ter-inject: ada pesan system ber-header `🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED` tepat setelah system prompt utama.
 
-| Skill | Trigger Auto-Inject |
-|---|---|
-| `pptSkill.md` | ppt/powerpoint/presentasi/slide/.pptx |
-| `browsingSkill.md` | browse/search/cari info/web scraping/berita/ Kurs |
-| `vercelSkill.md` | vercel/deploy/konfigurasi Vercel |
-| `emailSkill.md` | kirim email/send email/msmtp/smtp |
-| `frontendDesignSkill.md` | website/landing page/frontend/UI/web design |
+| Skill | Path | Trigger Umum |
+|---|---|---|
+| `pptSkill.md` | `SKILL/pptSkill.md` | ppt/powerpoint/presentasi/slide/.pptx |
+| `browsingSkill.md` | `SKILL/browsingSkill.md` | browse/search/cari/cari info/web scraping/berita/kurs/cuaca |
+| `vercelSkill.md` | `SKILL/vercelSkill.md` | vercel/deploy |
+| `emailSkill.md` | `SKILL/emailSkill.md` | kirim email/send email/msmtp/smtp/email |
+| `frontendDesignSkill.md` | `SKILL/frontendDesignSkill.md` | website/landing page/frontend/UI/web design/company profile |
 
-**Alur sekarang:** kenali tugas → sistem auto-inject skill terkait → langsung follow panduan skill. Tidak perlu `read_file()` skill — content sudah di context.
+**Alur yang benar:** kenali tugas → cek apakah skill yang relevan sudah ter-inject (cari header `🔧 CONTEXT ADDITION` di konteks) → jika YA, ikuti panduan skill itu → jika TIDAK, baca manual via `read_file("SKILL/<nama_skill>.md")`. Jangan bingung: auto-inject adalah jalur utama, manual read_file adalah safety net yang sah.
 
 ---
 
