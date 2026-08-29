@@ -5184,6 +5184,51 @@ def _detect_and_load_skill(user_message: str) -> tuple[str, str]:
     return notice, skill_content
 
 
+def _condense_skill_content(skill_content: str, max_chars: int = 2500) -> str:
+    """
+    Ringkas konten skill yang di-inject agar tidak meledakkan konteks system.
+    PENTING: beberapa proxy/API mengembalikan respons KOSONG bila total pesan
+    system terlalu besar (mis. skills.md ~86KB + file skill 22-37KB bersamaan).
+    Solusi: inject hanya ringkasan terarah — header tiap bagian + baris pertama
+    isinya — lalu arahkan model ke read_file('SKILL/<nama>.md') untuk detil.
+
+    max_chars: batas ringkasan (default 2500 → hemat token, aman untuk proxy).
+    """
+    if len(skill_content) <= max_chars:
+        return skill_content  # sudah ringkas, tak perlu dipangkas
+
+    # Ambil baris-baris penting: header (# / ## / ###), blockquote pengantar,
+    # dan baris non-list pertama di bawah tiap header sebagai "isi ringkas".
+    lines = skill_content.splitlines()
+    out = []
+    pending_header = ""
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            continue
+        if s.startswith("## ") or s.startswith("### "):
+            # baru buka section; flush header saat ada isi baris berikut
+            out.append(s)
+            pending_header = s
+        elif s.startswith("# "):
+            out.append(s)  # judul utama file
+        elif pending_header:
+            # baris isi pertama setelah header → ambil sebagai ringkasan
+            if s.startswith("- ") or s.startswith("|") or s.startswith("```"):
+                continue  # lewati list/table/code untuk hemat
+            out.append("  " + s)
+            pending_header = ""
+        elif len(out) <= 3:
+            # sangat awal: simpan pengantar (blockquote > ...)
+            out.append(s)
+
+    condensed = "\n".join(out)
+    # Potong bila masih terlalu panjang (di batas baris)
+    if len(condensed) > max_chars * 2:
+        condensed = condensed[:max_chars * 2].rsplit("\n", 1)[0]
+    return condensed
+
+
 def get_system_prompt(session_name: str = None) -> str:
     session_info = ""
     if session_name:
@@ -5525,8 +5570,9 @@ def chat_session(session_name: str = None):
                     "content": (
                         "\n\n🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED:\n"
                         "Ikuti panduan dari skill berikut untuk menyelesaikan tugas ini.\n"
-                        "Skill ini DIMUAT khusus untuk task saat ini dan tidak perlu dimuat lagi di task lain.\n"
-                        "---\n" + skill_content
+                        "Berikut RINGKASAN skill (hemat konteks). Untuk detail lengkap & contoh, "
+                        "baca file aslinya via read_file() — contoh: read_file('SKILL/pptSkill.md').\n"
+                        "---\n" + _condense_skill_content(skill_content)
                     )
                 })
                 skill_injected = True
