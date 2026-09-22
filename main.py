@@ -3054,7 +3054,8 @@ def _safe_path(name: str) -> str | None:
 
     Mendukung dua mode:
     - Path absolut (contoh: /home/user/RukaAI/SKILL/skills.md) → pakai langsung
-    - Path relatif (contoh: catatan.txt) → gabungkan dengan BASE_DIR
+    - Path relatif (contoh: catatan.txt) → gabungkan dengan BASE_DIR; jika file
+      tidak ada di BASE_DIR, fallback ke SCRIPT_DIR (untuk akses SKILL/ dll.)
 
     Path traversal dicegah dengan memastikan hasil akhir masih dalam BASE_DIR
     atau SCRIPT_DIR (folder main.py, untuk akses SKILL/ dan file internal).
@@ -3066,7 +3067,29 @@ def _safe_path(name: str) -> str | None:
     if os.path.isabs(name):
         raw = os.path.abspath(name)
     else:
-        raw = os.path.abspath(os.path.join(config.BASE_DIR, name))
+        # Untuk path relatif, coba BASE_DIR dulu, lalu SCRIPT_DIR sebagai fallback.
+        # Prioritas: jika file/folder SUDAH ada di BASE_DIR → pakai BASE_DIR.
+        # Jika TIDAK ada di BASE_DIR tapi ada di SCRIPT_DIR → pakai SCRIPT_DIR.
+        # Jika tidak ada di keduanya → pakai BASE_DIR (untuk operasi write baru),
+        #   KECUALI parent folder hanya ada di SCRIPT_DIR (misal: "SKILL/..." —
+        #   folder SKILL hanya ada di folder instalasi, bukan workspace user).
+        candidate_base = os.path.abspath(os.path.join(config.BASE_DIR, name))
+        candidate_script = os.path.abspath(os.path.join(config.SCRIPT_DIR, name))
+
+        if os.path.exists(candidate_base):
+            raw = candidate_base
+        elif os.path.exists(candidate_script):
+            raw = candidate_script
+        else:
+            # Tidak ada di keduanya — cek parent folder.
+            parent_base = os.path.dirname(candidate_base)
+            parent_script = os.path.dirname(candidate_script)
+            # Jika parent di SCRIPT_DIR ada tapi parent di BASE_DIR tidak,
+            # arahkan ke SCRIPT_DIR (misal: "SKILL/file_baru.md").
+            if not os.path.exists(parent_base) and os.path.exists(parent_script):
+                raw = candidate_script
+            else:
+                raw = candidate_base
 
     # Resolusi symlink pada komponen PARENT (mencegah escape lewat symlink)
     # sambil MEMPERTAHANKAN leaf — agar file/folder yang belum ada (write_file
@@ -5116,119 +5139,6 @@ def _load_skills() -> str:
     return _load_skills._cache
 
 
-import re
-
-# ============================================================
-# AUTO-LOAD SKILL — DETECT & INJECT SPESIALISASI
-# ============================================================
-
-_SKILL_CACHE = {}  # Cache untuk load_file: path → content
-
-
-def _detect_and_load_skill(user_message: str) -> tuple[str, str]:
-    """
-    Detect skill spesialis yang dibutuhkan dari query user.
-    Return: (notice_ringkas_untuk_user, konten_skill_untuk_inject)
-
-    Strategy: keyword-based detection (regex) + lazy-load hanya skill yang
-    benar-benar dibutuhkan untuk task ini. Konten di-cache agar tidak baca
-    file berulang-ulang.
-    """
-    if not user_message:
-        return "", ""
-
-    msg_lower = user_message.lower()
-    loaded_paths = []
-    notices = []
-
-    # Mapping: (regex pattern, deskripsi, relative path)
-    # Regex diperluas agar menangkap lebih banyak variasi permintaan umum
-    # (browse, cari sendirian, deploy sendirian, bikin web, dll).
-    skill_rules = [
-        (r"\b(ppt|powerpoint|presentasi|slide)\b", "presentasi PPT", "SKILL/pptSkill.md"),
-        (r"\b(pptx)\b", "file powerpoint", "SKILL/pptSkill.md"),
-        (r"\b(cari info|cari (harga|info|berita|data|kurs|cuaca|jadwal)|browse|browsing|search|search online|googling|web scraping|scraping|berita|info terkini|carikan|kurs|exchange rate|harga (emas|dollar|dolar|bitcoin|saham|minyak)|cuaca|jadwal|info terbaru)\b", "info online/web scraping", "SKILL/browsingSkill.md"),
-        (r"\b(deploy|vercel|konfigurasi vercel)\b", "deploy/konfigurasi Vercel", "SKILL/vercelSkill.md"),
-        (r"\b(kirim email|send email|setup email|email|msmtp|smtp)\b", "kirim/setup email", "SKILL/emailSkill.md"),
-        (r"\b(website|landing page|web design|halaman web|desain web|buat.*ui|buat.*web|bikin.*web|frontend|company profile|web profil|homepage|portofolio web)\b", "desain website/frontend/UI", "SKILL/frontendDesignSkill.md"),
-    ]
-
-    for pattern, desc, path in skill_rules:
-        if re.search(pattern, msg_lower):
-            if path not in loaded_paths:
-                loaded_paths.append(path)
-                notices.append(desc)
-
-    # Load setiap skill yang terdeteksi (dengan caching) — ambil KONTEN
-    contents = []
-    for path in loaded_paths:
-        full_path = os.path.join(SCRIPT_DIR, path)
-        if full_path not in _SKILL_CACHE:
-            try:
-                with open(full_path, "r", encoding="utf-8") as f:
-                    _SKILL_CACHE[full_path] = f.read()
-            except Exception:
-                continue
-        contents.append(_SKILL_CACHE[full_path])
-
-    if not contents:
-        return "", ""
-
-    # Konten gabungan untuk di-inject ke konteks (pesan system temporary)
-    skill_content = "\n\n---\n\n".join(contents)
-
-    # Notice ringkas HANYA untuk ditampilkan ke user (1 baris), bukan konten
-    skill_names = [os.path.basename(p) for p in loaded_paths]
-    notice = "📚 Skill auto-loaded: " + ", ".join(skill_names)
-
-    return notice, skill_content
-
-
-def _condense_skill_content(skill_content: str, max_chars: int = 2500) -> str:
-    """
-    Ringkas konten skill yang di-inject agar tidak meledakkan konteks system.
-    PENTING: beberapa proxy/API mengembalikan respons KOSONG bila total pesan
-    system terlalu besar (mis. skills.md ~86KB + file skill 22-37KB bersamaan).
-    Solusi: inject hanya ringkasan terarah — header tiap bagian + baris pertama
-    isinya — lalu arahkan model ke read_file('SKILL/<nama>.md') untuk detil.
-
-    max_chars: batas ringkasan (default 2500 → hemat token, aman untuk proxy).
-    """
-    if len(skill_content) <= max_chars:
-        return skill_content  # sudah ringkas, tak perlu dipangkas
-
-    # Ambil baris-baris penting: header (# / ## / ###), blockquote pengantar,
-    # dan baris non-list pertama di bawah tiap header sebagai "isi ringkas".
-    lines = skill_content.splitlines()
-    out = []
-    pending_header = ""
-    for ln in lines:
-        s = ln.strip()
-        if not s:
-            continue
-        if s.startswith("## ") or s.startswith("### "):
-            # baru buka section; flush header saat ada isi baris berikut
-            out.append(s)
-            pending_header = s
-        elif s.startswith("# "):
-            out.append(s)  # judul utama file
-        elif pending_header:
-            # baris isi pertama setelah header → ambil sebagai ringkasan
-            if s.startswith("- ") or s.startswith("|") or s.startswith("```"):
-                continue  # lewati list/table/code untuk hemat
-            out.append("  " + s)
-            pending_header = ""
-        elif len(out) <= 3:
-            # sangat awal: simpan pengantar (blockquote > ...)
-            out.append(s)
-
-    condensed = "\n".join(out)
-    # Potong bila masih terlalu panjang (di batas baris)
-    if len(condensed) > max_chars * 2:
-        condensed = condensed[:max_chars * 2].rsplit("\n", 1)[0]
-    return condensed
-
-
 def get_system_prompt(session_name: str = None) -> str:
     session_info = ""
     if session_name:
@@ -5288,22 +5198,20 @@ def get_system_prompt(session_name: str = None) -> str:
         "Jadi BASE_DIR bisa berbeda-beda tergantung di mana user berada.\n"
         "Namun SEMUA file di folder SKILL/ SELALU berada di folder tempat main.py berada.\n"
         "\n"
-        "⚠️ AUTO-LOAD SKILL (TANPA MANUAL READ):\n"
+        "📚 SKILL TAMBAHAN (BACA MANUAL SESUAI KEBUTUHAN):\n"
         "- File 'skills.md' (yang sedang kamu baca sekarang) SELALU ter-load otomatis.\n"
-        "- Skill tambahan (pptSkill.md, browsingSkill.md, emailSkill.md, vercelSkill.md,\n"
-        "  frontendDesignSkill.md) AKAN TER-INJECT OTOMATIS saat kamu mendeteksi keyword.\n"
-        "- Skill ter-inject ditandai pesan system ber-header CONTEXT ADDITION\n"
-        "  (TASK-SPECIFIC SKILL) tepat setelah prompt ini.\n"
-        "- JIKA skill yang dibutuhkan TIDAK ter-inject (misal keyword tak cocok regex),\n"
-        "  BACA MANUAL dengan read_file('SKILL/<nama_skill>.md') sebagai fallback — itu sah.\n"
-        "- Contoh trigger:\n"
-        "  • ppt/powerpoint/presentasi → auto-inject pptSkill.md\n"
-        "  • browse/search/cari info/web scraping → auto-inject browsingSkill.md\n"
-        "  • vercel/deploy → auto-inject vercelSkill.md\n"
-        "  • kirim email/send email/msmtp → auto-inject emailSkill.md\n"
-        "  • website/landing page/frontend → auto-inject frontendDesignSkill.md\n"
+        "- Skill tambahan TIDAK di-inject otomatis. Kamu sendiri yang memutuskan kapan\n"
+        "  perlu membacanya. Baca dengan read_file('SKILL/<nama_skill>.md') — path relatif\n"
+        "  ini akan otomatis di-resolve ke folder instalasi.\n"
+        "- Skill yang tersedia:\n"
+        "  • pptSkill.md — membuat presentasi PPT/PowerPoint\n"
+        "  • browsingSkill.md — browsing internet & web scraping\n"
+        "  • vercelSkill.md — deploy & konfigurasi Vercel\n"
+        "  • emailSkill.md — kirim email via msmtp\n"
+        "  • frontendDesignSkill.md — desain website/landing page/frontend\n"
         "\n"
-        "JADI: Fokus pada logic dan tool execution, skill content sudah ada di context."
+        "JADI: Baca skill yang relevan saat dibutuhkan. Jangan ragu untuk membaca\n"
+        "beberapa skill jika tugas membutuhkannya."
         + skills_section
         + session_info
     )
@@ -5552,31 +5460,6 @@ def chat_session(session_name: str = None):
             # ── Normal chat flow ────────────────────────────────────
             show_separator()
             
-            # Auto-load skill berdasarkan query user (lazy loading)
-            skill_notice, skill_content = _detect_and_load_skill(user_input)
-            if skill_notice:
-                print(f"\n  {Style.GREY}⏺{Style.RESET} {Style.GREY_LIGHT}📚 Skill auto-loaded: {skill_notice.splitlines()[0]}{Style.RESET}")
-            
-            # Inject skill sebagai system message temporary (hanya untuk task ini)
-            # Skill disisipkan SETELAH system prompt utama, agar model menerimanya
-            # sebagai konteks tambahan. Setelah giliran selesai, pesan ini DIHAPUS
-            # dari messages agar tidak bocor ke task berikutnya / session file.
-            skill_injected = False
-            if skill_content:
-                # Simpan system prompt asli, tambahkan skill sebagai pesan terpisah
-                # tepat setelah system prompt utama (index 0)
-                messages.insert(1, {
-                    "role": "system",
-                    "content": (
-                        "\n\n🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED:\n"
-                        "Ikuti panduan dari skill berikut untuk menyelesaikan tugas ini.\n"
-                        "Berikut RINGKASAN skill (hemat konteks). Untuk detail lengkap & contoh, "
-                        "baca file aslinya via read_file() — contoh: read_file('SKILL/pptSkill.md').\n"
-                        "---\n" + _condense_skill_content(skill_content)
-                    )
-                })
-                skill_injected = True
-            
             messages.append({"role": "user", "content": user_input})
 
             # Mulai timer giliran — titik nol yang bertahan menembus semua tool call
@@ -5599,32 +5482,12 @@ def chat_session(session_name: str = None):
                 show_turn_summary(turn_secs, _spinner.turn_tokens)
 
                 # CLEANUP: Hapus temporary skill message jika ada (agar tidak bocor ke session)
-                # Skill hanya relevan untuk task ini, bukan untuk task berikutnya.
-                # PENTING: targetkan HANYA skill message, bukan system prompt utama.
-                # Skill message selalu diawali frase unik "Ikuti panduan dari skill berikut"
-                # (jangan pakai substring "CONTEXT ADDITION" saja karena itu juga muncul
-                # sebagai instruksi di dalam system prompt utama → bisa hapus prompt utama).
-                if skill_injected and len(messages) > 1:
-                    for i, msg in enumerate(messages):
-                        if (msg.get("role") == "system" and
-                            "Ikuti panduan dari skill berikut untuk menyelesaikan tugas ini" in msg.get("content", "")):
-                            del messages[i]
-                            break
-                
                 # Auto-save setelah setiap exchange
                 save_session(session_name, messages)
 
             except Exception as e:
                 _spinner.end_turn()
                 show_error(str(e)[:80])
-                
-                # CLEANUP: Hapus temporary skill message jika ada (agar tidak bocor ke session)
-                if skill_injected and len(messages) > 1:
-                    for i, msg in enumerate(messages):
-                        if (msg.get("role") == "system" and
-                            "Ikuti panduan dari skill berikut untuk menyelesaikan tugas ini" in msg.get("content", "")):
-                            del messages[i]
-                            break
                 
                 # Tetap save meski error
                 save_session(session_name, messages)

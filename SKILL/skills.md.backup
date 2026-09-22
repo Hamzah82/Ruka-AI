@@ -37,17 +37,17 @@
 ### Cara Load Skill Tambahan
 
 Ketika sebuah tugas cocok dengan salah satu skill di bawah, **BACA dulu** file
-skill-nya sebelum mengerjakan tugas. Gunakan `read_file()` dengan path absolut
-ke folder instalasi (folder tempat `main.py` berada):
+skill-nya sebelum mengerjakan tugas. Gunakan `read_file()` dengan path **relatif**
+(dari folder instalasi `main.py`):
 
 ```
-read_file('/data/data/com.termux/files/home/RukaAI/SKILL/pptSkill.md')
+read_file("SKILL/pptSkill.md")
 ```
 
-> Ganti `/data/data/com.termux/files/home/RukaAI` dengan path instalasi yang
-> sebenarnya. Path ini diberikan di bagian bawah system prompt (lihat "CATATAN
-> PENTING TENTANG WORKSPACE & SKILL"). File SKILL **selalu** ada di folder
-> instalasi (tempat `main.py`), **bukan** di workspace/direktori kerja user.
+> File SKILL **selalu** ada di folder `SKILL/` di tempat `main.py` berada,
+> **bukan** di workspace/direktori kerja user. Path relatif seperti di atas
+> akan otomatis di-resolve ke folder instalasi jika file tidak ditemukan di
+> workspace.
 
 ### Daftar Skill Tambahan yang Tersedia
 
@@ -165,10 +165,10 @@ Baru mulai bekerja (write_file, edit_file, exec_command, dll.)
 **Contoh output pwd dan list_all() yang harus dijalankan:**
 ```
 $ pwd
-/data/data/com.termux/files/home/RukaAI/projects/myapp
+/home/user/projects/myapp
 
 $ list_all()
-Struktur Direktori: /data/data/com.termux/files/home/RukaAI/projects/myapp
+Struktur Direktori: /home/user/projects/myapp
   📁 src/ (3 item)
   │   📄 main.py (2.1 KB)
   │   📄 utils.py (856 B)
@@ -177,7 +177,7 @@ Struktur Direktori: /data/data/com.termux/files/home/RukaAI/projects/myapp
 ```
 
 Dengan begitu, kamu tahu:
-- Kamu ada di `/data/data/com.termux/files/home/RukaAI/projects/myapp` (bukan di folder lain)
+- Kamu ada di `/home/user/projects/myapp` (bukan di folder lain)
 - Project ini punya folder `src/` dengan 2 file dan `package.json` (Node.js project)
 - Kamu **tidak akan** asal membuat file di root RukaAI atau folder yang salah
 

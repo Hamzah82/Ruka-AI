@@ -23,21 +23,19 @@
 
 ---
 
-## 📦 SKILL TAMBAHAN (Auto-Inject)
+## 📦 SKILL TAMBAHAN (Baca Manual Sesuai Kebutuhan)
 
-> `skills.md` (ini) SELALU ter-load otomatis. Skill spesialis AKAN TER-INJECT OTOMATIS saat keyword terdeteksi. Deteksi memakai regex — jika sebuah tugas membutuhkan skill tapi TIDAK ter-inject otomatis (keyword tidak cocok dengan regex), **silakan baca manual** dengan `read_file("SKILL/<nama_skill>.md")` (path relatif). Manual read_file adalah **fallback yang sah**, bukan pelanggaran.
+> `skills.md` (ini) SELALU ter-load otomatis. Skill spesialis **TIDAK** di-inject otomatis — kamu sendiri yang memutuskan kapan perlu membacanya. Baca dengan `read_file("SKILL/<nama_skill>.md")` (path relatif, akan otomatis di-resolve ke folder instalasi).
 
-Ciri skill ter-inject: ada pesan system ber-header `🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED` tepat setelah system prompt utama.
+Skill yang tersedia:
 
-| Skill | Path | Trigger Umum |
-|---|---|---|
-| `pptSkill.md` | `SKILL/pptSkill.md` | ppt/powerpoint/presentasi/slide/.pptx |
-| `browsingSkill.md` | `SKILL/browsingSkill.md` | browse/search/cari/cari info/web scraping/berita/kurs/cuaca |
-| `vercelSkill.md` | `SKILL/vercelSkill.md` | vercel/deploy |
-| `emailSkill.md` | `SKILL/emailSkill.md` | kirim email/send email/msmtp/smtp/email |
-| `frontendDesignSkill.md` | `SKILL/frontendDesignSkill.md` | website/landing page/frontend/UI/web design/company profile |
+- `pptSkill.md` — membuat presentasi PPT/PowerPoint
+- `browsingSkill.md` — browsing internet & web scraping
+- `vercelSkill.md` — deploy & konfigurasi Vercel
+- `emailSkill.md` — kirim email via msmtp
+- `frontendDesignSkill.md` — desain website/landing page/frontend
 
-**Alur yang benar:** kenali tugas → cek apakah skill yang relevan sudah ter-inject (cari header `🔧 CONTEXT ADDITION` di konteks) → jika YA, ikuti panduan skill itu → jika TIDAK, baca manual via `read_file("SKILL/<nama_skill>.md")`. Jangan bingung: auto-inject adalah jalur utama, manual read_file adalah safety net yang sah.
+**Alur yang benar:** kenali tugas → tentukan skill yang relevan → baca skill tersebut dengan `read_file("SKILL/<nama_skill>.md")` → ikuti panduannya → kerjakan tugas. Jangan ragu membaca beberapa skill jika tugas membutuhkannya.
 
 ---
 
@@ -218,7 +216,7 @@ Pecah jadi beberapa round: (1) `pwd` + `list_all()` → (2) baca yang perlu → 
 
 ## 11. Browsing & Web Scraping
 
-**Skill ini otomatis ter-inject saat kamu detect keyword:** browse/search/cari info/web scraping/berita/kurs
+**Skill ini dibaca manual saat kamu butuh:** browse/search/cari info/web scraping/berita/kurs
 
 Isi panduan: tools (lynx, w3m, curl, python3), search engine yang bisa/diblokir, pattern scraping teruji, API endpoints, troubleshooting.
 
@@ -228,7 +226,7 @@ Isi panduan: tools (lynx, w3m, curl, python3), search engine yang bisa/diblokir,
 
 **Alur:**
 ```
-Round 1: Skill browsingSkill.md sudah ada di context → ikuti panduan
+Round 1: read_file("SKILL/browsingSkill.md") → baca panduan
 Round 2: exec_command("lynx -dump 'https://html.duckduckgo.com/html/?q=X'")
 Round 3: Analisis & tampilkan hasil
 ```
@@ -237,7 +235,7 @@ Round 3: Analisis & tampilkan hasil
 
 ## 12. Vercel CLI Deploy
 
-**Skill ini otomatis ter-inject saat kamu detect keyword:** vercel/deploy/konfigurasi Vercel
+**Skill ini dibaca manual saat kamu butuh:** vercel/deploy/konfigurasi Vercel
 
 Isi panduan: install (`npm install -g vercel`), login (`vercel login`), deploy (`vercel --prod`), project management, env vars (`vercel env add`), domain, deployments, secrets, build config, troubleshooting.
 
@@ -246,7 +244,7 @@ Isi panduan: install (`npm install -g vercel`), login (`vercel login`), deploy (
 
 **Alur:**
 ```
-Round 1: Skill vercelSkill.md sudah ada di context → ikuti panduan
+Round 1: read_file("SKILL/vercelSkill.md") → baca panduan
 Round 2: vercel --version → cek install
 Round 3: vercel whoami → cek login
 Round 4: cd /path && vercel --prod → deploy
@@ -257,7 +255,7 @@ Round 5: konfirmasi hasil
 
 ## 13. Email via msmtp
 
-**Skill ini otomatis ter-inject saat kamu detect keyword:** kirim email/send email/setup email/msmtp/smtp
+**Skill ini dibaca manual saat kamu butuh:** kirim email/send email/setup email/msmtp/smtp
 
 Isi panduan: install msmtp, setup App Password Gmail, format `msmtprc`, cara kirim (multi-recipient, CC/BCC, dari file), SMTP settings berbagai provider, format RFC 2822, logging, troubleshooting.
 
@@ -271,7 +269,7 @@ Isi panduan: install msmtp, setup App Password Gmail, format `msmtprc`, cara kir
 
 **Alur:**
 ```
-Round 1: Skill emailSkill.md sudah ada di context → ikuti panduan
+Round 1: read_file("SKILL/emailSkill.md") → baca panduan
 Round 2: ls -la SKILL/config/email/msmtprc → cek config
 Round 3: setup jika belum ada, kirim jika sudah
 Round 4: echo -e "Subject: ...\n\nIsi" | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
@@ -311,7 +309,7 @@ Round 5: cat ~/.msmtp.log → cek hasil
 
 ## 15. Frontend Design
 
-**Skill ini otomatis ter-inject saat kamu detect keyword:** website/landing page/frontend/UI/web design
+**Skill ini dibaca manual saat kamu butuh:** website/landing page/frontend/UI/web design
 
 Isi panduan: filosofi desain (identitas dulu), anti-pattern "tampilan AI", proses kerja (rencana→kritik→build→kritik), sistem token CSS, tipografi, layout, motion, copywriting, template HTML.
 
@@ -324,7 +322,7 @@ Isi panduan: filosofi desain (identitas dulu), anti-pattern "tampilan AI", prose
 
 **Alur:**
 ```
-Round 1: Skill frontendDesignSkill.md sudah ada di context → ikuti panduan
+Round 1: read_file("SKILL/frontendDesignSkill.md") → baca panduan
 Round 2: Buat rencana desain + kritik
 Round 3: write_file("index.html", kode)
 Round 4: Konfirmasi & jelaskan pilihan desain
@@ -350,12 +348,12 @@ ATURAN:
 ❌ Tabel markdown | marker ⏺/⎿ | warna ANSI | ✅❌⚠️ sebagai status
 ❌ Duplikasi output tool | akses luar BASE_DIR | perintah berbahaya | bekerja tanpa cek workspace
 
-SKILL (auto-inject):
-- PPT:      auto-inject pptSkill.md saat detect keyword ppt/powerpoint/presentasi/.pptx
-- Browsing: auto-inject browsingSkill.md saat detect browse/search/cari info/web scraping/kurs
-- Vercel:   auto-inject vercelSkill.md saat detect vercel/deploy
-- Email:    auto-inject emailSkill.md saat detect kirim email/send email/msmtp/smtp
-- Frontend: auto-inject frontendDesignSkill.md saat detect website/landing page/frontend/UI
+SKILL (baca manual sesuai kebutuhan):
+- PPT:      read_file("SKILL/pptSkill.md") saat butuh buat presentasi/PPT
+- Browsing: read_file("SKILL/browsingSkill.md") saat butuh cari info online
+- Vercel:   read_file("SKILL/vercelSkill.md") saat butuh deploy ke Vercel
+- Email:    read_file("SKILL/emailSkill.md") saat butuh kirim email
+- Frontend: read_file("SKILL/frontendDesignSkill.md") saat butuh desain website/UI
 ```
 
 ---
@@ -391,21 +389,19 @@ SKILL (auto-inject):
 
 ---
 
-## 📦 SKILL TAMBAHAN (Auto-Inject)
+## 📦 SKILL TAMBAHAN (Baca Manual Sesuai Kebutuhan)
 
-> `skills.md` (ini) SELALU ter-load otomatis. Skill spesialis AKAN TER-INJECT OTOMATIS saat keyword terdeteksi. Deteksi memakai regex — jika sebuah tugas membutuhkan skill tapi TIDAK ter-inject otomatis (keyword tidak cocok dengan regex), **silakan baca manual** dengan `read_file("SKILL/<nama_skill>.md")` (path relatif). Manual read_file adalah **fallback yang sah**, bukan pelanggaran.
+> `skills.md` (ini) SELALU ter-load otomatis. Skill spesialis **TIDAK** di-inject otomatis — kamu sendiri yang memutuskan kapan perlu membacanya. Baca dengan `read_file("SKILL/<nama_skill>.md")` (path relatif, akan otomatis di-resolve ke folder instalasi).
 
-Ciri skill ter-inject: ada pesan system ber-header `🔧 CONTEXT ADDITION — TASK-SPECIFIC SKILL LOADED` tepat setelah system prompt utama.
+Skill yang tersedia:
 
-| Skill | Path | Trigger Umum |
-|---|---|---|
-| `pptSkill.md` | `SKILL/pptSkill.md` | ppt/powerpoint/presentasi/slide/.pptx |
-| `browsingSkill.md` | `SKILL/browsingSkill.md` | browse/search/cari/cari info/web scraping/berita/kurs/cuaca |
-| `vercelSkill.md` | `SKILL/vercelSkill.md` | vercel/deploy |
-| `emailSkill.md` | `SKILL/emailSkill.md` | kirim email/send email/msmtp/smtp/email |
-| `frontendDesignSkill.md` | `SKILL/frontendDesignSkill.md` | website/landing page/frontend/UI/web design/company profile |
+- `pptSkill.md` — membuat presentasi PPT/PowerPoint
+- `browsingSkill.md` — browsing internet & web scraping
+- `vercelSkill.md` — deploy & konfigurasi Vercel
+- `emailSkill.md` — kirim email via msmtp
+- `frontendDesignSkill.md` — desain website/landing page/frontend
 
-**Alur yang benar:** kenali tugas → cek apakah skill yang relevan sudah ter-inject (cari header `🔧 CONTEXT ADDITION` di konteks) → jika YA, ikuti panduan skill itu → jika TIDAK, baca manual via `read_file("SKILL/<nama_skill>.md")`. Jangan bingung: auto-inject adalah jalur utama, manual read_file adalah safety net yang sah.
+**Alur yang benar:** kenali tugas → tentukan skill yang relevan → baca skill tersebut dengan `read_file("SKILL/<nama_skill>.md")` → ikuti panduannya → kerjakan tugas. Jangan ragu membaca beberapa skill jika tugas membutuhkannya.
 
 ---
 
@@ -586,7 +582,7 @@ Pecah jadi beberapa round: (1) `pwd` + `list_all()` → (2) baca yang perlu → 
 
 ## 11. Browsing & Web Scraping
 
-**Skill ini otomatis ter-inject saat kamu detect keyword:** browse/search/cari info/web scraping/berita/kurs
+**Skill ini dibaca manual saat kamu butuh:** browse/search/cari info/web scraping/berita/kurs
 
 Isi panduan: tools (lynx, w3m, curl, python3), search engine yang bisa/diblokir, pattern scraping teruji, API endpoints, troubleshooting.
 
@@ -596,7 +592,7 @@ Isi panduan: tools (lynx, w3m, curl, python3), search engine yang bisa/diblokir,
 
 **Alur:**
 ```
-Round 1: Skill browsingSkill.md sudah ada di context → ikuti panduan
+Round 1: read_file("SKILL/browsingSkill.md") → baca panduan
 Round 2: exec_command("lynx -dump 'https://html.duckduckgo.com/html/?q=X'")
 Round 3: Analisis & tampilkan hasil
 ```
@@ -605,7 +601,7 @@ Round 3: Analisis & tampilkan hasil
 
 ## 12. Vercel CLI Deploy
 
-**Skill ini otomatis ter-inject saat kamu detect keyword:** vercel/deploy/konfigurasi Vercel
+**Skill ini dibaca manual saat kamu butuh:** vercel/deploy/konfigurasi Vercel
 
 Isi panduan: install (`npm install -g vercel`), login (`vercel login`), deploy (`vercel --prod`), project management, env vars (`vercel env add`), domain, deployments, secrets, build config, troubleshooting.
 
@@ -614,7 +610,7 @@ Isi panduan: install (`npm install -g vercel`), login (`vercel login`), deploy (
 
 **Alur:**
 ```
-Round 1: Skill vercelSkill.md sudah ada di context → ikuti panduan
+Round 1: read_file("SKILL/vercelSkill.md") → baca panduan
 Round 2: vercel --version → cek install
 Round 3: vercel whoami → cek login
 Round 4: cd /path && vercel --prod → deploy
@@ -625,7 +621,7 @@ Round 5: konfirmasi hasil
 
 ## 13. Email via msmtp
 
-**Skill ini otomatis ter-inject saat kamu detect keyword:** kirim email/send email/setup email/msmtp/smtp
+**Skill ini dibaca manual saat kamu butuh:** kirim email/send email/setup email/msmtp/smtp
 
 Isi panduan: install msmtp, setup App Password Gmail, format `msmtprc`, cara kirim (multi-recipient, CC/BCC, dari file), SMTP settings berbagai provider, format RFC 2822, logging, troubleshooting.
 
@@ -639,7 +635,7 @@ Isi panduan: install msmtp, setup App Password Gmail, format `msmtprc`, cara kir
 
 **Alur:**
 ```
-Round 1: Skill emailSkill.md sudah ada di context → ikuti panduan
+Round 1: read_file("SKILL/emailSkill.md") → baca panduan
 Round 2: ls -la SKILL/config/email/msmtprc → cek config
 Round 3: setup jika belum ada, kirim jika sudah
 Round 4: echo -e "Subject: ...\n\nIsi" | msmtp --file=SKILL/config/email/msmtprc tujuan@gmail.com
@@ -679,7 +675,7 @@ Round 5: cat ~/.msmtp.log → cek hasil
 
 ## 15. Frontend Design
 
-**Skill ini otomatis ter-inject saat kamu detect keyword:** website/landing page/frontend/UI/web design
+**Skill ini dibaca manual saat kamu butuh:** website/landing page/frontend/UI/web design
 
 Isi panduan: filosofi desain (identitas dulu), anti-pattern "tampilan AI", proses kerja (rencana→kritik→build→kritik), sistem token CSS, tipografi, layout, motion, copywriting, template HTML.
 
@@ -692,7 +688,7 @@ Isi panduan: filosofi desain (identitas dulu), anti-pattern "tampilan AI", prose
 
 **Alur:**
 ```
-Round 1: Skill frontendDesignSkill.md sudah ada di context → ikuti panduan
+Round 1: read_file("SKILL/frontendDesignSkill.md") → baca panduan
 Round 2: Buat rencana desain + kritik
 Round 3: write_file("index.html", kode)
 Round 4: Konfirmasi & jelaskan pilihan desain
@@ -718,12 +714,12 @@ ATURAN:
 ❌ Tabel markdown | marker ⏺/⎿ | warna ANSI | ✅❌⚠️ sebagai status
 ❌ Duplikasi output tool | akses luar BASE_DIR | perintah berbahaya | bekerja tanpa cek workspace
 
-SKILL (auto-inject):
-- PPT:      auto-inject pptSkill.md saat detect keyword ppt/powerpoint/presentasi/.pptx
-- Browsing: auto-inject browsingSkill.md saat detect browse/search/cari info/web scraping/kurs
-- Vercel:   auto-inject vercelSkill.md saat detect vercel/deploy
-- Email:    auto-inject emailSkill.md saat detect kirim email/send email/msmtp/smtp
-- Frontend: auto-inject frontendDesignSkill.md saat detect website/landing page/frontend/UI
+SKILL (baca manual sesuai kebutuhan):
+- PPT:      read_file("SKILL/pptSkill.md") saat butuh buat presentasi/PPT
+- Browsing: read_file("SKILL/browsingSkill.md") saat butuh cari info online
+- Vercel:   read_file("SKILL/vercelSkill.md") saat butuh deploy ke Vercel
+- Email:    read_file("SKILL/emailSkill.md") saat butuh kirim email
+- Frontend: read_file("SKILL/frontendDesignSkill.md") saat butuh desain website/UI
 ```
 
 ---
@@ -773,17 +769,17 @@ SKILL (auto-inject):
 ### Cara Load Skill Tambahan
 
 Ketika sebuah tugas cocok dengan salah satu skill di bawah, **BACA dulu** file
-skill-nya sebelum mengerjakan tugas. Gunakan `read_file()` dengan path absolut
-ke folder instalasi (folder tempat `main.py` berada):
+skill-nya sebelum mengerjakan tugas. Gunakan `read_file()` dengan path **relatif**
+(dari folder instalasi `main.py`):
 
 ```
-read_file('/data/data/com.termux/files/home/RukaAI/SKILL/pptSkill.md')
+read_file("SKILL/pptSkill.md")
 ```
 
-> Ganti `/data/data/com.termux/files/home/RukaAI` dengan path instalasi yang
-> sebenarnya. Path ini diberikan di bagian bawah system prompt (lihat "CATATAN
-> PENTING TENTANG WORKSPACE & SKILL"). File SKILL **selalu** ada di folder
-> instalasi (tempat `main.py`), **bukan** di workspace/direktori kerja user.
+> File SKILL **selalu** ada di folder `SKILL/` di tempat `main.py` berada,
+> **bukan** di workspace/direktori kerja user. Path relatif seperti di atas
+> akan otomatis di-resolve ke folder instalasi jika file tidak ditemukan di
+> workspace.
 
 ### Daftar Skill Tambahan yang Tersedia
 
@@ -819,7 +815,7 @@ Muat file yang relevan **saat dan hanya saat** dibutuhkan:
 User: "Buatkan PPT tentang machine learning"
 
 Round 1: exec_command("pwd") + list_all()          → cek workspace
-Round 2: read_file(".../SKILL/pptSkill.md")         → LOAD skill PPT
+Round 2: read_file("SKILL/pptSkill.md")              → LOAD skill PPT
 Round 3: write_file("buat_ppt.py", script)          → buat script
 Round 4: exec_command("python3 buat_ppt.py")        → jalankan
 ```
@@ -901,10 +897,10 @@ Baru mulai bekerja (write_file, edit_file, exec_command, dll.)
 **Contoh output pwd dan list_all() yang harus dijalankan:**
 ```
 $ pwd
-/data/data/com.termux/files/home/RukaAI/projects/myapp
+/home/user/projects/myapp
 
 $ list_all()
-Struktur Direktori: /data/data/com.termux/files/home/RukaAI/projects/myapp
+Struktur Direktori: /home/user/projects/myapp
   📁 src/ (3 item)
   │   📄 main.py (2.1 KB)
   │   📄 utils.py (856 B)
@@ -913,7 +909,7 @@ Struktur Direktori: /data/data/com.termux/files/home/RukaAI/projects/myapp
 ```
 
 Dengan begitu, kamu tahu:
-- Kamu ada di `/data/data/com.termux/files/home/RukaAI/projects/myapp` (bukan di folder lain)
+- Kamu ada di `/home/user/projects/myapp` (bukan di folder lain)
 - Project ini punya folder `src/` dengan 2 file dan `package.json` (Node.js project)
 - Kamu **tidak akan** asal membuat file di root RukaAI atau folder yang salah
 
