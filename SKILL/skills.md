@@ -104,6 +104,7 @@ Catatan: `list_files()` hanya menampilkan file (bukan folder). Untuk cek folder 
 - **Perintah diblokir:** `rm -rf /`, `mkfs.`, `dd if=/dev/zero`, `shutdown -h/-r now`, `poweroff`, `reboot`, fork bomb `:(){:|:&};:`, `del /s /q \`, `rd /s /q \`, `format c:`
 - **Timeout** default 60s — naikkan untuk perintah lama (install, download).
 - **API key** di `.env`, tidak di-commit.
+- **🚫 JANGAN langsung `sudo`** — akan memicu prompt password interaktif yang bikin `exec_command` crash. Minta password user dulu, baru pipe via `echo "pass" | sudo -S <cmd>`.
 
 ---
 
@@ -208,6 +209,7 @@ Pecah jadi beberapa round: (1) `pwd` + `list_all()` → (2) baca yang perlu → 
 
 ### Terminal Commands
 - Pakai timeout sesuai. Ringkas output panjang untuk user. Periksa exit code.
+- **🚫 JANGAN langsung `sudo`** — akan memicu prompt password interaktif yang bikin `exec_command` crash. Minta password user dulu, baru pipe via `echo "pass" | sudo -S <cmd>`.
 
 ### Session Awareness
 - User bisa lihat `/history` — jangan ulang info yang sudah diberikan di session yang sama.
@@ -347,6 +349,7 @@ ATURAN:
 ✅ Bahasa Indonesia | markdown bersih | konfirmasi hasil
 ❌ Tabel markdown | marker ⏺/⎿ | warna ANSI | ✅❌⚠️ sebagai status
 ❌ Duplikasi output tool | akses luar BASE_DIR | perintah berbahaya | bekerja tanpa cek workspace
+🔐 SUDO: JANGAN langsung `sudo` (crash!) → minta password user dulu → echo "pass" | sudo -S <cmd>
 
 SKILL (baca manual sesuai kebutuhan):
 - PPT:      read_file("SKILL/pptSkill.md") saat butuh buat presentasi/PPT
@@ -470,6 +473,7 @@ Catatan: `list_files()` hanya menampilkan file (bukan folder). Untuk cek folder 
 - **Perintah diblokir:** `rm -rf /`, `mkfs.`, `dd if=/dev/zero`, `shutdown -h/-r now`, `poweroff`, `reboot`, fork bomb `:(){:|:&};:`, `del /s /q \`, `rd /s /q \`, `format c:`
 - **Timeout** default 60s — naikkan untuk perintah lama (install, download).
 - **API key** di `.env`, tidak di-commit.
+- **🚫 JANGAN langsung `sudo`** — akan memicu prompt password interaktif yang bikin `exec_command` crash. Minta password user dulu, baru pipe via `echo "pass" | sudo -S <cmd>`.
 
 ---
 
@@ -574,6 +578,7 @@ Pecah jadi beberapa round: (1) `pwd` + `list_all()` → (2) baca yang perlu → 
 
 ### Terminal Commands
 - Pakai timeout sesuai. Ringkas output panjang untuk user. Periksa exit code.
+- **🚫 JANGAN langsung `sudo`** — akan memicu prompt password interaktif yang bikin `exec_command` crash. Minta password user dulu, baru pipe via `echo "pass" | sudo -S <cmd>`.
 
 ### Session Awareness
 - User bisa lihat `/history` — jangan ulang info yang sudah diberikan di session yang sama.
@@ -713,6 +718,7 @@ ATURAN:
 ✅ Bahasa Indonesia | markdown bersih | konfirmasi hasil
 ❌ Tabel markdown | marker ⏺/⎿ | warna ANSI | ✅❌⚠️ sebagai status
 ❌ Duplikasi output tool | akses luar BASE_DIR | perintah berbahaya | bekerja tanpa cek workspace
+🔐 SUDO: JANGAN langsung `sudo` (crash!) → minta password user dulu → echo "pass" | sudo -S <cmd>
 
 SKILL (baca manual sesuai kebutuhan):
 - PPT:      read_file("SKILL/pptSkill.md") saat butuh buat presentasi/PPT
@@ -1295,6 +1301,34 @@ Perintah berikut TIDAK BOLEH dijalankan (hardcoded blocklist):
 Setiap perintah terminal memiliki timeout default 60 detik.
 Naikkan via parameter `timeout` untuk perintah yang butuh waktu lama (compile, download).
 
+### 🔐 Aturan Sudo (WAJIB)
+
+**JANGAN PERNAH langsung menjalankan perintah `sudo`!** `sudo` akan memicu prompt password interaktif yang membuat tools `exec_command` **crash/hang** (karena tidak ada TTY untuk input password).
+
+**Alur yang BENAR:**
+```
+1. Ruka SADAR butuh sudo (misal: install paket, edit file sistem)
+2. Ruka TANYAKAN password ke user dulu — JANGAN jalankan sudo apapun
+3. User memberikan password
+4. Ruka jalankan: echo "PASSWORD" | sudo -S <perintah>
+5. JANGAN tampilkan password di output/log
+```
+
+**Contoh:**
+```bash
+# SALAH — langsung sudo, akan hang/crash:
+sudo apt install nmap
+
+# BENAR — tanya password dulu, lalu pipe:
+echo "password_user" | sudo -S apt install -y nmap
+```
+
+**Aturan tambahan:**
+- Gunakan `sudo -S` (baca password dari stdin) agar tidak butuh TTY
+- Selalu tambahkan `-y` pada perintah yang butuh konfirmasi (apt install, dll)
+- JANGAN pernah menuliskan password di file, script, atau commit git
+- Jika user menolak memberi password → batalkan perintah sudo, cari alternatif tanpa sudo
+
 ### 🔒 Environment Variables
 
 API key disimpan di file `.env` yang TIDAK di-commit ke repo.
@@ -1828,6 +1862,7 @@ Round 4: read_file("greeting.txt") → konfirmasi perubahan
 - Untuk perintah yang butuh waktu lama (install, download), naikkan timeout
 - Jika perintah menghasilkan output sangat panjang, ringkas untuk user
 - Periksa exit code — non-zero berarti ada masalah
+- **🚫 JANGAN langsung `sudo`** — akan memicu prompt password interaktif yang bikin `exec_command` crash/hang. Minta password user dulu, baru pipe via `echo "pass" | sudo -S <cmd>`.
 
 ### Session Awareness
 
