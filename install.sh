@@ -64,14 +64,32 @@ is_wsl() {
 # Ini hanya relevan jika script dipanggil dari dalam PowerShell.
 # Kita tetap prioritaskan bash alias, tapi beri info tambahan.
 
-# ── Tentukan interpreter Python (prefer python3) ─────────────
-if command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="python"
-else
-    fail "Python tidak ditemukan. Install python3 dulu."
-fi
+# ── Tentukan interpreter Python ──────────────────────────────
+# Di Linux/macOS biasanya 'python3', di Windows (Git Bash / MSYS2) 'python'.
+detect_python() {
+    local os="$1"
+    if [ "$os" = "windows-gitbash" ]; then
+        # Windows: prioritas python (python3 jarang ada)
+        if command -v python >/dev/null 2>&1; then
+            echo "python"
+        elif command -v python3 >/dev/null 2>&1; then
+            echo "python3"
+        else
+            return 1
+        fi
+    else
+        # Linux/macOS: prioritas python3
+        if command -v python3 >/dev/null 2>&1; then
+            echo "python3"
+        elif command -v python >/dev/null 2>&1; then
+            echo "python"
+        else
+            return 1
+        fi
+    fi
+}
+
+PYTHON_BIN="$(detect_python "$OS")" || fail "Python tidak ditemukan. Install python3 dulu."
 
 # ── Konversi path ke format Windows jika perlu ───────────────
 # Untuk Git Bash / MSYS2, kita bisa gunakan path Unix langsung.
@@ -166,7 +184,12 @@ install_powershell() {
     mkdir -p "$PROFILE_DIR"
 
     # Fungsi PowerShell yang akan ditambahkan
-    local PS_FUNC="function ruka { & ${PYTHON_BIN} '${WIN_MAIN_PY}' @args }"
+    # Di Windows, interpreter Python biasanya 'python' bukan 'python3'
+    local PS_PYTHON="${PYTHON_BIN}"
+    if [ "$OS" = "windows-gitbash" ]; then
+        PS_PYTHON="python"
+    fi
+    local PS_FUNC="function ruka { & ${PS_PYTHON} '${WIN_MAIN_PY}' @args }"
 
     # Cek apakah sudah ada fungsi ruka di profile
     if [ -f "$PROFILE_PATH" ] && grep -q 'function ruka' "$PROFILE_PATH" 2>/dev/null; then
