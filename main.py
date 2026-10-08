@@ -5369,6 +5369,16 @@ def chat_session(session_name: str = None):
                     print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
                 continue
 
+            # ── /models — picker model interaktif ────────────────────────
+            if user_input.lower().strip() in ("/models", "/model-list", "/model-picker"):
+                selected = pick_model_interactive()
+                if selected:
+                    result = set_active_model(selected)
+                    ok = ("diubah" in result) or ("aktif" in result) or ("sudah" in result)
+                    dot = Style.OK if ok else Style.ERR
+                    print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+                continue
+
             # ── /model — ganti model aktif dalam sesi (dengan alias) ───────────
             if user_input.lower().startswith("/model"):
                 parts = user_input.split(maxsplit=1)
@@ -5423,16 +5433,6 @@ def chat_session(session_name: str = None):
                 else:
                     new_model = parts[1].strip()
                     result = set_active_model(new_model)
-                    ok = ("diubah" in result) or ("aktif" in result) or ("sudah" in result)
-                    dot = Style.OK if ok else Style.ERR
-                    print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
-                continue
-
-            # ── /models — picker model interaktif ────────────────────────
-            if user_input.lower().strip() in ("/models", "/model-list", "/model-picker"):
-                selected = pick_model_interactive()
-                if selected:
-                    result = set_active_model(selected)
                     ok = ("diubah" in result) or ("aktif" in result) or ("sudah" in result)
                     dot = Style.OK if ok else Style.ERR
                     print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
