@@ -91,6 +91,109 @@ detect_python() {
 
 PYTHON_BIN="$(detect_python "$OS")" || fail "Python tidak ditemukan. Install python3 dulu."
 
+# ── Install dependensi Python dari requirements.txt ──────────
+# Cek pip dulu, bootstrap bila perlu, lalu install requirements.
+# Menangani PEP 668 (externally-managed-environment) & error izin.
+install_requirements() {
+    local REQ_FILE="$INSTALL_DIR/requirements.txt"
+
+    printf '\n'
+    info "${BOLD}Memeriksa dependensi Python...${R}"
+
+    # ── requirements.txt ada? ────────────────────────────────────
+    if [ ! -f "$REQ_FILE" ]; then
+        warn "requirements.txt tidak ditemukan di folder instalasi. Melewati."
+        return 0
+    fi
+
+    # ── Pastikan pip tersedia ────────────────────────────────────
+    if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+        warn "pip tidak ditemukan untuk '${PYTHON_BIN}'."
+        info "Mencoba bootstrap pip via ensurepip..."
+
+        if "$PYTHON_BIN" -m ensurepip --upgrade >/dev/null 2>&1 \
+           || "$PYTHON_BIN" -m ensurepip >/dev/null 2>&1; then
+            ok "pip berhasil di-bootstrap."
+        else
+            # Gagal bootstrap — beri petunjuk spesifik per OS
+            case "$OS" in
+                linux)
+                    info "Debian/Ubuntu: ${BOLD}sudo apt install python3-pip${R}"
+                    info "Fedora:        ${BOLD}sudo dnf install python3-pip${R}"
+                    info "Arch:          ${BOLD}sudo pacman -S python-pip${R}"
+                    fail "pip tidak tersedia. Install pip untuk Python Anda dulu."
+                    ;;
+                macos)
+                    info "Coba: ${BOLD}brew install python${R} (atau 'python3 -m ensurepip')"
+                    fail "pip tidak tersedia. Install pip untuk Python Anda dulu."
+                    ;;
+                windows-gitbash)
+                    info "Install Python dari python.org dan centang opsi 'pip'."
+                    fail "pip tidak tersedia. Install pip untuk Python Anda dulu."
+                    ;;
+                *)
+                    fail "pip tidak tersedia. Install pip untuk Python Anda dulu."
+                    ;;
+            esac
+        fi
+    fi
+
+    local PIP_VER
+    PIP_VER="$("$PYTHON_BIN" -m pip --version 2>/dev/null | head -1)"
+    ok "pip tersedia: ${GREY}${PIP_VER}${R}"
+
+    # ── Install requirements ─────────────────────────────────────
+    info "Menginstall dependensi dari requirements.txt..."
+
+    local PIP_LOG
+    PIP_LOG="$(mktemp 2>/dev/null || echo /tmp/ruka_pip_install.log)"
+
+    # Percobaan 1: install biasa
+    if "$PYTHON_BIN" -m pip install -r "$REQ_FILE" >"$PIP_LOG" 2>&1; then
+        ok "${BOLD}Dependensi berhasil diinstall.${R}"
+        rm -f "$PIP_LOG"
+        return 0
+    fi
+
+    # Percobaan 2: PEP 668 (externally-managed-environment) → --break-system-packages
+    if grep -qi "externally-managed" "$PIP_LOG" 2>/dev/null; then
+        warn "Lingkungan Python dikelola sistem (PEP 668)."
+        info "Mencoba ulang dengan ${BOLD}--break-system-packages${R}..."
+        if "$PYTHON_BIN" -m pip install -r "$REQ_FILE" --break-system-packages >>"$PIP_LOG" 2>&1; then
+            ok "${BOLD}Dependensi berhasil diinstall (--break-system-packages).${R}"
+            rm -f "$PIP_LOG"
+            return 0
+        fi
+    fi
+
+    # Percobaan 3: error izin → --user
+    if grep -qiE "permission denied|access is denied|not writable" "$PIP_LOG" 2>/dev/null; then
+        warn "Gagal karena izin akses."
+        info "Mencoba ulang dengan ${BOLD}--user${R}..."
+        if "$PYTHON_BIN" -m pip install -r "$REQ_FILE" --user >>"$PIP_LOG" 2>&1; then
+            ok "${BOLD}Dependensi berhasil diinstall (--user).${R}"
+            rm -f "$PIP_LOG"
+            return 0
+        fi
+    fi
+
+    # Semua percobaan gagal — tampilkan ringkas + saran manual
+    warn "${BOLD}Gagal menginstall dependensi otomatis.${R}"
+    info "Jalankan manual:"
+    printf '      %s%s -m pip install -r "%s"%s\n' "$ACCENT" "$PYTHON_BIN" "$REQ_FILE" "$R"
+    # Tampilkan 3 baris terakhir log untuk petunjuk
+    if [ -f "$PIP_LOG" ]; then
+        local tail_out
+        tail_out="$(tail -3 "$PIP_LOG" 2>/dev/null)"
+        if [ -n "$tail_out" ]; then
+            info "Pesan terakhir pip:"
+            printf '      %s%s%s\n' "$GREY" "$tail_out" "$R"
+        fi
+    fi
+    rm -f "$PIP_LOG"
+    return 0
+}
+
 # ── Konversi path ke format Windows jika perlu ───────────────
 # Untuk Git Bash / MSYS2, kita bisa gunakan path Unix langsung.
 # Untuk CMD/PowerShell native, kita perlu path Windows.
@@ -281,6 +384,10 @@ CMDEOF
 
 printf '\n'
 info "OS terdeteksi: ${BOLD}${OS}${R}"
+printf '\n'
+
+# ── Install dependensi Python dulu (sebelum alias) ────────────
+install_requirements
 printf '\n'
 
 case "$OS" in
