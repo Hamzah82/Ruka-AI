@@ -5222,6 +5222,252 @@ def get_system_prompt(session_name: str = None) -> str:
 # SESI CHAT INTERAKTIF
 # ============================================================
 
+# COMMAND: FETCH MODELS & PICKER INTERAKTIF (/models)
+# ============================================================
+
+def _get_models_base_url() -> str:
+    """
+    Ambil base URL dari api_endpoint di config.json, lalu bentuk URL /models.
+    Contoh:
+      'https://ai.geraikita.com/v1/chat/completions' → 'https://ai.geraikita.com/v1/models'
+      'https://api.example.com/v1/chat/completions'  → 'https://api.example.com/v1/models'
+      'https://api.example.com/chat/completions'      → 'https://api.example.com/models'
+    Strategi: buang segmen terakhir ('chat/completions' atau 'completions'),
+    lalu tambahkan 'models'.
+    """
+    config_data = _read_config_data()
+    endpoint = (config_data.get("api_endpoint", "") or config.API_URL).strip()
+    if not endpoint:
+        endpoint = "https://ai.geraikita.com/v1/chat/completions"
+
+    # Buang query/fragment jika ada
+    endpoint = endpoint.split("?")[0].split("#")[0].rstrip("/")
+
+    # Buang segmen 'chat/completions' atau 'completions' di akhir
+    if endpoint.endswith("/chat/completions"):
+        base = endpoint[: -len("/chat/completions")]
+    elif endpoint.endswith("/completions"):
+        base = endpoint[: -len("/completions")]
+    else:
+        # Fallback: cari '/v1' dan potong setelahnya
+        m = re.match(r"(https?://[^/]+/v\d+)", endpoint)
+        base = m.group(1) if m else endpoint
+
+    return f"{base}/models"
+
+
+def fetch_models_list() -> "list[dict] | None":
+    """
+    Panggil endpoint /models dari base URL untuk mendapat daftar model.
+    Menggunakan HEADERS yang sama (Authorization) untuk autentikasi.
+    Return list of dicts dengan key 'id', atau None jika gagal.
+    """
+    base_url = _get_models_base_url()
+    models_url = f"{base_url}/models"
+    
+    headers = {
+        "Authorization": config.HEADERS.get("Authorization", ""),
+        "Content-Type": "application/json",
+    }
+    
+    try:
+        resp = requests.get(models_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        # Format response OpenAI-compatible: { "data": [ { "id": "...", ... }, ... ] }
+        models = data.get("data") or data.get("models") or []
+        if not models:
+            return None
+        
+        # Filter hanya yang punya 'id'
+        result = []
+        seen = set()
+        for m in models:
+            mid = m.get("id") or m.get("name") or ""
+            if mid and mid not in seen:
+                seen.add(mid)
+                result.append({"id": mid, "owned_by": m.get("owned_by", "")})
+        
+        return result
+        
+    except requests.exceptions.HTTPError as e:
+        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal ambil daftar model: HTTP {e.response.status_code}{Style.RESET}")
+        return None
+    except requests.exceptions.ConnectionError:
+        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal ambil daftar model: koneksi gagal{Style.RESET}")
+        return None
+    except requests.exceptions.Timeout:
+        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal ambil daftar model: timeout{Style.RESET}")
+        return None
+    except Exception as e:
+        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal ambil daftar model: {str(e)[:80]}{Style.RESET}")
+        return None
+
+
+def pick_model_interactive() -> "str | None":
+    """
+    TUI picker model interaktif — ↑↓ navigasi, ←→ ganti halaman, Enter pilih, q batal.
+    Fetch daftar model dulu dari endpoint /models, lalu tampilkan picker.
+    Fallback ke input nomor jika termios tidak tersedia.
+    Return: nama model yang dipilih (string id), atau None jika dibatalkan/gagal.
+    """
+    # Fetch daftar model dengan spinner
+    print(f"\n  {Style.GREY}⏺{Style.RESET} {Style.GREY_LIGHT}Mengambil daftar model...{Style.RESET}")
+    sys.stdout.flush()
+    
+    models = fetch_models_list()
+    
+    if models is None:
+        return None
+    
+    if not models:
+        print(f"\n  {Style.WARN}■{Style.RESET} {Style.GREY}Tidak ada model ditemukan dari endpoint.{Style.RESET}")
+        return None
+    
+    n = len(models)
+    PAGE_SIZE = 20
+    total_pages = (n + PAGE_SIZE - 1) // PAGE_SIZE
+    
+    # ── Fallback (non-TTY atau tanpa termios) ─────────────────────
+    if not _HAS_TERMIOS or not sys.stdin.isatty():
+        print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Pilih Model{Style.RESET}")
+        print(f"  {_rule()}")
+        # Kelompokkan berdasarkan provider untuk fallback
+        for i, m in enumerate(models, 1):
+            provider = f" ({m['owned_by']})" if m['owned_by'] else ""
+            print(f"  {Style.GREY_DARK}{i:>3}{Style.RESET} {Style.GREY_LIGHT}{m['id']}{Style.RESET}{Style.GREY}{provider}{Style.RESET}")
+        print()
+        try:
+            choice = input(f"  {Style.GREY}Nomor model (Enter untuk batal): {Style.RESET}").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not choice:
+            return None
+        if choice.isdigit():
+            i = int(choice) - 1
+            return models[i]["id"] if 0 <= i < n else None
+        # Coba cocokkan dengan nama model parsial
+        matches = [m["id"] for m in models if choice.lower() in m["id"].lower()]
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            print(f"  {Style.WARN}■{Style.RESET} {Style.GREY}Beberapa model cocok: {', '.join(matches[:5])}{Style.RESET}")
+            return None
+        return None
+    
+    # ── TUI interaktif ────────────────────────────────────────────
+    page = 0
+    idx  = 0
+    
+    def _page_items(p):
+        start = p * PAGE_SIZE
+        return models[start:start + PAGE_SIZE]
+    
+    prev_scroll = [2 + len(_page_items(0)) * 2]
+    
+    def _render(p, sel, first_draw):
+        items = _page_items(p)
+        cur_scroll = 2 + len(items) * 2
+        
+        if not first_draw:
+            sys.stdout.write(f"\033[{prev_scroll[0]}A\r\033[J")
+        
+        out = [""]  # baris kosong sebelum header
+        
+        if total_pages > 1:
+            pg_hint = (
+                f"  {Style.GREY}Hal. {p + 1}/{total_pages}"
+                f"  {Style.GREY_DARK}← →{Style.RESET}"
+            )
+        else:
+            pg_hint = ""
+        
+        out.append(
+            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Pilih Model{Style.RESET}"
+            f"  {Style.GREY}({n} model){Style.RESET}"
+            f"  {Style.GREY_DARK}↑↓ pilih · Enter gunakan · q batal{Style.RESET}"
+            f"{pg_hint}"
+        )
+        out.append(f"  {_rule()}")
+        
+        for i, m in enumerate(items):
+            is_sel = (i == sel)
+            if is_sel:
+                marker     = f"{Style.ACCENT}❯{Style.RESET}"
+                name_style = f"{Style.ACCENT}{Style.BOLD}"
+                meta_style = Style.GREY_LIGHT
+            else:
+                marker     = " "
+                name_style = Style.GREY_LIGHT
+                meta_style = Style.GREY
+            
+            provider = f" ({m['owned_by']})" if m['owned_by'] else ""
+            out.append(f"  {marker} {name_style}{m['id']}{Style.RESET}{meta_style}{provider}{Style.RESET}")
+        
+        sys.stdout.write("\n".join(out))
+        sys.stdout.flush()
+        prev_scroll[0] = cur_scroll
+    
+    _render(page, idx, first_draw=True)
+    
+    fd = sys.stdin.fileno()
+    old_attrs = termios.tcgetattr(fd)
+    
+    def _read1():
+        return os.read(fd, 1).decode("latin-1")
+    
+    try:
+        new_attrs = termios.tcgetattr(fd)
+        new_attrs[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
+        new_attrs[6][termios.VMIN]  = 1
+        new_attrs[6][termios.VTIME] = 0
+        termios.tcsetattr(fd, termios.TCSADRAIN, new_attrs)
+        
+        while True:
+            ch = _read1()
+            
+            if ch == "\x1b":
+                r, _, _ = select.select([fd], [], [], 0.05)
+                if r:
+                    nxt = _read1()
+                    if nxt == "[":
+                        arrow = _read1()
+                        items = _page_items(page)
+                        if arrow == "A":      # ↑
+                            idx = (idx - 1) % len(items)
+                            _render(page, idx, first_draw=False)
+                        elif arrow == "B":    # ↓
+                            idx = (idx + 1) % len(items)
+                            _render(page, idx, first_draw=False)
+                        elif arrow == "C":    # → next page
+                            if total_pages > 1:
+                                page = (page + 1) % total_pages
+                                idx  = 0
+                                _render(page, idx, first_draw=False)
+                        elif arrow == "D":    # ← prev page
+                            if total_pages > 1:
+                                page = (page - 1) % total_pages
+                                idx  = 0
+                                _render(page, idx, first_draw=False)
+                else:
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return None
+            
+            elif ch in ("\r", "\n"):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return _page_items(page)[idx]["id"]
+            
+            elif ch in ("q", "Q", "\x03"):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return None
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+
+
 def chat_session(session_name: str = None):
     # ── Load atau buat session ──────────────────────────────────
     messages = []
@@ -5735,247 +5981,3 @@ if __name__ == "__main__":
         # Mode interaktif tanpa nama session → auto-generate
         chat_session()
 
-# COMMAND: FETCH MODELS & PICKER INTERAKTIF (/models)
-# ============================================================
-
-def _get_models_base_url() -> str:
-    """
-    Ambil base URL dari api_endpoint di config.json, lalu bentuk URL /models.
-    Contoh:
-      'https://ai.geraikita.com/v1/chat/completions' → 'https://ai.geraikita.com/v1/models'
-      'https://api.example.com/v1/chat/completions'  → 'https://api.example.com/v1/models'
-      'https://api.example.com/chat/completions'      → 'https://api.example.com/models'
-    Strategi: buang segmen terakhir ('chat/completions' atau 'completions'),
-    lalu tambahkan 'models'.
-    """
-    config_data = _read_config_data()
-    endpoint = (config_data.get("api_endpoint", "") or config.API_URL).strip()
-    if not endpoint:
-        endpoint = "https://ai.geraikita.com/v1/chat/completions"
-
-    # Buang query/fragment jika ada
-    endpoint = endpoint.split("?")[0].split("#")[0].rstrip("/")
-
-    # Buang segmen 'chat/completions' atau 'completions' di akhir
-    if endpoint.endswith("/chat/completions"):
-        base = endpoint[: -len("/chat/completions")]
-    elif endpoint.endswith("/completions"):
-        base = endpoint[: -len("/completions")]
-    else:
-        # Fallback: cari '/v1' dan potong setelahnya
-        m = re.match(r"(https?://[^/]+/v\d+)", endpoint)
-        base = m.group(1) if m else endpoint
-
-    return f"{base}/models"
-
-
-def fetch_models_list() -> "list[dict] | None":
-    """
-    Panggil endpoint /models dari base URL untuk mendapat daftar model.
-    Menggunakan HEADERS yang sama (Authorization) untuk autentikasi.
-    Return list of dicts dengan key 'id', atau None jika gagal.
-    """
-    base_url = _get_models_base_url()
-    models_url = f"{base_url}/models"
-    
-    headers = {
-        "Authorization": config.HEADERS.get("Authorization", ""),
-        "Content-Type": "application/json",
-    }
-    
-    try:
-        resp = requests.get(models_url, headers=headers, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        
-        # Format response OpenAI-compatible: { "data": [ { "id": "...", ... }, ... ] }
-        models = data.get("data") or data.get("models") or []
-        if not models:
-            return None
-        
-        # Filter hanya yang punya 'id'
-        result = []
-        seen = set()
-        for m in models:
-            mid = m.get("id") or m.get("name") or ""
-            if mid and mid not in seen:
-                seen.add(mid)
-                result.append({"id": mid, "owned_by": m.get("owned_by", "")})
-        
-        return result
-        
-    except requests.exceptions.HTTPError as e:
-        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal ambil daftar model: HTTP {e.response.status_code}{Style.RESET}")
-        return None
-    except requests.exceptions.ConnectionError:
-        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal ambil daftar model: koneksi gagal{Style.RESET}")
-        return None
-    except requests.exceptions.Timeout:
-        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal ambil daftar model: timeout{Style.RESET}")
-        return None
-    except Exception as e:
-        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal ambil daftar model: {str(e)[:80]}{Style.RESET}")
-        return None
-
-
-def pick_model_interactive() -> "str | None":
-    """
-    TUI picker model interaktif — ↑↓ navigasi, ←→ ganti halaman, Enter pilih, q batal.
-    Fetch daftar model dulu dari endpoint /models, lalu tampilkan picker.
-    Fallback ke input nomor jika termios tidak tersedia.
-    Return: nama model yang dipilih (string id), atau None jika dibatalkan/gagal.
-    """
-    # Fetch daftar model dengan spinner
-    print(f"\n  {Style.GREY}⏺{Style.RESET} {Style.GREY_LIGHT}Mengambil daftar model...{Style.RESET}")
-    sys.stdout.flush()
-    
-    models = fetch_models_list()
-    
-    if models is None:
-        return None
-    
-    if not models:
-        print(f"\n  {Style.WARN}■{Style.RESET} {Style.GREY}Tidak ada model ditemukan dari endpoint.{Style.RESET}")
-        return None
-    
-    n = len(models)
-    PAGE_SIZE = 20
-    total_pages = (n + PAGE_SIZE - 1) // PAGE_SIZE
-    
-    # ── Fallback (non-TTY atau tanpa termios) ─────────────────────
-    if not _HAS_TERMIOS or not sys.stdin.isatty():
-        print(f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Pilih Model{Style.RESET}")
-        print(f"  {_rule()}")
-        # Kelompokkan berdasarkan provider untuk fallback
-        for i, m in enumerate(models, 1):
-            provider = f" ({m['owned_by']})" if m['owned_by'] else ""
-            print(f"  {Style.GREY_DARK}{i:>3}{Style.RESET} {Style.GREY_LIGHT}{m['id']}{Style.RESET}{Style.GREY}{provider}{Style.RESET}")
-        print()
-        try:
-            choice = input(f"  {Style.GREY}Nomor model (Enter untuk batal): {Style.RESET}").strip()
-        except (EOFError, KeyboardInterrupt):
-            return None
-        if not choice:
-            return None
-        if choice.isdigit():
-            i = int(choice) - 1
-            return models[i]["id"] if 0 <= i < n else None
-        # Coba cocokkan dengan nama model parsial
-        matches = [m["id"] for m in models if choice.lower() in m["id"].lower()]
-        if len(matches) == 1:
-            return matches[0]
-        elif len(matches) > 1:
-            print(f"  {Style.WARN}■{Style.RESET} {Style.GREY}Beberapa model cocok: {', '.join(matches[:5])}{Style.RESET}")
-            return None
-        return None
-    
-    # ── TUI interaktif ────────────────────────────────────────────
-    page = 0
-    idx  = 0
-    
-    def _page_items(p):
-        start = p * PAGE_SIZE
-        return models[start:start + PAGE_SIZE]
-    
-    prev_scroll = [2 + len(_page_items(0)) * 2]
-    
-    def _render(p, sel, first_draw):
-        items = _page_items(p)
-        cur_scroll = 2 + len(items) * 2
-        
-        if not first_draw:
-            sys.stdout.write(f"\033[{prev_scroll[0]}A\r\033[J")
-        
-        out = [""]  # baris kosong sebelum header
-        
-        if total_pages > 1:
-            pg_hint = (
-                f"  {Style.GREY}Hal. {p + 1}/{total_pages}"
-                f"  {Style.GREY_DARK}← →{Style.RESET}"
-            )
-        else:
-            pg_hint = ""
-        
-        out.append(
-            f"  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Pilih Model{Style.RESET}"
-            f"  {Style.GREY}({n} model){Style.RESET}"
-            f"  {Style.GREY_DARK}↑↓ pilih · Enter gunakan · q batal{Style.RESET}"
-            f"{pg_hint}"
-        )
-        out.append(f"  {_rule()}")
-        
-        for i, m in enumerate(items):
-            is_sel = (i == sel)
-            if is_sel:
-                marker     = f"{Style.ACCENT}❯{Style.RESET}"
-                name_style = f"{Style.ACCENT}{Style.BOLD}"
-                meta_style = Style.GREY_LIGHT
-            else:
-                marker     = " "
-                name_style = Style.GREY_LIGHT
-                meta_style = Style.GREY
-            
-            provider = f" ({m['owned_by']})" if m['owned_by'] else ""
-            out.append(f"  {marker} {name_style}{m['id']}{Style.RESET}{meta_style}{provider}{Style.RESET}")
-        
-        sys.stdout.write("\n".join(out))
-        sys.stdout.flush()
-        prev_scroll[0] = cur_scroll
-    
-    _render(page, idx, first_draw=True)
-    
-    fd = sys.stdin.fileno()
-    old_attrs = termios.tcgetattr(fd)
-    
-    def _read1():
-        return os.read(fd, 1).decode("latin-1")
-    
-    try:
-        new_attrs = termios.tcgetattr(fd)
-        new_attrs[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
-        new_attrs[6][termios.VMIN]  = 1
-        new_attrs[6][termios.VTIME] = 0
-        termios.tcsetattr(fd, termios.TCSADRAIN, new_attrs)
-        
-        while True:
-            ch = _read1()
-            
-            if ch == "\x1b":
-                r, _, _ = select.select([fd], [], [], 0.05)
-                if r:
-                    nxt = _read1()
-                    if nxt == "[":
-                        arrow = _read1()
-                        items = _page_items(page)
-                        if arrow == "A":      # ↑
-                            idx = (idx - 1) % len(items)
-                            _render(page, idx, first_draw=False)
-                        elif arrow == "B":    # ↓
-                            idx = (idx + 1) % len(items)
-                            _render(page, idx, first_draw=False)
-                        elif arrow == "C":    # → next page
-                            if total_pages > 1:
-                                page = (page + 1) % total_pages
-                                idx  = 0
-                                _render(page, idx, first_draw=False)
-                        elif arrow == "D":    # ← prev page
-                            if total_pages > 1:
-                                page = (page - 1) % total_pages
-                                idx  = 0
-                                _render(page, idx, first_draw=False)
-                else:
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
-                    return None
-            
-            elif ch in ("\r", "\n"):
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return _page_items(page)[idx]["id"]
-            
-            elif ch in ("q", "Q", "\x03"):
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return None
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
