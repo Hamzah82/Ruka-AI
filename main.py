@@ -1267,6 +1267,30 @@ class Spinner:
             sys.stdout.flush()
 
 
+# FooterUI — method pause/resume untuk picker interaktif
+# ============================================================
+
+def _footer_pause():
+    """
+    Nonaktifkan FooterUI sementara agar picker interaktif bisa
+    mengambil alih kendali terminal (raw mode sendiri).
+    """
+    global _footer
+    if _footer is not None and _footer.armed:
+        _footer.disarm()
+        return True
+    return False
+
+
+def _footer_resume(idle_hint: str = ""):
+    """
+    Aktifkan kembali FooterUI setelah di-pause.
+    """
+    global _footer
+    if _footer is not None:
+        _footer.arm(idle_hint=idle_hint)
+
+
 # Spinner global tunggal — siklus hidupnya dikelola di dalam chat()
 _spinner = Spinner()
 
@@ -5357,6 +5381,9 @@ def pick_model_interactive() -> "str | None":
         return None
     
     # ── TUI interaktif ────────────────────────────────────────────
+    # Nonaktifkan FooterUI sementara agar picker bisa kendalikan terminal
+    footer_was_active = _footer_pause()
+
     page = 0
     idx  = 0
     
@@ -5466,6 +5493,9 @@ def pick_model_interactive() -> "str | None":
                 return None
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+        # Aktifkan kembali FooterUI jika sebelumnya aktif
+        if footer_was_active:
+            _footer_resume()
 
 
 def chat_session(session_name: str = None):
