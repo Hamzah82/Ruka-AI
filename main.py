@@ -906,8 +906,12 @@ def _start_input_reader():
 
 
 def _stop_input_reader():
-    """Hentikan thread input reader."""
+    """Hentikan thread input reader dan tunggu hingga benar-benar berhenti."""
+    global _input_thread
     _input_running.clear()
+    if _input_thread is not None and _input_thread.is_alive():
+        _input_thread.join(timeout=1.0)
+        _input_thread = None
 
 
 def _get_input(prompt_text=""):
@@ -1288,6 +1292,11 @@ def _footer_resume(idle_hint: str = ""):
     """
     global _footer
     if _footer is not None:
+        if not idle_hint:
+            idle_hint = (
+                f"{Style.GREY}Ketik pesan · {Style.GREY_LIGHT}/help{Style.GREY} bantuan · "
+                f"{Style.GREY_LIGHT}exit{Style.GREY} keluar{Style.RESET}"
+            )
         _footer.arm(idle_hint=idle_hint)
 
 
@@ -5381,9 +5390,6 @@ def pick_model_interactive() -> "str | None":
         return None
     
     # ── TUI interaktif ────────────────────────────────────────────
-    # Nonaktifkan FooterUI sementara agar picker bisa kendalikan terminal
-    footer_was_active = _footer_pause()
-
     page = 0
     idx  = 0
     
@@ -5493,9 +5499,6 @@ def pick_model_interactive() -> "str | None":
                 return None
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
-        # Aktifkan kembali FooterUI jika sebelumnya aktif
-        if footer_was_active:
-            _footer_resume()
 
 
 def chat_session(session_name: str = None):
@@ -5647,7 +5650,21 @@ def chat_session(session_name: str = None):
 
             # ── /models — picker model interaktif ────────────────────────
             if user_input.lower().strip() in ("/models", "/model-list", "/model-picker"):
-                selected = pick_model_interactive()
+                # Nonaktifkan FooterUI & input reader sementara agar picker
+                # bisa kendalikan terminal (raw mode) tanpa gangguan.
+                _stop_input_reader()
+                if _footer is not None and _footer.armed:
+                    _footer.disarm()
+                try:
+                    selected = pick_model_interactive()
+                finally:
+                    # Aktifkan kembali FooterUI & input reader
+                    if _footer is not None:
+                        _footer.arm(idle_hint=(
+                            f"{Style.GREY}Ketik pesan · {Style.GREY_LIGHT}/help{Style.GREY} bantuan · "
+                            f"{Style.GREY_LIGHT}exit{Style.GREY} keluar{Style.RESET}"
+                        ))
+                    _start_input_reader()
                 if selected:
                     result = set_active_model(selected)
                     ok = ("diubah" in result) or ("aktif" in result) or ("sudah" in result)
