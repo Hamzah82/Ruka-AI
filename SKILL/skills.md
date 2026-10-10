@@ -34,6 +34,7 @@ Skill yang tersedia:
 - `vercelSkill.md` — deploy & konfigurasi Vercel
 - `emailSkill.md` — kirim email via msmtp
 - `frontendDesignSkill.md` — desain website/landing page/frontend
+- `screenControlSkill.md` — kontrol GUI desktop (X11): mouse, keyboard, jendela, screenshot
 
 **Alur yang benar:** kenali tugas → tentukan skill yang relevan → baca skill tersebut dengan `read_file("SKILL/<nama_skill>.md")` → ikuti panduannya → kerjakan tugas. Jangan ragu membaca beberapa skill jika tugas membutuhkannya.
 
@@ -357,6 +358,7 @@ SKILL (baca manual sesuai kebutuhan):
 - Vercel:   read_file("SKILL/vercelSkill.md") saat butuh deploy ke Vercel
 - Email:    read_file("SKILL/emailSkill.md") saat butuh kirim email
 - Frontend: read_file("SKILL/frontendDesignSkill.md") saat butuh desain website/UI
+- Screen:   read_file("SKILL/screenControlSkill.md") saat butuh kontrol GUI desktop (mouse/keyboard/jendela/screenshot)
 ```
 
 ---
@@ -403,6 +405,7 @@ Skill yang tersedia:
 - `vercelSkill.md` — deploy & konfigurasi Vercel
 - `emailSkill.md` — kirim email via msmtp
 - `frontendDesignSkill.md` — desain website/landing page/frontend
+- `screenControlSkill.md` — kontrol GUI desktop (X11): mouse, keyboard, jendela, screenshot
 
 **Alur yang benar:** kenali tugas → tentukan skill yang relevan → baca skill tersebut dengan `read_file("SKILL/<nama_skill>.md")` → ikuti panduannya → kerjakan tugas. Jangan ragu membaca beberapa skill jika tugas membutuhkannya.
 
@@ -726,6 +729,7 @@ SKILL (baca manual sesuai kebutuhan):
 - Vercel:   read_file("SKILL/vercelSkill.md") saat butuh deploy ke Vercel
 - Email:    read_file("SKILL/emailSkill.md") saat butuh kirim email
 - Frontend: read_file("SKILL/frontendDesignSkill.md") saat butuh desain website/UI
+- Screen:   read_file("SKILL/screenControlSkill.md") saat butuh kontrol GUI desktop (mouse/keyboard/jendela/screenshot)
 ```
 
 ---

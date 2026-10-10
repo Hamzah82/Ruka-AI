@@ -3588,6 +3588,138 @@ TOOLS = [
                 "required": ["topic", "team"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gui_screenshot",
+            "description": (
+                "Mengambil screenshot layar (X11) dan menyimpannya ke file PNG. "
+                "Gunakan ini ketika user meminta melihat/mengambil tangkapan layar "
+                "untuk memahami kondisi GUI sebelum melakukan aksi mouse/keyboard. "
+                "Hasilnya berupa path file gambar yang bisa dianalisis."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "output": {
+                        "type": "string",
+                        "description": "Path file PNG untuk menyimpan screenshot. Default: /tmp/ruka_screen.png"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gui_mouse",
+            "description": (
+                "Mengontrol kursor mouse (X11) via xdotool. "
+                "Aksi yang didukung: move (pindah ke koordinat x,y), click (klik tombol), "
+                "click_at (pindah lalu klik), scroll (gulir), get (ambil posisi kursor). "
+                "Gunakan ini ketika user meminta klik/menggerakkan kursor di GUI."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Aksi mouse: 'move', 'click', 'click_at', 'scroll', 'get'."
+                    },
+                    "x": {
+                        "type": "integer",
+                        "description": "Koordinat X untuk move/click_at. Default 0."
+                    },
+                    "y": {
+                        "type": "integer",
+                        "description": "Koordinat Y untuk move/click_at. Default 0."
+                    },
+                    "button": {
+                        "type": "string",
+                        "description": "Tombol untuk click/click_at: '1' (kiri), '2' (tengah), '3' (kanan). Default '1'."
+                    },
+                    "clicks": {
+                        "type": "integer",
+                        "description": "Jumlah klik untuk click/click_at. Default 1. Gunakan 2 untuk double-click."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gui_keyboard",
+            "description": (
+                "Mengirim input keyboard (X11) via xdotool. "
+                "Aksi yang didukung: key (tekan satu/beberapa tombol, mis. Return, Tab, "
+                "ctrl+c, alt+F4), type (ketik teks biasa). "
+                "Gunakan ini ketika user meminta mengetik atau menekan tombol di GUI."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Aksi keyboard: 'key' atau 'type'."
+                    },
+                    "keys": {
+                        "type": "string",
+                        "description": "Untuk 'key': nama tombol atau kombinasi, mis. 'Return', 'Tab', 'ctrl+c', 'alt+F4'."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Untuk 'type': teks yang akan diketik."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gui_window",
+            "description": (
+                "Mengelola jendela aplikasi (X11) via wmctrl/xdotool. "
+                "Aksi yang didukung: list (daftar jendela terbuka), focus (fokus ke jendela), "
+                "close (tutup jendela), maximize, minimize, move (pindah & resize). "
+                "Gunakan ini ketika user meminta membuka/menutup/fokus ke aplikasi tertentu."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Aksi window: 'list', 'focus', 'close', 'maximize', 'minimize', 'move'."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Substring judul jendela yang dicari (untuk focus/close/maximize/minimize)."
+                    },
+                    "x": {
+                        "type": "integer",
+                        "description": "Koordinat X untuk 'move'."
+                    },
+                    "y": {
+                        "type": "integer",
+                        "description": "Koordinat Y untuk 'move'."
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Lebar untuk 'move'."
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Tinggi untuk 'move'."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
     }
 ]
 
@@ -4086,6 +4218,120 @@ def tool_exec_command(command: str, timeout: int = 60) -> str:
 
 
 # ============================================================
+# GUI CONTROL — kontrol desktop (X11) via xdotool/wmctrl/scrot
+# ============================================================
+# Catatan: hanya berfungsi di sesi X11 (bukan Wayland). Perintah dijalankan
+# dengan env DISPLAY yang sesuai. Semua tool memakai subprocess langsung.
+
+def _gui_env() -> dict:
+    """Env untuk subprocess GUI — pastikan DISPLAY tersedia."""
+    env = _scrubbed_env()
+    if not env.get("DISPLAY"):
+        env["DISPLAY"] = os.environ.get("DISPLAY", ":0")
+    return env
+
+
+def _run_gui(cmd: list, timeout: int = 15) -> str:
+    """Jalankan perintah GUI, return stdout atau pesan error."""
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=_gui_env(),
+        )
+        if result.returncode != 0:
+            err = (result.stderr or "").strip()
+            return f"Error: {err or 'perintah gagal'}"
+        return (result.stdout or "").strip()
+    except FileNotFoundError:
+        return "Error: perintah tidak ditemukan. Install xdotool/wmctrl/scrot dulu."
+    except subprocess.TimeoutExpired:
+        return "Error: perintah GUI timeout."
+    except Exception as e:
+        return f"Error: {str(e)[:80]}"
+
+
+def tool_gui_screenshot(output: str = "/tmp/ruka_screen.png") -> str:
+    """Ambil screenshot layar (X11) via scrot/gnome-screenshot."""
+    if _command_available("scrot"):
+        return _run_gui(["scrot", output])
+    elif _command_available("gnome-screenshot"):
+        return _run_gui(["gnome-screenshot", "-f", output])
+    else:
+        return "Error: tidak ada tool screenshot (scrot/gnome-screenshot)."
+
+
+def _command_available(name: str) -> bool:
+    """Cek apakah perintah tersedia di PATH."""
+    return shutil.which(name) is not None
+
+
+def tool_gui_mouse(action: str, x: int = 0, y: int = 0,
+                   button: str = "1", clicks: int = 1) -> str:
+    """Kontrol mouse via xdotool."""
+    action = (action or "").lower()
+    if action == "get":
+        pos = _run_gui(["xdotool", "getmouselocation"])
+        return pos or "Posisi kursor tidak tersedia."
+    elif action == "move":
+        return _run_gui(["xdotool", "mousemove", str(x), str(y)])
+    elif action == "click":
+        return _run_gui(["xdotool", "click", "--repeat", str(clicks), button])
+    elif action == "click_at":
+        _run_gui(["xdotool", "mousemove", str(x), str(y)])
+        return _run_gui(["xdotool", "click", "--repeat", str(clicks), button])
+    elif action == "scroll":
+        # scroll positif = atas (up), negatif = bawah (down)
+        if y > 0:
+            return _run_gui(["xdotool", "click", "5"])
+        return _run_gui(["xdotool", "click", "4"])
+    else:
+        return f"Error: aksi mouse '{action}' tidak dikenal. Gunakan move/click/click_at/scroll/get."
+
+
+def tool_gui_keyboard(action: str, keys: str = "", text: str = "") -> str:
+    """Input keyboard via xdotool."""
+    action = (action or "").lower()
+    if action == "key":
+        if not keys:
+            return "Error: parameter 'keys' wajib untuk aksi 'key'."
+        return _run_gui(["xdotool", "key", keys])
+    elif action == "type":
+        if not text:
+            return "Error: parameter 'text' wajib untuk aksi 'type'."
+        return _run_gui(["xdotool", "type", "--delay", "20", text])
+    else:
+        return f"Error: aksi keyboard '{action}' tidak dikenal. Gunakan key/type."
+
+
+def tool_gui_window(action: str, title: str = "", x: int = 0, y: int = 0,
+                    width: int = 0, height: int = 0) -> str:
+    """Kelola jendela via wmctrl/xdotool."""
+    action = (action or "").lower()
+    if action == "list":
+        out = _run_gui(["wmctrl", "-l"])
+        return out or "Tidak ada jendela terdeteksi."
+    if not title:
+        return f"Error: parameter 'title' wajib untuk aksi '{action}'."
+    if action == "focus":
+        return _run_gui(["wmctrl", "-a", title])
+    elif action == "close":
+        return _run_gui(["wmctrl", "-c", title])
+    elif action == "maximize":
+        return _run_gui(["wmctrl", "-r", title, "-b", "add,maximized_vert,maximized_horz"])
+    elif action == "minimize":
+        return _run_gui(["xdotool", "search", "--name", title, "windowminimize"])
+    elif action == "move":
+        if width > 0 and height > 0:
+            return _run_gui(["wmctrl", "-r", title, "-e", f"0,{x},{y},{width},{height}"])
+        return _run_gui(["wmctrl", "-r", title, "-e", f"0,{x},{y},-1,-1"])
+    else:
+        return f"Error: aksi window '{action}' tidak dikenal."
+
+
+# ============================================================
 # ORCHESTRATION — Multi-Agent
 # ============================================================
 
@@ -4519,6 +4765,31 @@ def execute_tool(name: str, arguments: dict) -> str:
             arguments["topic"],
             arguments.get("team", []),
             arguments.get("max_rounds", 0),
+        )
+    elif name == "gui_screenshot":
+        result = tool_gui_screenshot(arguments.get("output", "/tmp/ruka_screen.png"))
+    elif name == "gui_mouse":
+        result = tool_gui_mouse(
+            arguments.get("action", ""),
+            arguments.get("x", 0),
+            arguments.get("y", 0),
+            arguments.get("button", "1"),
+            arguments.get("clicks", 1),
+        )
+    elif name == "gui_keyboard":
+        result = tool_gui_keyboard(
+            arguments.get("action", ""),
+            arguments.get("keys", ""),
+            arguments.get("text", ""),
+        )
+    elif name == "gui_window":
+        result = tool_gui_window(
+            arguments.get("action", ""),
+            arguments.get("title", ""),
+            arguments.get("x", 0),
+            arguments.get("y", 0),
+            arguments.get("width", 0),
+            arguments.get("height", 0),
         )
     else:
         result = f"Error: Tool '{name}' tidak dikenal."
