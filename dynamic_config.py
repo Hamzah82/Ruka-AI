@@ -35,6 +35,13 @@ def get_dynamic_config():
     else:
         result['MODEL'] = config.MODEL
     
+    # Vision model (analisis gambar) — priority config.json, fallback config.py
+    if json_config and 'vision_model' in json_config:
+        vision_val = json_config['vision_model'].strip()
+        result['VISION_MODEL'] = vision_val if vision_val else config.VISION_MODEL
+    else:
+        result['VISION_MODEL'] = config.VISION_MODEL
+    
     api_key_json = ""
     if json_config and 'api_key' in json_config:
         api_key_json = json_config['api_key'].strip()

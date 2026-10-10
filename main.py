@@ -80,6 +80,7 @@ class DynamicConfig:
 config = DynamicConfig()
 config.OPENROUTER_API_KEY = dynamic_cfg['OPENROUTER_API_KEY']
 config.MODEL = dynamic_cfg['MODEL']
+config.VISION_MODEL = dynamic_cfg['VISION_MODEL']
 config.API_URL = dynamic_cfg['API_URL']
 config.HEADERS = dynamic_cfg['HEADERS']
 config.BASE_DIR = dynamic_cfg['BASE_DIR']
@@ -108,6 +109,7 @@ config.ESTIMATE_CHARS_PER_TOKEN = dynamic_cfg['ESTIMATE_CHARS_PER_TOKEN']
 
 # Variabel global MODEL dan HEADERS harus bisa diakses langsung
 MODEL = config.MODEL
+VISION_MODEL = config.VISION_MODEL
 API_URL = config.API_URL
 HEADERS = config.HEADERS
 OPENROUTER_API_KEY = config.OPENROUTER_API_KEY
@@ -2215,6 +2217,7 @@ def handle_change_config():
         default_config = {
             "api_endpoint": "https://ai.meongtopup.my.id/v1/chat/completions",
             "model": "meng/deepseek-v4-flash",
+            "vision_model": "deepseek-v4.1-flash",
             "api_key": "",
             "updated_at": None
         }
@@ -2234,6 +2237,7 @@ def handle_change_config():
         
         current_endpoint = config_data.get("api_endpoint", "")
         current_model = config_data.get("model", "")
+        current_vision_model = config_data.get("vision_model", "") or "deepseek-v4.1-flash"
         api_key_exists = bool(config_data.get("api_key", "").strip())
         
         # Tampilkan info saat ini
@@ -2242,6 +2246,7 @@ def handle_change_config():
         print(f"  {_rule()}")
         print(f"  Endpoint saat ini:   {Style.GREY_LIGHT}{current_endpoint or '(kosong)'}{Style.RESET}")
         print(f"  Model saat ini:      {Style.GREY_LIGHT}{current_model or '(kosong)'}{Style.RESET}")
+        print(f"  Vision Model saat ini: {Style.GREY_LIGHT}{current_vision_model}{Style.RESET}")
         print(f"  API Key tersimpan:   {Style.OK if api_key_exists else Style.WARN}{'Ada ✓' if api_key_exists else 'Belum set'}{Style.RESET}")
         print()
         
@@ -2255,12 +2260,18 @@ def handle_change_config():
         if not new_model:
             new_model = current_model
         
+        # Input vision model baru
+        new_vision_model = input(f"  {Style.ACCENT}❯{Style.RESET} Vision Model (analisis gambar, Enter untuk tetap '{current_vision_model}'): ").strip()
+        if not new_vision_model:
+            new_vision_model = current_vision_model
+        
         # Input atau hapus API key
         api_key_input = input(f"  {Style.ACCENT}❯{Style.RESET} API Key baru (Ketik ENTER saja untuk HAPUS API key yang ada): ").strip()
         
         # Simpan perubahan
         config_data["api_endpoint"] = new_endpoint if new_endpoint else (config_data.get("api_endpoint", "") or "https://ai.meongtopup.my.id/v1/chat/completions")
         config_data["model"] = new_model if new_model else (config_data.get("model", "") or "meng/deepseek-v4-flash")
+        config_data["vision_model"] = new_vision_model if new_vision_model else (config_data.get("vision_model", "") or "deepseek-v4.1-flash")
         config_data["api_key"] = api_key_input  # Kosong jika user hanya tekan Enter
         config_data["updated_at"] = datetime.now().isoformat()
         
@@ -2275,7 +2286,8 @@ def handle_change_config():
         msg = (
             f"{Style.OK}✓{Style.RESET} Konfigurasi berhasil diubah!\n"
             f"  • Endpoint:   {Style.ACCENT_DIM}{saved_data['api_endpoint']}{Style.RESET}\n"
-            f"  • Model:      {Style.ACCENT_DIM}{saved_data['model']}{Style.RESET}" + 
+            f"  • Model:      {Style.ACCENT_DIM}{saved_data['model']}{Style.RESET}\n"
+            f"  • Vision Model: {Style.ACCENT_DIM}{saved_data.get('vision_model','deepseek-v4.1-flash')}{Style.RESET}" + 
             (f"\n  • API Key:    {Style.OK}••••••••••••✓{Style.RESET}" if saved_data.get("api_key") else "\n  • API Key:    {Style.WARN}(tidak diset){Style.RESET}")
         )
         print(f"\n{msg}")
@@ -2373,6 +2385,8 @@ def _read_config_data() -> dict:
             return {}
     return {
         "api_endpoint": "https://ai.meongtopup.my.id/v1/chat/completions",
+        "model": "meng/deepseek-v4-flash",
+        "vision_model": "deepseek-v4.1-flash",
         "api_key": "",
     }
 
@@ -3597,7 +3611,9 @@ TOOLS = [
                 "Mengambil screenshot layar (X11) dan menyimpannya ke file PNG. "
                 "Gunakan ini ketika user meminta melihat/mengambil tangkapan layar "
                 "untuk memahami kondisi GUI sebelum melakukan aksi mouse/keyboard. "
-                "Hasilnya berupa path file gambar yang bisa dianalisis."
+                "Hasilnya berupa path file gambar yang bisa dianalisis. "
+                "Jika 'analyze' di-set true, screenshot otomatis dianalisis "
+                "oleh model vision dan dikembalikan deskripsinya."
             ),
             "parameters": {
                 "type": "object",
@@ -3605,6 +3621,10 @@ TOOLS = [
                     "output": {
                         "type": "string",
                         "description": "Path file PNG untuk menyimpan screenshot. Default: /tmp/ruka_screen.png"
+                    },
+                    "analyze": {
+                        "type": "boolean",
+                        "description": "Jika true, screenshot dianalisis oleh model vision dan deskripsinya dikembalikan. Default false."
                     }
                 },
                 "required": []
@@ -3718,6 +3738,33 @@ TOOLS = [
                     }
                 },
                 "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gui_analyze",
+            "description": (
+                "Menganalisis sebuah file gambar (screenshot) dengan model vision. "
+                "Kirim path file PNG dan prompt analisis, lalu model vision "
+                "(VISION_MODEL, terpisah & murah) akan mendeskripsikan isi gambar "
+                "termasuk posisi elemen dengan koordinat perkiraan. "
+                "Gunakan ini setelah gui_screenshot untuk 'melihat' layar."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_path": {
+                        "type": "string",
+                        "description": "Path file PNG yang akan dianalisis. Default: /tmp/ruka_screen.png"
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Instruksi analisis untuk model vision. Default: deskripsikan layar + koordinat elemen."
+                    }
+                },
+                "required": []
             }
         }
     }
@@ -4263,9 +4310,78 @@ def tool_gui_screenshot(output: str = "/tmp/ruka_screen.png") -> str:
         return "Error: tidak ada tool screenshot (scrot/gnome-screenshot)."
 
 
+def analyze_screenshot(image_path: str = "/tmp/ruka_screen.png",
+                       prompt: str = "Deskripsikan apa yang terlihat di layar ini secara detail, termasuk posisi elemen penting (tombol, menu, teks) dengan koordinat perkiraan.") -> str:
+    """
+    Ambil screenshot lalu kirim ke model VISION untuk dianalisis.
+    Memakai VISION_MODEL (terpisah & lebih murah dari model utama).
+    Return: deskripsi teks dari model, atau pesan error.
+    """
+    import base64
+
+    # Pastikan file ada
+    if not os.path.exists(image_path):
+        return f"Error: file gambar tidak ditemukan: {image_path}"
+
+    # Encode gambar ke base64
+    try:
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        data_url = f"data:image/png;base64,{b64}"
+    except Exception as e:
+        return f"Error: gagal encode gambar: {str(e)[:60]}"
+
+    # Bangun pesan vision
+    vision_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        }
+    ]
+
+    # Tampilkan spinner "menganalisis gambar"
+    print(f"\n  {Style.GREY}⏺{Style.RESET} {Style.GREY_LIGHT}Menganalisis gambar dengan {Style.ACCENT}{config.VISION_MODEL}{Style.RESET}...")
+    sys.stdout.flush()
+
+    try:
+        payload = {
+            "model": config.VISION_MODEL or VISION_MODEL,
+            "messages": vision_messages,
+            "temperature": 0.2,
+            "max_tokens": 1500,
+            "stream": False,
+        }
+        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        return content.strip() if content else "(model tidak memberikan deskripsi)"
+    except Exception as e:
+        return f"Error analisis gambar: {str(e)[:100]}"
+
+
 def _command_available(name: str) -> bool:
     """Cek apakah perintah tersedia di PATH."""
     return shutil.which(name) is not None
+
+
+def _encode_image_base64(path: str) -> str:
+    """
+    Baca file gambar dan encode ke base64 data URL (format OpenAI vision).
+    Return string data URL, atau None jika gagal.
+    """
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        import base64
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"data:image/png;base64,{b64}"
+    except Exception as e:
+        print(f"\n  {Style.ERR}■{Style.RESET} {Style.GREY}Gagal encode gambar: {str(e)[:60]}{Style.RESET}")
+        return None
 
 
 def tool_gui_mouse(action: str, x: int = 0, y: int = 0,
@@ -4767,7 +4883,10 @@ def execute_tool(name: str, arguments: dict) -> str:
             arguments.get("max_rounds", 0),
         )
     elif name == "gui_screenshot":
-        result = tool_gui_screenshot(arguments.get("output", "/tmp/ruka_screen.png"))
+        output = arguments.get("output", "/tmp/ruka_screen.png")
+        result = tool_gui_screenshot(output)
+        if arguments.get("analyze"):
+            result = result + "\n\n" + analyze_screenshot(output)
     elif name == "gui_mouse":
         result = tool_gui_mouse(
             arguments.get("action", ""),
@@ -4790,6 +4909,11 @@ def execute_tool(name: str, arguments: dict) -> str:
             arguments.get("y", 0),
             arguments.get("width", 0),
             arguments.get("height", 0),
+        )
+    elif name == "gui_analyze":
+        result = analyze_screenshot(
+            arguments.get("image_path", "/tmp/ruka_screen.png"),
+            arguments.get("prompt", "Deskripsikan apa yang terlihat di layar ini secara detail, termasuk posisi elemen penting (tombol, menu, teks) dengan koordinat perkiraan."),
         )
     else:
         result = f"Error: Tool '{name}' tidak dikenal."
@@ -5169,7 +5293,8 @@ def _trim_history(messages: list, max_tokens: int = None, keep_recent: int = Non
 
 def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
          max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY,
-         include_tools: bool = True) -> dict:
+         include_tools: bool = True, vision: bool = False,
+         image_path: str = None) -> dict:
     # Hard-trim riwayat HANYA untuk payload yang dikirim (transkrip pemanggil &
     # save_session tetap utuh). Notice maksimum sekali per giliran.
     sent, dropped = _trim_history(messages)
@@ -5177,8 +5302,31 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
         show_trim_notice(dropped, _estimate_tokens(sent))
         _spinner._trim_notice_shown = True
 
+    # ── Mode VISION: pakai VISION_MODEL & sisipkan gambar ke pesan user ──
+    model_used = MODEL
+    if vision:
+        model_used = config.VISION_MODEL or VISION_MODEL
+        if image_path:
+            img_url = _encode_image_base64(image_path)
+            if img_url:
+                # Tambahkan gambar ke pesan user TERAKHIR sebagai content multi-part
+                # (format OpenAI vision). Jaga pesan lain tetap string.
+                sent = list(sent)
+                for i in range(len(sent) - 1, -1, -1):
+                    if sent[i].get("role") == "user":
+                        orig = sent[i].get("content")
+                        text = orig if isinstance(orig, str) else "Analisis gambar ini:"
+                        sent[i] = {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": text},
+                                {"type": "image_url", "image_url": {"url": img_url}},
+                            ],
+                        }
+                        break
+
     payload = {
-        "model": MODEL,
+        "model": model_used,
         "messages": sent,
         "temperature": temperature,
         "max_tokens": max_tokens,

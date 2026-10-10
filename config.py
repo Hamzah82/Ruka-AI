@@ -21,6 +21,12 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 _DEFAULT_MODEL = "meng/deepseek-v4-flash"
 MODEL = (os.getenv("RUKA_MODEL") or "").strip() or _DEFAULT_MODEL
 
+# Model untuk analisis GAMBAR/vision (screenshot, dll). Dipisah dari model utama
+# karena model vision biasanya lebih mahal. Bisa di-override di config.json (key
+# 'vision_model') atau env RUKA_VISION_MODEL.
+_DEFAULT_VISION_MODEL = "deepseek-v4.1-flash"
+VISION_MODEL = (os.getenv("RUKA_VISION_MODEL") or "").strip() or _DEFAULT_VISION_MODEL
+
 # URL endpoint API
 API_URL = "https://ai.meongtopup.my.id/v1/chat/completions"
 

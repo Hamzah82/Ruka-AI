@@ -36,7 +36,8 @@ Ada 4 tool GUI control yang bisa dipanggil langsung:
 
 | Tool | Fungsi | Aksi Utama |
 |---|---|---|
-| `gui_screenshot` | Ambil screenshot layar | `output` (path PNG) |
+| `gui_screenshot` | Ambil screenshot layar | `output` (path PNG), `analyze` (bool) |
+| `gui_analyze` | Analisis gambar dengan model vision | `image_path`, `prompt` |
 | `gui_mouse` | Kontrol kursor mouse | `move`, `click`, `click_at`, `scroll`, `get` |
 | `gui_keyboard` | Input keyboard | `key` (tombol), `type` (teks) |
 | `gui_window` | Kelola jendela | `list`, `focus`, `close`, `maximize`, `minimize`, `move` |
@@ -49,7 +50,7 @@ Ada 4 tool GUI control yang bisa dipanggil langsung:
 
 ```
 1. gui_window(action="list")      → lihat jendela apa saja yang terbuka
-2. gui_screenshot()               → ambil screenshot untuk pahami tata letak
+2. gui_screenshot(analyze=true)   → ambil screenshot & minta model vision analisis
 3. gui_window(action="focus", title="...") → fokus ke aplikasi target
 4. gui_mouse(action="click_at", x=..., y=...)  → klik di koordinat
 5. gui_keyboard(action="type", text="...")     → ketik
@@ -57,10 +58,34 @@ Ada 4 tool GUI control yang bisa dipanggil langsung:
 ```
 
 **Aturan emas:**
-- **Ambil screenshot dulu** sebelum aksi — supaya tahu posisi tombol/menu
+- **Screenshot + analisis dulu** sebelum aksi — supaya tahu posisi tombol/menu.
+  Gunakan `gui_screenshot(analyze=true)` atau `gui_analyze` untuk "melihat" layar.
 - **Verifikasi dengan screenshot** setelah aksi — pastikan hasil sesuai
-- **Koordinat buta** — Ruka tidak "melihat" layar; butuh koordinat eksplisit atau screenshot untuk menentukan posisi
+- **Koordinat dari analisis vision** — model vision akan memberikan koordinat perkiraan elemen; gunakan itu untuk klik
 - **Satu langkah per aksi** — jangan boros; lakukan bertahap
+
+---
+
+## 3b. Melihat Layar (Model Vision)
+
+Ruka bisa "melihat" layar via model vision terpisah (`VISION_MODEL` di config.json,
+default `deepseek-v4.1-flash` — lebih murah dari model utama).
+
+**Dua cara:**
+
+1. **Screenshot + langsung analisis:**
+```json
+{"name": "gui_screenshot", "arguments": {"output": "/tmp/ruka_screen.png", "analyze": true}}
+```
+→ Ambil screenshot, kirim ke model vision, kembalikan deskripsi + koordinat elemen.
+
+2. **Analisis screenshot yang sudah ada:**
+```json
+{"name": "gui_analyze", "arguments": {"image_path": "/tmp/ruka_screen.png", "prompt": "Di mana tombol X berada? Beri koordinat."}}
+```
+
+**Model vision diatur di `config.json`** (key `vision_model`), bisa diubah via
+`ruka change`. Terpisah dari model utama supaya biaya tetap hemat.
 
 ---
 
@@ -154,7 +179,9 @@ User: "Screenshot layar"
 - **Koordinat tidak presisi** — untuk klik presisi, minta user konfirmasi koordinat atau analisis screenshot dulu.
 - **Jangan jalankan aksi destruktif** — mis. `close` tanpa konfirmasi user.
 - **Timeout** — tiap perintah GUI punya timeout 15 detik.
-- **Bukan vision** — Ruka tidak benar-benar "melihat" layar. Screenshot hanya disimpan, tidak otomatis dianalisis visual kecuali user minta.
+- **Bukan vision langsung** — Ruka melihat layar via model vision (`gui_analyze` /
+  `gui_screenshot analyze=true`). Analisis ini butuh biaya (VISION_MODEL), jadi
+  gunakan hemat; untuk aksi yang sudah jelas koordinatnya, tak perlu analisis tiap kali.
 - **X11 only** — di Wayland semua tool ini gagal.
 
 ---
