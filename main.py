@@ -126,6 +126,9 @@ _input_queue = queue.Queue()
 _interrupt_event = threading.Event()
 _input_thread = None
 _input_running = threading.Event()
+# Saat di-set → input user DIKUNCI (mis. saat compacting konteks berlangsung).
+# Line editor & raw loop mengabaikan semua ketikan/Enter selama terkunci.
+_input_locked = threading.Event()
 
 # FooterUI aktif → prompt "❯" mengambang di bawah layar. None/disarmed → mode linear.
 _footer = None
@@ -521,7 +524,12 @@ class FooterUI:
         out.append(f"\033[{status_row};1H\033[2K{status}{R}")
         for i, ln in enumerate(lines):
             row = self.H - L + 1 + i
-            prefix = f"{Style.ACCENT}❯{R} " if i == 0 else "  "
+            # Saat input dikunci (mis. compacting) → prompt berubah jadi ⏳,
+            # menandakan user tidak bisa mengetik/menekan Enter sementara.
+            if _input_locked.is_set():
+                prefix = f"{Style.WARN}⏳{R} " if i == 0 else "  "
+            else:
+                prefix = f"{Style.ACCENT}❯{R} " if i == 0 else "  "
             body = self._truncate(ln, text_cols)
             out.append(f"\033[{row};1H\033[2K{prefix}{body}{R}")
         # Kursor di posisi (baris,kolom) hasil wrap; teks mulai kolom 3.
@@ -692,6 +700,14 @@ class _LineEditor:
 
     # ── Submit / EOF ─────────────────────────────────────────
     def _submit(self):
+        # Saat input dikunci (mis. compacting konteks) → tolak Enter & kosongkan.
+        if _input_locked.is_set():
+            self.buf = ""
+            self.cur = 0
+            self.hist_idx = None
+            self.decoder.reset()
+            self._sync()
+            return
         line = self.buf
         self.buf = ""
         self.cur = 0
@@ -708,6 +724,11 @@ class _LineEditor:
 
     # ── Parser byte ──────────────────────────────────────────
     def feed(self, data: bytes):
+        # Saat input dikunci (mis. compacting konteks berlangsung), ABAIKAN semua
+        # ketikan — user tidak bisa mengetik maupun menekan Enter sampai selesai.
+        if _input_locked.is_set():
+            self.pending = b""
+            return
         data = self.pending + data
         self.pending = b""
         i = 0
@@ -856,6 +877,14 @@ def _raw_input_loop():
             if not data:
                 _input_queue.put(None)
                 break
+            # Saat input dikunci (compacting), buang input & kosongkan editor.
+            if _input_locked.is_set():
+                ed.buf = ""
+                ed.cur = 0
+                ed.decoder.reset()
+                ed.pending = b""
+                ed._sync()
+                continue
             ed.feed(data)
         except OSError:
             _input_queue.put(None)
@@ -868,10 +897,14 @@ def _input_reader():
     """
     Reader legacy (mode linear / non-TTY): pakai input()/readline.
     Dipakai saat footer mengambang tidak aktif (mis. mode single-prompt).
+    Saat input dikunci (compacting), baris yang di-submit dibuang.
     """
     while _input_running.is_set():
         try:
             line = input()
+            # Saat terkunci → buang input user (cegah prompt saat compacting).
+            if _input_locked.is_set():
+                continue
             _input_queue.put(line)
         except EOFError:
             _input_queue.put(None)
@@ -912,6 +945,36 @@ def _stop_input_reader():
     if _input_thread is not None and _input_thread.is_alive():
         _input_thread.join(timeout=1.0)
         _input_thread = None
+
+
+def lock_input():
+    """Kunci input user — semua ketikan & Enter diabaikan selama terkunci."""
+    _input_locked.set()
+    _refresh_footer()
+
+
+def unlock_input():
+    """Buka kembali kunci input."""
+    _input_locked.clear()
+    _refresh_footer()
+
+
+def _refresh_footer():
+    """Paksa footer re-render (agar prefix prompt ⏳/❯ ikut berubah)."""
+    if _footer is not None and getattr(_footer, "armed", False):
+        try:
+            _footer.set_input(_footer._buffer, _footer._cursor)
+        except Exception:
+            pass
+
+
+def _drain_input_queue():
+    """Buang sisa input di queue (dipakai setelah input dikunci/dibuka)."""
+    try:
+        while True:
+            _input_queue.get_nowait()
+    except queue.Empty:
+        pass
 
 
 def _get_input(prompt_text=""):
@@ -1153,6 +1216,7 @@ class Spinner:
         self._thread = None
         self._running = threading.Event()
         self._label = None
+        self._suffix = None         # teks pengganti "(... · q untuk interupsi)"
         self._turn_start_ts = 0.0   # awal giliran (di-reset hanya oleh begin_turn)
         self._turn_tokens = 0       # token EXACT terkumpul dari round yang sudah selesai
         self._live_chars = 0        # estimasi REALTIME: karakter output round berjalan
@@ -1207,14 +1271,16 @@ class Spinner:
         """Token yang ditampilkan realtime: EXACT terkumpul + estimasi output berjalan."""
         return self._turn_tokens + self.estimate_live_tokens()
 
-    def start(self, label: str = None):
-        """Mulai animasi. `label` tetap jika diberikan; jika None, kata berganti otomatis."""
+    def start(self, label: str = None, suffix: str = None):
+        """Mulai animasi. `label` tetap jika diberikan; jika None, kata berganti otomatis.
+        `suffix` mengganti teks '(… · q untuk interupsi)' — mis. saat compacting."""
         if not self._enabled or self._running.is_set():
             return
         # Jika belum ada giliran aktif (mis. mode single-prompt), mulai sekarang.
         if not self._turn_start_ts:
             self._turn_start_ts = time.time()
         self._label = label
+        self._suffix = suffix
         self._running.set()
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
@@ -1242,7 +1308,9 @@ class Spinner:
             content = (
                 f"{Style.ACCENT}{frame}{Style.RESET}  "
                 f"{Style.GREY_LIGHT}{word}…{Style.RESET} "
-                f"{Style.GREY}({_format_duration(elapsed)}{tok} · q untuk interupsi){Style.RESET}"
+                f"{Style.GREY}({_format_duration(elapsed)}{tok}"
+                f"{self._suffix if self._suffix is not None else ' · q untuk interupsi'})"
+                f"{Style.RESET}"
             )
             if _footer_active():
                 # Footer mengambang: tulis ke baris status (bukan inline \r).
@@ -1255,6 +1323,9 @@ class Spinner:
 
     def stop(self):
         """Hentikan animasi dan bersihkan baris spinner (timer giliran TIDAK di-reset)."""
+        # Reset label/suffix agar tak bocor ke pemakaian berikutnya.
+        self._label = None
+        self._suffix = None
         if not self._running.is_set():
             return
         self._running.clear()
@@ -3000,6 +3071,53 @@ def show_compact_notice(info: str, summary_chars: int = 0):
     print(
         f"\n  {Style.ACCENT_DIM}⎿ {info}{detail}{Style.RESET}"
     )
+
+def show_compacting_start():
+    """
+    Tampilkan penanda bahwa konteks sedang di-compact. Input user DIKUNCI
+    selama proses ini berlangsung (tidak bisa mengetik / menekan Enter).
+    Spinner animasi ditampilkan agar user tahu proses sedang berjalan.
+    """
+    # Kunci input lebih dulu — cegah user mengetik/menekan Enter.
+    lock_input()
+    print(
+        f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Meng-compact konteks…{Style.RESET} "
+        f"{Style.GREY}(mohon tunggu, input dikunci sementara){Style.RESET}"
+    )
+    # Jalankan spinner dengan label khusus & suffix pengganti hint interupsi.
+    # Reset counter token agar tak menampilkan angka giliran sebelumnya.
+    try:
+        _spinner._turn_tokens = 0
+        _spinner._live_chars = 0
+        _spinner._turn_start_ts = 0.0
+        _spinner.start(
+            label="Meng-compact konteks",
+            suffix=" · mohon tunggu, jangan mengetik",
+        )
+    except Exception:
+        pass
+
+def show_compacting_done(success: bool = True):
+    """
+    Penanda bahwa proses compacting selesai. Hentikan spinner & buka kunci input.
+    """
+    # Hentikan spinner compacting (kembalikan baris status ke idle).
+    try:
+        _spinner.stop()
+    except Exception:
+        pass
+
+    unlock_input()
+    if success:
+        print(
+            f"  {Style.OK}✓{Style.RESET} {Style.GREY}Compacting selesai — "
+            f"input dibuka kembali.{Style.RESET}"
+        )
+    else:
+        print(
+            f"  {Style.WARN}■{Style.RESET} {Style.GREY}Compacting dilewati "
+            f"(riwayat tetap utuh).{Style.RESET}"
+        )
 
 
 def show_model_narration(round_num, content):
@@ -6190,15 +6308,24 @@ def chat_session(session_name: str = None):
 
                 # ── COMPACT konteks (PERMANEN) — HANYA setelah model selesai ──
                 # Model sudah berhenti bicara di titik ini, jadi aman meringkas.
+                # Selama proses, INPUT DIKUNCI agar user tak mengetik/menekan Enter.
                 # Hasil compaction disimpan ke session (tidak diulang tiap call API).
-                try:
-                    new_messages, compacted, info = compact_history(messages)
-                    if compacted:
-                        messages = new_messages
-                        show_compact_notice(info, _estimate_tokens(messages))
-                except Exception as _ce:
-                    # Compaction gagal → jangan ganggu alur; riwayat tetap utuh.
-                    pass
+                if _needs_compaction(messages):
+                    show_compacting_start()   # (mengunci input + tampilkan status)
+                    try:
+                        new_messages, compacted, info = compact_history(messages)
+                        if compacted:
+                            messages = new_messages
+                            show_compacting_done(success=True)
+                            show_compact_notice(info, _estimate_tokens(messages))
+                        else:
+                            show_compacting_done(success=False)
+                    except Exception as _ce:
+                        # Compaction gagal → jangan ganggu alur; riwayat tetap utuh.
+                        show_compacting_done(success=False)
+                    finally:
+                        unlock_input()
+                        _drain_input_queue()
 
                 # Auto-save setelah setiap exchange
                 save_session(session_name, messages)
