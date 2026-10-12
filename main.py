@@ -2610,6 +2610,7 @@ def show_help():
     _help_row("/model set <alias>|<model>", "Set alias singkat untuk model")
     _help_row("/model alias", "Daftar alias model yang tersimpan")
     _help_row("/model rm <alias>", "Hapus alias model")
+    _help_row("/compact", "Compact konteks manual (jika AI mulai halu)")
     _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
 
     _help_section("CLI command (dari terminal)")
@@ -5335,7 +5336,8 @@ def _split_into_turns(body: list) -> list:
     return turns
 
 
-def compact_history(messages: list, keep_turns: int = None) -> tuple:
+def compact_history(messages: list, keep_turns: int = None,
+                    force: bool = False) -> tuple:
     """
     Compact PERMANEN: ringkas SELURUH riwayat kecuali `keep_turns` GILIRAN USER
     terakhir. Panggil HANYA setelah model selesai menjawab.
@@ -5343,6 +5345,9 @@ def compact_history(messages: list, keep_turns: int = None) -> tuple:
     Satu giliran = blok dari pesan 'user' hingga sebelum 'user' berikutnya
     (termasuk jawaban AI & hasil tool). Dengan begitu konteks beberapa giliran
     terakhir tetap UTUH — bukan sekadar sekian pesan.
+
+    `force=True` → compact walau belum menyentuh ambang token (dipakai oleh
+    command manual `/compact` saat user merasa AI mulai halu).
 
     Returns: (new_messages, compacted: bool, info_str)
       - compacted=True -> caller WAJIB menyimpan new_messages ke session.
@@ -5352,7 +5357,7 @@ def compact_history(messages: list, keep_turns: int = None) -> tuple:
 
     if not getattr(config, "ENABLE_COMPACTION", True):
         return messages, False, ""
-    if not _needs_compaction(messages):
+    if not force and not _needs_compaction(messages):
         return messages, False, ""
 
     # -- Prefix system (system prompt utama) tidak ikut diringkas --
@@ -6192,6 +6197,42 @@ def chat_session(session_name: str = None):
                     ok = "berhasil" in result.lower()
                     dot = Style.OK if ok else Style.ERR
                     print(f"\n  {dot}⏺{Style.RESET} {Style.GREY_LIGHT}{result}{Style.RESET}")
+                continue
+
+            # ── /compact — compact konteks MANUAL (paksa) ────────────────
+            if user_input.lower().strip() in ("/compact", "/kompak"):
+                # Hitung dulu apakah ada giliran lama yang bisa diringkas.
+                _head_n = 0
+                while (_head_n < len(messages)
+                       and messages[_head_n].get("role") == "system"
+                       and "RINGKASAN PERCAKAPAN SEBELUMNYA"
+                           not in (messages[_head_n].get("content") or "")):
+                    _head_n += 1
+                _turns_n = len(_split_into_turns(messages[_head_n:]))
+                _keep = getattr(config, "COMPACT_KEEP_TURNS", 5)
+                if _turns_n <= _keep:
+                    print(
+                        f"\n  {Style.WARN}■{Style.RESET} {Style.GREY}Belum perlu compact — "
+                        f"hanya {_turns_n} giliran (ambang {_keep} dipertahankan).{Style.RESET}"
+                    )
+                    continue
+                show_compacting_start()   # (mengunci input + tampilkan status)
+                try:
+                    new_messages, compacted, info = compact_history(
+                        messages, force=True
+                    )
+                    if compacted:
+                        messages = new_messages
+                        show_compacting_done(success=True)
+                        show_compact_notice(info, _estimate_tokens(messages))
+                        save_session(session_name, messages)
+                    else:
+                        show_compacting_done(success=False)
+                except Exception as _ce:
+                    show_compacting_done(success=False)
+                finally:
+                    unlock_input()
+                    _drain_input_queue()
                 continue
 
             # ── /models — picker model interaktif ────────────────────────

@@ -228,6 +228,7 @@ Slash commands dalam sesi:
 /model set <alias>|<m>  → set alias singkat untuk model
 /model alias            → daftar alias model
 /model rm <alias>       → hapus alias model
+/compact                → compact konteks manual (paksa ringkas riwayat)
 /team <tugas>           → bentuk tim & diskusi kolaboratif multi-agent
 /help                   → tampilkan bantuan
 /clear                  → bersihkan layar
@@ -304,6 +305,7 @@ Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk men
 - Ringkasan lama ikut diringkas ulang saat compact berikutnya (tidak menumpuk — tetap 1 blok ringkasan)
 - Estimasi pakai rumus `len(text) / 4` (konservatif, UNDER-estimate teks Indonesia)
 - `chat()` TIDAK lagi memangkas riwayat; `quiet=True` dipakai saat summarization (tanpa spinner/token)
+- **Compact manual** — slash command `/compact` memaksa compaction kapan saja (mis. saat user merasa AI mulai halu), tanpa menunggu ambang token. Pakai `compact_history(..., force=True)`. Input dikunci selama proses & hasil disimpan ke session.
 
 ---
 
@@ -471,6 +473,7 @@ Session disimpan di 2 titik:
 | `/model set <alias>|<model>` | Set alias singkat untuk model |
 | `/model alias` | Daftar alias model |
 | `/model rm <alias>` | Hapus alias model |
+| `/compact` | Compact konteks manual (paksa ringkas riwayat) |
 | `/team <tugas>` | Diskusi multi-agent |
 | `python main.py listSessions` | CLI: list sessions |
 | `python main.py clearSessions` | CLI: hapus semua session auto-generated |
