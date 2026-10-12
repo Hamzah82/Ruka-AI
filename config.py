@@ -113,16 +113,26 @@ TRUNCATION_THRESHOLD = 20_000  # ↑ dari 4,000 → naik 5x untuk model 1M conte
 #    dipertahankan utuh (COMPACT_KEEP_TURNS). Satu giliran = blok dari pesan
 #    'user' hingga sebelum pesan 'user' berikutnya (termasuk jawaban AI &
 #    hasil tool di dalamnya). Jadi konteks terdekat tetap utuh & akurat.
-MAX_HISTORY_TOKENS = 1_000_000   # ambang: sentuh 1 juta token → compact
+#
+# ⚡ OPTIMASI BIAYA FLAT PER REQUEST:
+#  Bila provider memakai tarif FLAT per request (bukan per token), maka:
+#   • Jumlah request = biaya → MINIMALKAN request (chunk sebesar mungkin).
+#   • Token output = gratis  → minta ringkasan sepanjang mungkin (detail).
+#   • Context window = aset  → manfaatkan maksimal.
+#  Karena itu: chunk dibuat besar (≈1 request per compact) & output diperbesar.
+MAX_HISTORY_TOKENS = 650_000     # ambang compact (65% dari window 1jt; margin utk under-estimate token)
 COMPACT_KEEP_TURNS = 5           # jumlah GILIRAN USER terakhir yang dipertahankan UTUH
 ENABLE_COMPACTION = True         # aktifkan compact otomatis setelah model selesai
-# Ringkasan dibuat per-chunk agar riwayat besar tetap bisa diringkas dengan aman
-# (tanpa mengirim 1 juta token ke satu call LLM). Ukuran chunk dalam estimasi token.
-COMPACT_CHUNK_TOKENS = 300_000   # ukuran tiap chunk saat meringkas (makin besar = makin sedikit call API = makin cepat)
-COMPACT_MAX_CHARS = 40_000       # panjang maks ringkasan gabungan (jangan terlalu padat)
+# Chunk ≥ MAX_HISTORY → SELURUH riwayat selesai dalam SATU request (bukan belasan).
+# Batas aman: (chunk × faktor_under_estimate) + output < context window (1jt).
+# Estimasi token cenderung UNDER-estimate (teks Indonesia ~3 char/token), jadi
+# diberi margin: 700K × ~1.3 ≈ 910K aktual + 16K output ≈ 926K (< 1jt). Aman.
+COMPACT_CHUNK_TOKENS = 700_000   # ukuran chunk (≥ MAX_HISTORY → 1 request per compact = hemat, krn flat per request)
+COMPACT_MAX_CHARS = 120_000      # panjang maks ringkasan gabungan (longgar — output gratis, jangan dipotong)
 COMPACT_MODEL = "deepseek-v4-flash"  # model untuk compaction (ringkas riwayat); None → pakai MODEL aktif
 COMPACT_TEMPERATURE = 0.3        # sedikit kreatif agar ringkasan natural & informatif
-COMPACT_MAX_TOKENS = 8_000       # token maks output ringkasan per chunk
+COMPACT_MAX_TOKENS = 16_000      # token maks output ringkasan per chunk (gratis → minta detail maksimal)
+COMPACT_MSG_MAX_CHARS = 12_000   # batas karakter per-pesan saat menyusun payload ringkasan (naik dari 4K agar detail utuh)
 
 # Token estimation — estimasi token dari teks (char/4 untuk ASCII, lebih akurat
 # untuk campuran). Bisa disetel per-karakter untuk model tertentu.

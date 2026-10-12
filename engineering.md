@@ -147,14 +147,15 @@ MAX_READ_CHARS       → 1.500.000 karakter
 MAX_EXEC_OUTPUT_CHARS→ 200.000 karakter (stdout+stderr masing-masing)
 BINARY_SNIFF_BYTES   → 16.384 byte (deteksi file biner)
 TRUNCATION_THRESHOLD → 20.000 (baca 3 bagian + summary untuk file sangat besar)
-MAX_HISTORY_TOKENS   → 1.000.000 token estimasi (ambang trigger compaction)
+MAX_HISTORY_TOKENS   → 650.000 token estimasi (ambang trigger compaction; 65% dari window 1jt)
 COMPACT_KEEP_TURNS    → 5 (jumlah GILIRAN USER terakhir dipertahankan utuh saat compact)
 ENABLE_COMPACTION    → True (compact otomatis setelah model selesai menjawab)
-COMPACT_CHUNK_TOKENS → 300.000 (ukuran chunk saat meringkas; makin besar = makin sedikit call API = makin cepat)
-COMPACT_MAX_CHARS    → 150.000 (panjang maks ringkasan gabungan)
+COMPACT_CHUNK_TOKENS → 700.000 (ukuran chunk; ≥ MAX_HISTORY → 1 request per compact, hemat krn flat per request)
+COMPACT_MAX_CHARS    → 120.000 (panjang maks ringkasan gabungan — longgar agar tidak dipotong)
 COMPACT_MODEL        → "deepseek-v4-flash" (model khusus compaction; None = pakai MODEL aktif)
 COMPACT_TEMPERATURE  → 0.3
-COMPACT_MAX_TOKENS   → 8.000 (token maks output ringkasan per chunk)
+COMPACT_MAX_TOKENS   → 16.000 (token maks output ringkasan per chunk — output gratis, minta detail maksimal)
+COMPACT_MSG_MAX_CHARS → 12.000 (batas karakter per-pesan saat menyusun payload ringkasan)
 ESTIMATE_CHARS_PER_TOKEN → 3 (estimasi token dari teks)
 ```
 
@@ -295,13 +296,17 @@ while True:
 
 Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk mencegah "context length exceeded" TANPA membuat model halu, riwayat di-**compact** (diringkas LLM) — bukan dibuang mentah:
 
-- `MAX_HISTORY_TOKENS = 1_000_000` — saat estimasi token menyentuh ambang ini, compaction dipicu
+> **⚡ Optimasi biaya FLAT PER REQUEST** — bila provider memakai tarif flat per request (bukan per token), maka biaya = jumlah request. Karena itu konfigurasi dioptimalkan untuk **meminimalkan jumlah request**: chunk besar (≈1 request per compact), output ringkasan besar (gratis), dan pemanfaatan context window maksimal.
+
+- `MAX_HISTORY_TOKENS = 650_000` — saat estimasi token menyentuh ambang ini, compaction dipicu (65% dari window 1jt, sisakan margin untuk under-estimate token)
 - **Hanya dipanggil SETELAH model selesai menjawab** (di loop utama `chat_session`), BUKAN di tengah giliran agentic saat tool call — jadi model tak pernah "dipotong" saat berbicara
 - `COMPACT_KEEP_TURNS = 5` — 5 **GILIRAN USER** terakhir dipertahankan UTUH; sisanya diringkas. Satu giliran = blok dari pesan `user` hingga sebelum `user` berikutnya (termasuk jawaban AI & hasil tool). Jadi konteks beberapa giliran terakhir tetap utuh, bukan sekadar sekian pesan.
 - **PERMANEN** — hasil compaction disimpan ke file session (`save_session`), sehingga tidak diulang tiap call API
-- `COMPACT_CHUNK_TOKENS = 300_000` — ringkasan dibuat per-chunk (agar riwayat besar aman diringkas tanpa melampaui konteks satu call LLM). Makin besar → makin sedikit call API berurutan → makin cepat. Riwayat 1jt token = ~4 chunk (dulu 16 chunk dengan nilai 60K)
+- `COMPACT_CHUNK_TOKENS = 700_000` — ukuran chunk ≥ MAX_HISTORY → **1 request per compact** (bukan belasan). Hemat karena tarif flat per request.
 - `COMPACT_MODEL = "deepseek-v4-flash"` — **model khusus untuk compaction** (dipisah dari model chat). Diwire via parameter `model` pada `chat()`. Bisa diubah di `config.json` (key `compact_model`) atau `ruka change`
-- `COMPACT_MAX_CHARS = 150_000` — panjang maks ringkasan gabungan (dibuat DETAIL, tidak terlalu padat)
+- `COMPACT_MAX_TOKENS = 16_000` — token maks output ringkasan per chunk. Output "gratis" pada tarif flat → minta ringkasan sedetail mungkin
+- `COMPACT_MAX_CHARS = 120_000` — panjang maks ringkasan gabungan (longgar agar tidak dipotong)
+- `COMPACT_MSG_MAX_CHARS = 12_000` — batas karakter per-pesan saat menyusun payload ringkasan (detail tetap utuh)
 - Ringkasan lama ikut diringkas ulang saat compact berikutnya (tidak menumpuk — tetap 1 blok ringkasan)
 - Estimasi pakai rumus `len(text) / 4` (konservatif, UNDER-estimate teks Indonesia)
 - `chat()` TIDAK lagi memangkas riwayat; `quiet=True` dipakai saat summarization (tanpa spinner/token)
@@ -583,8 +588,9 @@ Edit di `config.py`:
 ```python
 MAX_READ_LINES = 25_000         # baca file
 MAX_EXEC_OUTPUT_CHARS = 200_000 # output command
-MAX_HISTORY_TOKENS = 1_000_000  # ambang trigger compaction
+MAX_HISTORY_TOKENS = 650_000    # ambang trigger compaction
 COMPACT_KEEP_TURNS = 5          # giliran user terakhir dipertahankan utuh saat compact
+COMPACT_CHUNK_TOKENS = 700_000  # 1 request per compact (hemat, tarif flat per request)
 ```
 
 ---
@@ -706,7 +712,7 @@ Session Format   : JSON files di SCRIPT_DIR/sessions/
 Workspace        : os.getcwd() — folder tempat user menjalankan `ruka`
 Security         : Path traversal protection, command filter, timeout
 Retry            : 7x, exponential backoff 2s → 128s
-Compaction       : 1M token estimasi → ringkas permanen (kecuali 10 pesan terakhir), disimpan ke session
+Compaction       : 650K token estimasi → ringkas permanen (kecuali 5 giliran terakhir), 1 request, disimpan ke session
 Vision           : VISION_MODEL terpisah untuk analisis gambar/screenshot
 Output Limits    : 25K baris / 1.5M chars (read), 200K chars (exec)
 Interrupt        : Queue-based real-time ('q' untuk stop)

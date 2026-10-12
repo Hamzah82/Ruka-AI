@@ -22,7 +22,7 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Workspace = Folder Pemanggil** — Workspace otomatis mengikuti folder tempat kamu menjalankan perintah (cwd). Pasang alias `ruka` lewat `install.sh`, lalu `cd` ke folder mana pun dan ketik `ruka`. Bisa juga di-override dengan `python main.py <path> <namaSesi>`. Folder `SKILL/`, `sessions/`, dan `.env` selalu diakses dari folder instalasi
 - **Konfigurasi Fleksibel via CLI** — Ubah endpoint API, model AI, dan API key dengan mudah menggunakan command `ruka change` (atau `ruka model` untuk ganti model saja). Konfigurasi disimpan di `config.json` dan aman dari commit Git
 - **Ganti Model dalam Sesi** — Slash command `/model <namaModel>` untuk mengganti model AI aktif tanpa restart, lengkap dengan **sistem alias** supaya tidak perlu mengetik nama model panjang: `/model set <alias>|<namaModel>` lalu cukup `/model <alias>`
-- **Compact Konteks Otomatis & Manual** — Saat riwayat menyentuh 1 juta token, konteks otomatis di-compact (diringkas permanen) kecuali 5 giliran terakhir. Bisa juga dipicu manual dengan `/compact` jika AI mulai terasa halu
+- **Compact Konteks Otomatis & Manual** — Saat riwayat menyentuh ambang token, konteks otomatis di-compact (diringkas permanen) kecuali 5 giliran terakhir. Bisa juga dipicu manual dengan `/compact` jika AI mulai terasa halu. Dioptimalkan untuk provider bertarif **flat per request** (1 request per compact, output ringkasan sedetail mungkin)
 
 ---
 

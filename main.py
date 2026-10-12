@@ -103,6 +103,7 @@ config.COMPACT_MAX_CHARS = dynamic_cfg['COMPACT_MAX_CHARS']
 config.COMPACT_MODEL = dynamic_cfg['COMPACT_MODEL']
 config.COMPACT_TEMPERATURE = dynamic_cfg['COMPACT_TEMPERATURE']
 config.COMPACT_MAX_TOKENS = dynamic_cfg['COMPACT_MAX_TOKENS']
+config.COMPACT_MSG_MAX_CHARS = dynamic_cfg['COMPACT_MSG_MAX_CHARS']
 config.ESTIMATE_CHARS_PER_TOKEN = dynamic_cfg['ESTIMATE_CHARS_PER_TOKEN']
 
 # Variabel global MODEL dan HEADERS harus bisa diakses langsung
@@ -5240,8 +5241,10 @@ def _summarize_chunk_detailed(chunk_messages: list) -> str:
                 content = (content + f" [memanggil tool: {names}]").strip()
         if not content:
             continue
-        if len(content) > 4000:
-            content = content[:4000] + "…[dipotong]"
+        # Batas per-pesan (config) agar detail tetap utuh tapi payload tak meledak.
+        _msg_cap = getattr(config, "COMPACT_MSG_MAX_CHARS", 12_000)
+        if len(content) > _msg_cap:
+            content = content[:_msg_cap] + "…[dipotong]"
         parts.append(f"{role}: {content}")
 
     if not parts:
@@ -5278,7 +5281,7 @@ def _summarize_chunk_detailed(chunk_messages: list) -> str:
         resp = chat(
             summary_messages,
             temperature=getattr(config, "COMPACT_TEMPERATURE", 0.3),
-            max_tokens=getattr(config, "COMPACT_MAX_TOKENS", 4000),
+            max_tokens=getattr(config, "COMPACT_MAX_TOKENS", 16_000),
             include_tools=False,
             quiet=True,   # tanpa spinner & tanpa hitung token (bukan giliran user)
             model=getattr(config, "COMPACT_MODEL", None),  # None → pakai MODEL aktif
@@ -5294,7 +5297,7 @@ def _summarize_detailed(messages: list) -> str:
     Ringkas daftar pesan secara DETAIL, dipecah per-chunk agar tidak melampaui
     batas konteks satu call LLM. Return ringkasan gabungan (string) atau "".
     """
-    chunk_tokens = getattr(config, "COMPACT_CHUNK_TOKENS", 300_000)
+    chunk_tokens = getattr(config, "COMPACT_CHUNK_TOKENS", 700_000)
     summaries = []
     cur, cur_tokens = [], 0
 
@@ -5392,7 +5395,7 @@ def compact_history(messages: list, keep_turns: int = None,
     if not summary:
         return messages, False, ""  # gagal -> jangan ubah apa pun
 
-    max_chars = getattr(config, "COMPACT_MAX_CHARS", 150_000)
+    max_chars = getattr(config, "COMPACT_MAX_CHARS", 120_000)
     if len(summary) > max_chars:
         summary = summary[:max_chars] + "\n…[ringkasan dipotong]"
 
