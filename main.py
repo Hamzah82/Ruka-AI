@@ -96,7 +96,7 @@ config.MAX_EXEC_OUTPUT_CHARS = dynamic_cfg['MAX_EXEC_OUTPUT_CHARS']
 config.BINARY_SNIFF_BYTES = dynamic_cfg['BINARY_SNIFF_BYTES']
 config.TRUNCATION_THRESHOLD = dynamic_cfg['TRUNCATION_THRESHOLD']
 config.MAX_HISTORY_TOKENS = dynamic_cfg['MAX_HISTORY_TOKENS']
-config.COMPACT_KEEP_RECENT = dynamic_cfg['COMPACT_KEEP_RECENT']
+config.COMPACT_KEEP_TURNS = dynamic_cfg['COMPACT_KEEP_TURNS']
 config.ENABLE_COMPACTION = dynamic_cfg['ENABLE_COMPACTION']
 config.COMPACT_CHUNK_TOKENS = dynamic_cfg['COMPACT_CHUNK_TOKENS']
 config.COMPACT_MAX_CHARS = dynamic_cfg['COMPACT_MAX_CHARS']
@@ -5196,7 +5196,7 @@ def _drop_orphan_tools(messages: list) -> list:
 # ============================================================
 # Dipanggil HANYA setelah model SELESAI menjawab (di loop utama), BUKAN di
 # tengah giliran agentic. Saat estimasi token menyentuh MAX_HISTORY_TOKENS,
-# SELURUH riwayat (kecuali COMPACT_KEEP_RECENT pesan terakhir) diringkas jadi
+# SELURUH riwayat (kecuali COMPACT_KEEP_TURNS giliran user terakhir) diringkas jadi
 # satu blok "RINGKASAN PERCAKAPAN SEBELUMNYA" yang DETAIL. Hasilnya disimpan
 # permanen ke file session, sehingga tidak diulang tiap call API.
 
@@ -5315,16 +5315,40 @@ def _summarize_detailed(messages: list) -> str:
     return "\n\n".join(summaries).strip()
 
 
-def compact_history(messages: list, keep_recent: int = None) -> tuple:
+def _split_into_turns(body: list) -> list:
     """
-    Compact PERMANEN: ringkas SELURUH riwayat kecuali `keep_recent` pesan
+    Pecah `body` (daftar pesan setelah prefix system) menjadi daftar GILIRAN.
+    Satu giliran = blok mulai dari pesan 'user' hingga sebelum 'user' berikutnya
+    (termasuk assistant & hasil tool di dalamnya).
+    Pesan di awal yang bukan 'user' (mis. sisa ringkasan lama / orphan) masuk ke
+    giliran pertama agar tidak hilang.
+    """
+    turns = []
+    cur = []
+    for m in body:
+        if m.get("role") == "user" and cur:
+            turns.append(cur)
+            cur = []
+        cur.append(m)
+    if cur:
+        turns.append(cur)
+    return turns
+
+
+def compact_history(messages: list, keep_turns: int = None) -> tuple:
+    """
+    Compact PERMANEN: ringkas SELURUH riwayat kecuali `keep_turns` GILIRAN USER
     terakhir. Panggil HANYA setelah model selesai menjawab.
+
+    Satu giliran = blok dari pesan 'user' hingga sebelum 'user' berikutnya
+    (termasuk jawaban AI & hasil tool). Dengan begitu konteks beberapa giliran
+    terakhir tetap UTUH — bukan sekadar sekian pesan.
 
     Returns: (new_messages, compacted: bool, info_str)
       - compacted=True -> caller WAJIB menyimpan new_messages ke session.
     """
-    if keep_recent is None:
-        keep_recent = getattr(config, "COMPACT_KEEP_RECENT", 10)
+    if keep_turns is None:
+        keep_turns = getattr(config, "COMPACT_KEEP_TURNS", 5)
 
     if not getattr(config, "ENABLE_COMPACTION", True):
         return messages, False, ""
@@ -5342,18 +5366,18 @@ def compact_history(messages: list, keep_recent: int = None) -> tuple:
         i += 1
     body = messages[i:]
 
-    if len(body) <= keep_recent:
-        return messages, False, ""  # belum cukup untuk di-compact
+    # -- Pecah body jadi giliran (boundary: role == 'user') --
+    turns = _split_into_turns(body)
 
-    # -- Titik potong: sisakan `keep_recent` pesan terakhir --
-    split = len(body) - keep_recent
-    # Jangan memotong pasangan tool: bila pesan pertama yang disisakan adalah
-    # 'tool', mundurkan titik potong agar assistant(pemanggil) ikut tersimpan.
-    while split > 0 and body[split].get("role") == "tool":
-        split -= 1
+    if len(turns) <= keep_turns:
+        return messages, False, ""  # belum cukup giliran untuk di-compact
 
-    to_compact = body[:split]
-    to_keep = body[split:]
+    # -- Sisakan `keep_turns` giliran terakhir; sisanya diringkas --
+    to_compact_turns = turns[: len(turns) - keep_turns]
+    to_keep_turns = turns[len(turns) - keep_turns:]
+
+    to_compact = [m for t in to_compact_turns for m in t]
+    to_keep = [m for t in to_keep_turns for m in t]
 
     if not to_compact:
         return messages, False, ""
@@ -5379,8 +5403,9 @@ def compact_history(messages: list, keep_recent: int = None) -> tuple:
     new_messages = _drop_orphan_tools(new_messages)
 
     info = (
-        f"Konteks di-compact: {len(to_compact)} pesan lama diringkas, "
-        f"{len(to_keep)} pesan terakhir dipertahankan utuh."
+        f"Konteks di-compact: {len(to_compact_turns)} giliran lama diringkas "
+        f"({len(to_compact)} pesan), {len(to_keep_turns)} giliran terakhir "
+        f"dipertahankan utuh ({len(to_keep)} pesan)."
     )
     return new_messages, True, info
 

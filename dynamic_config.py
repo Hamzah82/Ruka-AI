@@ -76,7 +76,7 @@ def get_dynamic_config():
     result['BINARY_SNIFF_BYTES'] = config.BINARY_SNIFF_BYTES
     result['TRUNCATION_THRESHOLD'] = config.TRUNCATION_THRESHOLD
     result['MAX_HISTORY_TOKENS'] = config.MAX_HISTORY_TOKENS
-    result['COMPACT_KEEP_RECENT'] = getattr(config, 'COMPACT_KEEP_RECENT', 10)
+    result['COMPACT_KEEP_TURNS'] = getattr(config, 'COMPACT_KEEP_TURNS', 5)
     result['ENABLE_COMPACTION'] = getattr(config, 'ENABLE_COMPACTION', True)
     result['COMPACT_CHUNK_TOKENS'] = getattr(config, 'COMPACT_CHUNK_TOKENS', 60000)
     result['COMPACT_MAX_CHARS'] = getattr(config, 'COMPACT_MAX_CHARS', 40000)

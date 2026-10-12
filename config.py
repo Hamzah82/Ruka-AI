@@ -109,10 +109,12 @@ TRUNCATION_THRESHOLD = 20_000  # ↑ dari 4,000 → naik 5x untuk model 1M conte
 #    tengah giliran saat tool call). Jadi model tak pernah "dipotong" saat bicara.
 #  - Hasil compaction bersifat PERMANEN: disimpan ke file session, sehingga
 #    tidak diulang setiap call API.
-#  - SEMUA riwayat diringkas KECUALI sejumlah pesan terakhir yang dipertahankan
-#    utuh (COMPACT_KEEP_RECENT) supaya konteks terdekat tetap akurat.
+#  - SEMUA riwayat diringkas KECUALI sejumlah GILIRAN USER terakhir yang
+#    dipertahankan utuh (COMPACT_KEEP_TURNS). Satu giliran = blok dari pesan
+#    'user' hingga sebelum pesan 'user' berikutnya (termasuk jawaban AI &
+#    hasil tool di dalamnya). Jadi konteks terdekat tetap utuh & akurat.
 MAX_HISTORY_TOKENS = 1_000_000   # ambang: sentuh 1 juta token → compact
-COMPACT_KEEP_RECENT = 10         # jumlah pesan TERAKHIR yang dipertahankan UTUH
+COMPACT_KEEP_TURNS = 5           # jumlah GILIRAN USER terakhir yang dipertahankan UTUH
 ENABLE_COMPACTION = True         # aktifkan compact otomatis setelah model selesai
 # Ringkasan dibuat per-chunk agar riwayat besar tetap bisa diringkas dengan aman
 # (tanpa mengirim 1 juta token ke satu call LLM). Ukuran chunk dalam estimasi token.
