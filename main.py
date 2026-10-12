@@ -5294,7 +5294,7 @@ def _summarize_detailed(messages: list) -> str:
     Ringkas daftar pesan secara DETAIL, dipecah per-chunk agar tidak melampaui
     batas konteks satu call LLM. Return ringkasan gabungan (string) atau "".
     """
-    chunk_tokens = getattr(config, "COMPACT_CHUNK_TOKENS", 60_000)
+    chunk_tokens = getattr(config, "COMPACT_CHUNK_TOKENS", 300_000)
     summaries = []
     cur, cur_tokens = [], 0
 

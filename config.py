@@ -118,7 +118,7 @@ COMPACT_KEEP_TURNS = 5           # jumlah GILIRAN USER terakhir yang dipertahank
 ENABLE_COMPACTION = True         # aktifkan compact otomatis setelah model selesai
 # Ringkasan dibuat per-chunk agar riwayat besar tetap bisa diringkas dengan aman
 # (tanpa mengirim 1 juta token ke satu call LLM). Ukuran chunk dalam estimasi token.
-COMPACT_CHUNK_TOKENS = 60_000    # ukuran tiap chunk saat meringkas
+COMPACT_CHUNK_TOKENS = 300_000   # ukuran tiap chunk saat meringkas (makin besar = makin sedikit call API = makin cepat)
 COMPACT_MAX_CHARS = 40_000       # panjang maks ringkasan gabungan (jangan terlalu padat)
 COMPACT_MODEL = "deepseek-v4-flash"  # model untuk compaction (ringkas riwayat); None → pakai MODEL aktif
 COMPACT_TEMPERATURE = 0.3        # sedikit kreatif agar ringkasan natural & informatif

@@ -150,7 +150,7 @@ TRUNCATION_THRESHOLD → 20.000 (baca 3 bagian + summary untuk file sangat besar
 MAX_HISTORY_TOKENS   → 1.000.000 token estimasi (ambang trigger compaction)
 COMPACT_KEEP_TURNS    → 5 (jumlah GILIRAN USER terakhir dipertahankan utuh saat compact)
 ENABLE_COMPACTION    → True (compact otomatis setelah model selesai menjawab)
-COMPACT_CHUNK_TOKENS → 60.000 (ukuran chunk saat meringkas)
+COMPACT_CHUNK_TOKENS → 300.000 (ukuran chunk saat meringkas; makin besar = makin sedikit call API = makin cepat)
 COMPACT_MAX_CHARS    → 150.000 (panjang maks ringkasan gabungan)
 COMPACT_MODEL        → "deepseek-v4-flash" (model khusus compaction; None = pakai MODEL aktif)
 COMPACT_TEMPERATURE  → 0.3
@@ -299,7 +299,7 @@ Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk men
 - **Hanya dipanggil SETELAH model selesai menjawab** (di loop utama `chat_session`), BUKAN di tengah giliran agentic saat tool call — jadi model tak pernah "dipotong" saat berbicara
 - `COMPACT_KEEP_TURNS = 5` — 5 **GILIRAN USER** terakhir dipertahankan UTUH; sisanya diringkas. Satu giliran = blok dari pesan `user` hingga sebelum `user` berikutnya (termasuk jawaban AI & hasil tool). Jadi konteks beberapa giliran terakhir tetap utuh, bukan sekadar sekian pesan.
 - **PERMANEN** — hasil compaction disimpan ke file session (`save_session`), sehingga tidak diulang tiap call API
-- `COMPACT_CHUNK_TOKENS = 60_000` — ringkasan dibuat per-chunk (agar riwayat besar aman diringkas tanpa melampaui konteks satu call LLM)
+- `COMPACT_CHUNK_TOKENS = 300_000` — ringkasan dibuat per-chunk (agar riwayat besar aman diringkas tanpa melampaui konteks satu call LLM). Makin besar → makin sedikit call API berurutan → makin cepat. Riwayat 1jt token = ~4 chunk (dulu 16 chunk dengan nilai 60K)
 - `COMPACT_MODEL = "deepseek-v4-flash"` — **model khusus untuk compaction** (dipisah dari model chat). Diwire via parameter `model` pada `chat()`. Bisa diubah di `config.json` (key `compact_model`) atau `ruka change`
 - `COMPACT_MAX_CHARS = 150_000` — panjang maks ringkasan gabungan (dibuat DETAIL, tidak terlalu padat)
 - Ringkasan lama ikut diringkas ulang saat compact berikutnya (tidak menumpuk — tetap 1 blok ringkasan)

@@ -78,7 +78,7 @@ def get_dynamic_config():
     result['MAX_HISTORY_TOKENS'] = config.MAX_HISTORY_TOKENS
     result['COMPACT_KEEP_TURNS'] = getattr(config, 'COMPACT_KEEP_TURNS', 5)
     result['ENABLE_COMPACTION'] = getattr(config, 'ENABLE_COMPACTION', True)
-    result['COMPACT_CHUNK_TOKENS'] = getattr(config, 'COMPACT_CHUNK_TOKENS', 60000)
+    result['COMPACT_CHUNK_TOKENS'] = getattr(config, 'COMPACT_CHUNK_TOKENS', 300000)
     result['COMPACT_MAX_CHARS'] = getattr(config, 'COMPACT_MAX_CHARS', 40000)
     result['COMPACT_TEMPERATURE'] = getattr(config, 'COMPACT_TEMPERATURE', 0.3)
     result['COMPACT_MAX_TOKENS'] = getattr(config, 'COMPACT_MAX_TOKENS', 8000)
