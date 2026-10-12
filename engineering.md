@@ -152,7 +152,7 @@ COMPACT_KEEP_RECENT  → 10 (jumlah pesan TERAKHIR dipertahankan utuh saat compa
 ENABLE_COMPACTION    → True (compact otomatis setelah model selesai menjawab)
 COMPACT_CHUNK_TOKENS → 60.000 (ukuran chunk saat meringkas)
 COMPACT_MAX_CHARS    → 150.000 (panjang maks ringkasan gabungan)
-COMPACT_MODEL        → None (None = pakai MODEL aktif)
+COMPACT_MODEL        → "deepseek-v4-flash" (model khusus compaction; None = pakai MODEL aktif)
 COMPACT_TEMPERATURE  → 0.3
 COMPACT_MAX_TOKENS   → 8.000 (token maks output ringkasan per chunk)
 ESTIMATE_CHARS_PER_TOKEN → 3 (estimasi token dari teks)
@@ -299,6 +299,7 @@ Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk men
 - `COMPACT_KEEP_RECENT = 10` — 10 pesan TERAKHIR dipertahankan UTUH; sisanya diringkas
 - **PERMANEN** — hasil compaction disimpan ke file session (`save_session`), sehingga tidak diulang tiap call API
 - `COMPACT_CHUNK_TOKENS = 60_000` — ringkasan dibuat per-chunk (agar riwayat besar aman diringkas tanpa melampaui konteks satu call LLM)
+- `COMPACT_MODEL = "deepseek-v4-flash"` — **model khusus untuk compaction** (dipisah dari model chat). Diwire via parameter `model` pada `chat()`. Bisa diubah di `config.json` (key `compact_model`) atau `ruka change`
 - `COMPACT_MAX_CHARS = 150_000` — panjang maks ringkasan gabungan (dibuat DETAIL, tidak terlalu padat)
 - Ringkasan lama ikut diringkas ulang saat compact berikutnya (tidak menumpuk — tetap 1 blok ringkasan)
 - Estimasi pakai rumus `len(text) / 4` (konservatif, UNDER-estimate teks Indonesia)

@@ -42,6 +42,13 @@ def get_dynamic_config():
     else:
         result['VISION_MODEL'] = config.VISION_MODEL
     
+    # Compact model (ringkas riwayat) — priority config.json, fallback config.py
+    if json_config and 'compact_model' in json_config:
+        compact_val = (json_config['compact_model'] or "").strip()
+        result['COMPACT_MODEL'] = compact_val if compact_val else config.COMPACT_MODEL
+    else:
+        result['COMPACT_MODEL'] = config.COMPACT_MODEL
+    
     api_key_json = ""
     if json_config and 'api_key' in json_config:
         api_key_json = json_config['api_key'].strip()
@@ -73,7 +80,6 @@ def get_dynamic_config():
     result['ENABLE_COMPACTION'] = getattr(config, 'ENABLE_COMPACTION', True)
     result['COMPACT_CHUNK_TOKENS'] = getattr(config, 'COMPACT_CHUNK_TOKENS', 60000)
     result['COMPACT_MAX_CHARS'] = getattr(config, 'COMPACT_MAX_CHARS', 40000)
-    result['COMPACT_MODEL'] = getattr(config, 'COMPACT_MODEL', None)
     result['COMPACT_TEMPERATURE'] = getattr(config, 'COMPACT_TEMPERATURE', 0.3)
     result['COMPACT_MAX_TOKENS'] = getattr(config, 'COMPACT_MAX_TOKENS', 8000)
     result['ESTIMATE_CHARS_PER_TOKEN'] = getattr(config, 'ESTIMATE_CHARS_PER_TOKEN', 4)

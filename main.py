@@ -2214,6 +2214,7 @@ def handle_change_config():
             "api_endpoint": "https://ai.meongtopup.my.id/v1/chat/completions",
             "model": "meng/deepseek-v4-flash",
             "vision_model": "deepseek-v4.1-flash",
+            "compact_model": "deepseek-v4-flash",
             "api_key": "",
             "updated_at": None
         }
@@ -2234,6 +2235,7 @@ def handle_change_config():
         current_endpoint = config_data.get("api_endpoint", "")
         current_model = config_data.get("model", "")
         current_vision_model = config_data.get("vision_model", "") or "deepseek-v4.1-flash"
+        current_compact_model = config_data.get("compact_model", "") or "deepseek-v4-flash"
         api_key_exists = bool(config_data.get("api_key", "").strip())
         
         # Tampilkan info saat ini
@@ -2243,6 +2245,7 @@ def handle_change_config():
         print(f"  Endpoint saat ini:   {Style.GREY_LIGHT}{current_endpoint or '(kosong)'}{Style.RESET}")
         print(f"  Model saat ini:      {Style.GREY_LIGHT}{current_model or '(kosong)'}{Style.RESET}")
         print(f"  Vision Model saat ini: {Style.GREY_LIGHT}{current_vision_model}{Style.RESET}")
+        print(f"  Compact Model saat ini: {Style.GREY_LIGHT}{current_compact_model}{Style.RESET}")
         print(f"  API Key tersimpan:   {Style.OK if api_key_exists else Style.WARN}{'Ada ✓' if api_key_exists else 'Belum set'}{Style.RESET}")
         print()
         
@@ -2261,6 +2264,11 @@ def handle_change_config():
         if not new_vision_model:
             new_vision_model = current_vision_model
         
+        # Input compact model baru
+        new_compact_model = input(f"  {Style.ACCENT}❯{Style.RESET} Compact Model (ringkas konteks, Enter untuk tetap '{current_compact_model}'): ").strip()
+        if not new_compact_model:
+            new_compact_model = current_compact_model
+
         # Input atau hapus API key
         api_key_input = input(f"  {Style.ACCENT}❯{Style.RESET} API Key baru (Ketik ENTER saja untuk HAPUS API key yang ada): ").strip()
         
@@ -2268,6 +2276,7 @@ def handle_change_config():
         config_data["api_endpoint"] = new_endpoint if new_endpoint else (config_data.get("api_endpoint", "") or "https://ai.meongtopup.my.id/v1/chat/completions")
         config_data["model"] = new_model if new_model else (config_data.get("model", "") or "meng/deepseek-v4-flash")
         config_data["vision_model"] = new_vision_model if new_vision_model else (config_data.get("vision_model", "") or "deepseek-v4.1-flash")
+        config_data["compact_model"] = new_compact_model if new_compact_model else (config_data.get("compact_model", "") or "deepseek-v4-flash")
         config_data["api_key"] = api_key_input  # Kosong jika user hanya tekan Enter
         config_data["updated_at"] = datetime.now().isoformat()
         
@@ -2283,7 +2292,8 @@ def handle_change_config():
             f"{Style.OK}✓{Style.RESET} Konfigurasi berhasil diubah!\n"
             f"  • Endpoint:   {Style.ACCENT_DIM}{saved_data['api_endpoint']}{Style.RESET}\n"
             f"  • Model:      {Style.ACCENT_DIM}{saved_data['model']}{Style.RESET}\n"
-            f"  • Vision Model: {Style.ACCENT_DIM}{saved_data.get('vision_model','deepseek-v4.1-flash')}{Style.RESET}" + 
+            f"  • Vision Model: {Style.ACCENT_DIM}{saved_data.get('vision_model','deepseek-v4.1-flash')}{Style.RESET}\n"
+            f"  • Compact Model: {Style.ACCENT_DIM}{saved_data.get('compact_model','deepseek-v4-flash')}{Style.RESET}" + 
             (f"\n  • API Key:    {Style.OK}••••••••••••✓{Style.RESET}" if saved_data.get("api_key") else "\n  • API Key:    {Style.WARN}(tidak diset){Style.RESET}")
         )
         print(f"\n{msg}")
@@ -2383,6 +2393,7 @@ def _read_config_data() -> dict:
         "api_endpoint": "https://ai.meongtopup.my.id/v1/chat/completions",
         "model": "meng/deepseek-v4-flash",
         "vision_model": "deepseek-v4.1-flash",
+        "compact_model": "deepseek-v4-flash",
         "api_key": "",
     }
 
@@ -5151,6 +5162,7 @@ def _summarize_chunk_detailed(chunk_messages: list) -> str:
             max_tokens=getattr(config, "COMPACT_MAX_TOKENS", 4000),
             include_tools=False,
             quiet=True,   # tanpa spinner & tanpa hitung token (bukan giliran user)
+            model=getattr(config, "COMPACT_MODEL", None),  # None → pakai MODEL aktif
         )
         text = (resp["choices"][0]["message"]["content"] or "").strip()
         return text
@@ -5258,17 +5270,20 @@ def compact_history(messages: list, keep_recent: int = None) -> tuple:
 def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
          max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY,
          include_tools: bool = True, vision: bool = False,
-         image_path: str = None, quiet: bool = False) -> dict:
+         image_path: str = None, quiet: bool = False,
+         model: str = None) -> dict:
     # CATATAN: TIDAK ada pemangkasan (hard-trim) di sini. Riwayat dikirim apa
     # adanya. Pemadatan konteks dilakukan SEKALI secara PERMANEN via
     # compact_history() setelah model selesai menjawab (lihat chat_session).
     # `quiet=True` → tanpa spinner & tanpa hitung token (dipakai saat summarization).
+    # `model` → override model untuk call ini (mis. COMPACT_MODEL saat ringkas).
     sent = messages
 
-    # ── Mode VISION: pakai VISION_MODEL & sisipkan gambar ke pesan user ──
-    model_used = MODEL
+    # ── Tentukan model yang dipakai ──
+    # Prioritas: parameter `model` → VISION_MODEL (bila vision) → MODEL aktif.
+    model_used = model or MODEL
     if vision:
-        model_used = config.VISION_MODEL or VISION_MODEL
+        model_used = model or config.VISION_MODEL or VISION_MODEL
         if image_path:
             img_url = _encode_image_base64(image_path)
             if img_url:
