@@ -98,33 +98,29 @@ BINARY_SNIFF_BYTES = 16384     # ↑ dari 8192 → sample lebih besar untuk dete
 TRUNCATION_THRESHOLD = 20_000  # ↑ dari 4,000 → naik 5x untuk model 1M context
 
 # ============================================================
-# HISTORY / CONTEXT WINDOW — hard-trim riwayat sebelum kirim API
+# CONTEXT / COMPACTION — ringkas riwayat secara PERMANEN
 # ============================================================
-# Riwayat 'messages' dikirim ULANG utuh tiap round agentic. Tanpa batas →
-# "context length exceeded" pada model konteks-kecil. Trim DETERMINISTIK
-# (bukan ringkasan-LLM yang rapuh): buang segmen tertua, jaga system + terbaru.
-# Catatan ambang: estimasi token memakai char/4 (cenderung UNDER-estimate teks
-# non-ASCII/Indonesia) dan TIDAK menghitung schema TOOLS + system + completion
-# yang juga memakan window → dibuat KONSERVATIF dengan margin. Tunable.
-MAX_HISTORY_TOKENS = 800_000     # ↑ dari 400,000 → naik 2x untuk model 1M context
-KEEP_RECENT_MESSAGES = 2_000_000  # ↑ dari 500,000 → naik 4x untuk menyimpan history lebih panjang
-HISTORY_TRIM_NOTICE = True       # tampilkan notice 1 baris (sekali per giliran) saat trim
-
-# ============================================================
-# SUMMARIZATION — ringkas riwayat lama secara cerdas (LLM)
-# ============================================================
-# Saat riwayat mendekati batas MAX_HISTORY_TOKENS, segmen PALING TUA
-# diringkas jadi 1-2 pesan ringkas (bukan dibuang mentah) supaya konteks
-# tetap terjaga TANPA mengirim teks penuh. Ini komplementer dengan
-# _trim_history() yang deterministik — summarization dipakai untuk
-# "memadatkan" segmen lama yang masih relevan.
-ENABLE_SUMMARIZATION = True      # aktifkan ringkasan LLM untuk riwayat lama
-SUMMARIZE_TRIGGER_RATIO = 0.7    # mulai ringkas saat riwayat ≥70% dari MAX_HISTORY_TOKENS
-SUMMARIZE_CHUNK_SIZE = 80        # pesan per chunk yang diringkas dalam satu call LLM
-SUMMARIZE_MAX_CHARS = 6_000      # panjang maks ringkasan per chunk (agar hemat token)
-SUMMARIZE_MODEL = None           # None → pakai MODEL aktif; bisa di-set model murah khusus ringkasan
-SUMMARIZE_TEMPERATURE = 0.2      # deterministik untuk ringkasan
-SUMMARIZE_MAX_TOKENS = 2_000     # token maks output ringkasan per call
+# Riwayat 'messages' dikirim ULANG utuh tiap round agentic. Saat menyentuh
+# ambang token, riwayat di-COMPACT (diringkas LLM) — bukan dibuang mentah —
+# agar konteks tetap terjaga tanpa membuat model "halu".
+#
+# PENTING:
+#  - Compaction dijalankan HANYA setelah model SELESAI menjawab (bukan di
+#    tengah giliran saat tool call). Jadi model tak pernah "dipotong" saat bicara.
+#  - Hasil compaction bersifat PERMANEN: disimpan ke file session, sehingga
+#    tidak diulang setiap call API.
+#  - SEMUA riwayat diringkas KECUALI sejumlah pesan terakhir yang dipertahankan
+#    utuh (COMPACT_KEEP_RECENT) supaya konteks terdekat tetap akurat.
+MAX_HISTORY_TOKENS = 1_000_000   # ambang: sentuh 1 juta token → compact
+COMPACT_KEEP_RECENT = 10         # jumlah pesan TERAKHIR yang dipertahankan UTUH
+ENABLE_COMPACTION = True         # aktifkan compact otomatis setelah model selesai
+# Ringkasan dibuat per-chunk agar riwayat besar tetap bisa diringkas dengan aman
+# (tanpa mengirim 1 juta token ke satu call LLM). Ukuran chunk dalam estimasi token.
+COMPACT_CHUNK_TOKENS = 60_000    # ukuran tiap chunk saat meringkas
+COMPACT_MAX_CHARS = 40_000       # panjang maks ringkasan gabungan (jangan terlalu padat)
+COMPACT_MODEL = None             # None → pakai MODEL aktif; bisa di-set model murah khusus ringkasan
+COMPACT_TEMPERATURE = 0.3        # sedikit kreatif agar ringkasan natural & informatif
+COMPACT_MAX_TOKENS = 8_000       # token maks output ringkasan per chunk
 
 # Token estimation — estimasi token dari teks (char/4 untuk ASCII, lebih akurat
 # untuk campuran). Bisa disetel per-karakter untuk model tertentu.

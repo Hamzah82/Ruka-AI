@@ -69,15 +69,13 @@ def get_dynamic_config():
     result['BINARY_SNIFF_BYTES'] = config.BINARY_SNIFF_BYTES
     result['TRUNCATION_THRESHOLD'] = config.TRUNCATION_THRESHOLD
     result['MAX_HISTORY_TOKENS'] = config.MAX_HISTORY_TOKENS
-    result['KEEP_RECENT_MESSAGES'] = config.KEEP_RECENT_MESSAGES
-    result['HISTORY_TRIM_NOTICE'] = config.HISTORY_TRIM_NOTICE
-    result['ENABLE_SUMMARIZATION'] = config.ENABLE_SUMMARIZATION
-    result['SUMMARIZE_TRIGGER_RATIO'] = getattr(config, 'SUMMARIZE_TRIGGER_RATIO', 0.7)
-    result['SUMMARIZE_CHUNK_SIZE'] = getattr(config, 'SUMMARIZE_CHUNK_SIZE', 80)
-    result['SUMMARIZE_MAX_CHARS'] = getattr(config, 'SUMMARIZE_MAX_CHARS', 6000)
-    result['SUMMARIZE_MODEL'] = getattr(config, 'SUMMARIZE_MODEL', None)
-    result['SUMMARIZE_TEMPERATURE'] = getattr(config, 'SUMMARIZE_TEMPERATURE', 0.2)
-    result['SUMMARIZE_MAX_TOKENS'] = getattr(config, 'SUMMARIZE_MAX_TOKENS', 2000)
+    result['COMPACT_KEEP_RECENT'] = getattr(config, 'COMPACT_KEEP_RECENT', 10)
+    result['ENABLE_COMPACTION'] = getattr(config, 'ENABLE_COMPACTION', True)
+    result['COMPACT_CHUNK_TOKENS'] = getattr(config, 'COMPACT_CHUNK_TOKENS', 60000)
+    result['COMPACT_MAX_CHARS'] = getattr(config, 'COMPACT_MAX_CHARS', 40000)
+    result['COMPACT_MODEL'] = getattr(config, 'COMPACT_MODEL', None)
+    result['COMPACT_TEMPERATURE'] = getattr(config, 'COMPACT_TEMPERATURE', 0.3)
+    result['COMPACT_MAX_TOKENS'] = getattr(config, 'COMPACT_MAX_TOKENS', 8000)
     result['ESTIMATE_CHARS_PER_TOKEN'] = getattr(config, 'ESTIMATE_CHARS_PER_TOKEN', 4)
     result['BLOCKED_COMMANDS'] = config.BLOCKED_COMMANDS
     

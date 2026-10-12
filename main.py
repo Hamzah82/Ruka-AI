@@ -96,15 +96,13 @@ config.MAX_EXEC_OUTPUT_CHARS = dynamic_cfg['MAX_EXEC_OUTPUT_CHARS']
 config.BINARY_SNIFF_BYTES = dynamic_cfg['BINARY_SNIFF_BYTES']
 config.TRUNCATION_THRESHOLD = dynamic_cfg['TRUNCATION_THRESHOLD']
 config.MAX_HISTORY_TOKENS = dynamic_cfg['MAX_HISTORY_TOKENS']
-config.KEEP_RECENT_MESSAGES = dynamic_cfg['KEEP_RECENT_MESSAGES']
-config.HISTORY_TRIM_NOTICE = dynamic_cfg['HISTORY_TRIM_NOTICE']
-config.ENABLE_SUMMARIZATION = dynamic_cfg['ENABLE_SUMMARIZATION']
-config.SUMMARIZE_TRIGGER_RATIO = dynamic_cfg['SUMMARIZE_TRIGGER_RATIO']
-config.SUMMARIZE_CHUNK_SIZE = dynamic_cfg['SUMMARIZE_CHUNK_SIZE']
-config.SUMMARIZE_MAX_CHARS = dynamic_cfg['SUMMARIZE_MAX_CHARS']
-config.SUMMARIZE_MODEL = dynamic_cfg['SUMMARIZE_MODEL']
-config.SUMMARIZE_TEMPERATURE = dynamic_cfg['SUMMARIZE_TEMPERATURE']
-config.SUMMARIZE_MAX_TOKENS = dynamic_cfg['SUMMARIZE_MAX_TOKENS']
+config.COMPACT_KEEP_RECENT = dynamic_cfg['COMPACT_KEEP_RECENT']
+config.ENABLE_COMPACTION = dynamic_cfg['ENABLE_COMPACTION']
+config.COMPACT_CHUNK_TOKENS = dynamic_cfg['COMPACT_CHUNK_TOKENS']
+config.COMPACT_MAX_CHARS = dynamic_cfg['COMPACT_MAX_CHARS']
+config.COMPACT_MODEL = dynamic_cfg['COMPACT_MODEL']
+config.COMPACT_TEMPERATURE = dynamic_cfg['COMPACT_TEMPERATURE']
+config.COMPACT_MAX_TOKENS = dynamic_cfg['COMPACT_MAX_TOKENS']
 config.ESTIMATE_CHARS_PER_TOKEN = dynamic_cfg['ESTIMATE_CHARS_PER_TOKEN']
 
 # Variabel global MODEL dan HEADERS harus bisa diakses langsung
@@ -1158,7 +1156,6 @@ class Spinner:
         self._turn_start_ts = 0.0   # awal giliran (di-reset hanya oleh begin_turn)
         self._turn_tokens = 0       # token EXACT terkumpul dari round yang sudah selesai
         self._live_chars = 0        # estimasi REALTIME: karakter output round berjalan
-        self._trim_notice_shown = False  # notice pangkas riwayat: cetak sekali per giliran
         self._enabled = sys.stdout.isatty()
 
     def begin_turn(self):
@@ -1166,7 +1163,6 @@ class Spinner:
         self._turn_start_ts = time.time()
         self._turn_tokens = 0
         self._live_chars = 0
-        self._trim_notice_shown = False
 
     def end_turn(self) -> float:
         """Hentikan animasi (jika ada) dan kembalikan total durasi giliran (detik).
@@ -2984,14 +2980,14 @@ def show_turn_summary(duration_secs: float, total_tokens: int = 0):
     print(f"\n  {Style.GREY_DARK}⎿ selesai dalam {_format_duration(duration_secs)}{tok}{Style.RESET}")
 
 
-def show_trim_notice(dropped: int, est_tokens: int):
+def show_compact_notice(info: str, summary_chars: int = 0):
     """
-    Notice satu baris (sekali per giliran) saat riwayat dipangkas untuk payload
-    API. Transkrip penuh tetap utuh di memori & sesi — hanya yang DIKIRIM diciutkan.
+    Notice saat riwayat di-COMPACT (diringkas permanen). Dipanggil sekali
+    setelah model selesai menjawab — bukan di tengah giliran.
     """
+    detail = f" ({_format_tokens(summary_chars // 4)} token ringkasan)" if summary_chars else ""
     print(
-        f"\n  {Style.GREY_DARK}⎿ riwayat dipangkas: {dropped} pesan lama dibuang dari konteks "
-        f"(~{_format_tokens(est_tokens)} token dikirim){Style.RESET}"
+        f"\n  {Style.ACCENT_DIM}⎿ {info}{detail}{Style.RESET}"
     )
 
 
@@ -5067,240 +5063,207 @@ def _drop_orphan_tools(messages: list) -> list:
 
 
 # ============================================================
-# SUMMARIZATION — ringkas segmen riwayat lama jadi 1 pesan
+# COMPACTION — ringkas riwayat lama secara PERMANEN
 # ============================================================
+# Dipanggil HANYA setelah model SELESAI menjawab (di loop utama), BUKAN di
+# tengah giliran agentic. Saat estimasi token menyentuh MAX_HISTORY_TOKENS,
+# SELURUH riwayat (kecuali COMPACT_KEEP_RECENT pesan terakhir) diringkas jadi
+# satu blok "RINGKASAN PERCAKAPAN SEBELUMNYA" yang DETAIL. Hasilnya disimpan
+# permanen ke file session, sehingga tidak diulang tiap call API.
 
-def _summarize_and_trim(messages: list, max_tokens: int = None, keep_recent: int = None) -> tuple:
-    """
-    Ringkas segmen tertua dari messages dengan LLM (bukan dibuang mentah).
-    
-    Strategy:
-      1. Pecah body (setelah system prompt) jadi segmen per 'user'
-      2. Ambil 1-2 segmen tertua (sekitar CHUNK_SIZE pesan)
-      3. Kirim ke LLM untuk ringkas dalam ≤ SUMMARIZE_MAX_CHARS
-      4. Ganti segmen tertua dengan ringkasan
-      5. Return messages baru + jumlah pesan yang dibuang/ditransformasi
-    
-    Returns: (messages_ringkas, dropped_count) atau (None, 0) jika gagal
-    """
+def _needs_compaction(messages: list) -> bool:
+    """True jika estimasi token riwayat sudah menyentuh ambang compaction."""
     try:
-        # Guard anti-rekursi: jangan ringkas jika sudah di dalam summarization
-        if getattr(_summarize_and_trim, "_in_progress", False):
-            return None, 0
-        _summarize_and_trim._in_progress = True
-        try:
-            return _summarize_and_trim_impl(messages, max_tokens, keep_recent)
-        finally:
-            _summarize_and_trim._in_progress = False
+        return _estimate_tokens(messages) >= config.MAX_HISTORY_TOKENS
     except Exception:
-        return None, 0
+        return False
 
 
-def _summarize_and_trim_impl(messages: list, max_tokens: int = None, keep_recent: int = None) -> tuple:
-    try:
-        if max_tokens is None:
-            max_tokens = getattr(config, "MAX_HISTORY_TOKENS", 400_000)
-        if keep_recent is None:
-            keep_recent = getattr(config, "KEEP_RECENT_MESSAGES", 500_000)
-        
-        estimated_before = _estimate_tokens(messages)
-        if estimated_before <= max_tokens:
-            return messages, 0
-        
-        # Prefix system & split body jadi segmen
-        i = 0
-        head = []
-        while i < len(messages) and messages[i].get("role") == "system":
-            head.append(messages[i])
-            i += 1
-        body = messages[i:]
-        
-        segments, cur = [], []
-        for m in body:
-            if m.get("role") == "user" and cur:
-                segments.append(cur)
-                cur = []
-            cur.append(m)
-        if cur:
-            segments.append(cur)
-        
-        if not segments or len(segments) <= 1:
-            return messages, 0  # tidak ada apa-apa untuk diringkas
-        
-        # Ambil 1 segmen tertua untuk diringkas
-        chunk_to_summarize = segments[0]  # ambil tertua
-        remaining_segments = segments[1:]
-        
-        # Bangun context untuk summarization — batasi isi agar tidak besar
-        chunk_text = []
-        for m in chunk_to_summarize:
-            content = (m.get("content") or "").strip()
-            # Potong tiap pesan agar tidak meledakkan prompt ringkasan
-            if len(content) > 1500:
-                content = content[:1500] + "...[truncated]"
-            chunk_text.append(f"{m.get('role', '?')}: {content}")
-        chunk_payload = "\n---\n".join(chunk_text)
-        # Batasi total payload ringkasan
-        if len(chunk_payload) > 20000:
-            chunk_payload = chunk_payload[:20000] + "\n...[truncated]"
-        
-        summarize_messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Kamu adalah asisten yang ahli merangkum percakapan.\n\n"
-                    "TUGAS: RINGKAS percakapan di bawah ini menjadi PARAGRAF PANJANG "
-                    "yang mencakup:\n"
-                    "- Inti pertanyaan/tugas user di setiap round\n"
-                    "- Tindakan yang telah dilakukan agent (tools call)\n"
-                    "- Hasil/konklusi penting dari setiap step\n"
-                    "\n"
-                    "ATURAN:\n"
-                    "- Gunakan Bahasa Indonesia\n"
-                    "- Panjang maksimal 600 karakter\n"
-                    "- Jangan sebut 'chat sebelumnya' atau 'round' — tulis seperti narasi kontinyu\n"
-                    "- Sertakan detail teknis penting: nama file, path, error message singkat\n"
-                    "- Hapus repetisi, urutan waktu eksplisit, marker timestamp\n"
-                    "- Format: 1-2 paragraf padat, tanpa bullet point panjang\n"
-                    "- Fokus pada isi & hasil, bukan proses internal agent\n"
-                )
-            },
-            {
-                "role": "user", 
-                "content": "Ringkas percakapan ini:\n\n" + chunk_payload
-            }
-        ]
-        
-        # Panggil LLM untuk ringkas — tanpa tools agar ringan & murah
-        model_for_summary = getattr(config, "SUMMARIZE_MODEL", None) or MODEL
-        temperature = getattr(config, "SUMMARIZE_TEMPERATURE", 0.2)
-        max_summary_tokens = getattr(config, "SUMMARIZE_MAX_TOKENS", 2000)
-        
-        summary_response = chat(
-            summarize_messages,
-            temperature=temperature,
-            max_tokens=max_summary_tokens,
-            include_tools=False  # hemat: tidak perlu tool untuk ringkasan
-        )
-        
-        summary_content = (summary_response["choices"][0]["message"]["content"] or "").strip()
-        if not summary_content:
-            return None, 0
-        
-        # Batasi panjang ringkasan agar benar-benar hemat
-        max_chars = getattr(config, "SUMMARIZE_MAX_CHARS", 6000)
-        if len(summary_content) > max_chars:
-            summary_content = summary_content[:max_chars]
-        
-        # Ganti segmen tertua dengan ringkasan
-        summarized_segment = [{
+def _summarize_chunk_detailed(chunk_messages: list) -> str:
+    """
+    Ringkas SATU chunk percakapan menjadi ringkasan DETAIL (tidak terlalu padat)
+    memakai LLM tanpa tools. Return teks ringkasan, atau "" bila gagal.
+    """
+    parts = []
+    for m in chunk_messages:
+        role = m.get("role", "?")
+        if role == "tool":
+            role = "hasil_tool"
+        content = m.get("content")
+        # Konten multi-part (vision) -> ambil teksnya saja
+        if isinstance(content, list):
+            texts = []
+            for c in content:
+                if isinstance(c, dict) and c.get("type") == "text":
+                    texts.append(c.get("text", ""))
+                elif isinstance(c, dict) and c.get("type") == "image_url":
+                    texts.append("[gambar]")
+            content = " ".join(texts)
+        content = (content or "").strip()
+        # Sertakan nama tool yang dipanggil agar konteks tindakan tetap terekam
+        tcs = m.get("tool_calls") or []
+        if tcs:
+            names = ", ".join(
+                (tc.get("function") or {}).get("name", "?") for tc in tcs
+            )
+            if names:
+                content = (content + f" [memanggil tool: {names}]").strip()
+        if not content:
+            continue
+        if len(content) > 4000:
+            content = content[:4000] + "…[dipotong]"
+        parts.append(f"{role}: {content}")
+
+    if not parts:
+        return ""
+
+    payload = "\n".join(parts)
+
+    summary_messages = [
+        {
             "role": "system",
-            "content": f"\n\n📋 RINGKASAN PERCAKAPAN SEBELUMNYA:\n{summary_content}"
-        }]
-        
-        new_messages = head + summarized_segment
-        for seg in remaining_segments:
-            new_messages.extend(seg)
-        
-        # Bersihkan orphan tools hasil penggantian segmen
-        new_messages = _drop_orphan_tools(new_messages)
-        
-        dropped = len(chunk_to_summarize) - len(summarized_segment)
-        return new_messages, dropped
-        
+            "content": (
+                "Kamu adalah asisten yang ahli merangkum percakapan teknis antara "
+                "user dan sebuah AI agent.\n\n"
+                "TUGAS: Buat ringkasan yang DETAIL dan LENGKAP dari percakapan di bawah.\n\n"
+                "PERTAHANKAN (jangan hilangkan):\n"
+                "- Permintaan/tugas utama user di setiap bagian percakapan\n"
+                "- Keputusan teknis yang diambil beserta alasannya\n"
+                "- Nama file, path, perintah, dan parameter penting\n"
+                "- Hasil/konklusi penting dari setiap langkah\n"
+                "- Error yang muncul beserta solusinya\n"
+                "- Status akhir (apa yang sudah selesai, apa yang belum)\n\n"
+                "ATURAN:\n"
+                "- Gunakan Bahasa Indonesia\n"
+                "- Utamakan KELENGKAPAN informasi daripada keringkasan\n"
+                "- Format: paragraf + bullet point terstruktur per topik\n"
+                "- JANGAN mengarang hal yang tidak ada di percakapan\n"
+                "- Jangan sebut 'round' atau 'pesan ke-N' — tulis sebagai narasi\n"
+            ),
+        },
+        {"role": "user", "content": "Ringkas percakapan ini:\n\n" + payload},
+    ]
+
+    try:
+        resp = chat(
+            summary_messages,
+            temperature=getattr(config, "COMPACT_TEMPERATURE", 0.3),
+            max_tokens=getattr(config, "COMPACT_MAX_TOKENS", 4000),
+            include_tools=False,
+            quiet=True,   # tanpa spinner & tanpa hitung token (bukan giliran user)
+        )
+        text = (resp["choices"][0]["message"]["content"] or "").strip()
+        return text
     except Exception:
-        # Fallback: gagal → biarkan hard-trim yang menangani
-        return None, 0
-    return out
+        return ""
 
 
-def _trim_history(messages: list, max_tokens: int = None, keep_recent: int = None) -> tuple:
+def _summarize_detailed(messages: list) -> str:
     """
-    Hard-trim DETERMINISTIK untuk PAYLOAD API — TIDAK memutasi input.
-    Buang SEGMEN tertua (segmen = blok mulai role=='user' hingga 'user' berikutnya;
-    interrupt bisa membuka segmen baru di tengah giliran), pertahankan pesan system
-    di depan & minimal `keep_recent` pesan terbaru. Returns (messages_baru, dibuang).
-
-    Karena pembuangan SELALU dari kepala & boundary di 'user', pasangan
-    assistant(tool_calls)↔tool tak pernah terputus. Hasil TIDAK dijamin <=
-    max_tokens bila lantai keep_recent / sisa 1 segmen menghalangi (lebih baik
-    kirim sedikit kelebihan daripada merusak riwayat). OUTPUT LIMITS = lapis-1.
+    Ringkas daftar pesan secara DETAIL, dipecah per-chunk agar tidak melampaui
+    batas konteks satu call LLM. Return ringkasan gabungan (string) atau "".
     """
-    if max_tokens is None:
-        max_tokens = config.MAX_HISTORY_TOKENS
+    chunk_tokens = getattr(config, "COMPACT_CHUNK_TOKENS", 60_000)
+    summaries = []
+    cur, cur_tokens = [], 0
+
+    for m in messages:
+        mt = _estimate_tokens([m])
+        if cur and (cur_tokens + mt) > chunk_tokens:
+            s = _summarize_chunk_detailed(cur)
+            if s:
+                summaries.append(s)
+            cur, cur_tokens = [], 0
+        cur.append(m)
+        cur_tokens += mt
+
+    if cur:
+        s = _summarize_chunk_detailed(cur)
+        if s:
+            summaries.append(s)
+
+    return "\n\n".join(summaries).strip()
+
+
+def compact_history(messages: list, keep_recent: int = None) -> tuple:
+    """
+    Compact PERMANEN: ringkas SELURUH riwayat kecuali `keep_recent` pesan
+    terakhir. Panggil HANYA setelah model selesai menjawab.
+
+    Returns: (new_messages, compacted: bool, info_str)
+      - compacted=True -> caller WAJIB menyimpan new_messages ke session.
+    """
     if keep_recent is None:
-        keep_recent = config.KEEP_RECENT_MESSAGES
+        keep_recent = getattr(config, "COMPACT_KEEP_RECENT", 10)
 
-    messages = list(messages)  # copy agar tidak memutasi input
-    total_dropped = 0
+    if not getattr(config, "ENABLE_COMPACTION", True):
+        return messages, False, ""
+    if not _needs_compaction(messages):
+        return messages, False, ""
 
-    while True:
-        estimated = _estimate_tokens(messages)
-        if estimated <= max_tokens:
-            return messages, total_dropped
+    # -- Prefix system (system prompt utama) tidak ikut diringkas --
+    # Berhenti juga saat menemukan ringkasan lama -> ikut diringkas ulang.
+    head = []
+    i = 0
+    while i < len(messages) and messages[i].get("role") == "system":
+        if "RINGKASAN PERCAKAPAN SEBELUMNYA" in (messages[i].get("content") or ""):
+            break
+        head.append(messages[i])
+        i += 1
+    body = messages[i:]
 
-        # ── Summarization (opsional) — ringkas segmen tertua jika aktif ─────────
-        # Bila riwayat sudah ≥ SUMMARIZE_TRIGGER_RATIO dari ambang, coba padatkan
-        # segmen paling tua jadi ringkasan LLM (bukan buang mentah). Jika gagal
-        # (mis. API error) → fallback ke hard-trim deterministik di bawah.
-        if getattr(config, "ENABLE_SUMMARIZATION", False):
-            ratio = estimated / max_tokens if max_tokens else 0
-            if ratio >= getattr(config, "SUMMARIZE_TRIGGER_RATIO", 0.7):
-                try:
-                    summarized, dropped = _summarize_and_trim(messages, max_tokens, keep_recent)
-                    if summarized is not None and len(summarized) < len(messages):
-                        messages = summarized
-                        total_dropped += dropped
-                        continue  # loop ulang: cek apakah masih > max_tokens
-                except Exception:
-                    pass  # fallback ke hard-trim di bawah
+    if len(body) <= keep_recent:
+        return messages, False, ""  # belum cukup untuk di-compact
 
-        # ── Hard-trim deterministik (fallback / setelah summarization) ─────────
-        # Prefix system (tak pernah dibuang).
-        i = 0
-        head = []
-        while i < len(messages) and messages[i].get("role") == "system":
-            head.append(messages[i])
-            i += 1
-        body = messages[i:]
+    # -- Titik potong: sisakan `keep_recent` pesan terakhir --
+    split = len(body) - keep_recent
+    # Jangan memotong pasangan tool: bila pesan pertama yang disisakan adalah
+    # 'tool', mundurkan titik potong agar assistant(pemanggil) ikut tersimpan.
+    while split > 0 and body[split].get("role") == "tool":
+        split -= 1
 
-        # Pecah body jadi segmen (boundary: role == 'user').
-        segments, cur = [], []
-        for m in body:
-            if m.get("role") == "user" and cur:
-                segments.append(cur)
-                cur = []
-            cur.append(m)
-        if cur:
-            segments.append(cur)
+    to_compact = body[:split]
+    to_keep = body[split:]
 
-        if not segments or len(segments) <= 1:
-            return messages, total_dropped  # sudah minimal, tak bisa trim lagi
+    if not to_compact:
+        return messages, False, ""
 
-        # Buang segmen dari KEPALA selama: >1 segmen, masih di atas ambang.
-        while len(segments) > 1:
-            if _estimate_tokens(head + [m for s in segments for m in s]) <= max_tokens:
-                break
-            remaining = sum(len(s) for s in segments)
-            if remaining - len(segments[0]) < keep_recent:
-                break
-            total_dropped += len(segments.pop(0))
+    # -- Ringkas bagian lama secara DETAIL --
+    summary = _summarize_detailed(to_compact)
+    if not summary:
+        return messages, False, ""  # gagal -> jangan ubah apa pun
 
-        trimmed = _drop_orphan_tools(head + [m for s in segments for m in s])
-        drop_count = len(messages) - len(trimmed)
-        return trimmed, total_dropped + drop_count
+    max_chars = getattr(config, "COMPACT_MAX_CHARS", 150_000)
+    if len(summary) > max_chars:
+        summary = summary[:max_chars] + "\n…[ringkasan dipotong]"
+
+    summary_msg = {
+        "role": "system",
+        "content": (
+            "📋 RINGKASAN PERCAKAPAN SEBELUMNYA (di-compact agar hemat konteks):\n\n"
+            + summary
+        ),
+    }
+
+    new_messages = head + [summary_msg] + to_keep
+    new_messages = _drop_orphan_tools(new_messages)
+
+    info = (
+        f"Konteks di-compact: {len(to_compact)} pesan lama diringkas, "
+        f"{len(to_keep)} pesan terakhir dipertahankan utuh."
+    )
+    return new_messages, True, info
 
 
 def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
          max_retries: int = MAX_RETRIES, retry_base_delay: float = RETRY_BASE_DELAY,
          include_tools: bool = True, vision: bool = False,
-         image_path: str = None) -> dict:
-    # Hard-trim riwayat HANYA untuk payload yang dikirim (transkrip pemanggil &
-    # save_session tetap utuh). Notice maksimum sekali per giliran.
-    sent, dropped = _trim_history(messages)
-    if dropped and config.HISTORY_TRIM_NOTICE and not _spinner._trim_notice_shown:
-        show_trim_notice(dropped, _estimate_tokens(sent))
-        _spinner._trim_notice_shown = True
+         image_path: str = None, quiet: bool = False) -> dict:
+    # CATATAN: TIDAK ada pemangkasan (hard-trim) di sini. Riwayat dikirim apa
+    # adanya. Pemadatan konteks dilakukan SEKALI secara PERMANEN via
+    # compact_history() setelah model selesai menjawab (lihat chat_session).
+    # `quiet=True` → tanpa spinner & tanpa hitung token (dipakai saat summarization).
+    sent = messages
 
     # ── Mode VISION: pakai VISION_MODEL & sisipkan gambar ke pesan user ──
     model_used = MODEL
@@ -5342,8 +5305,10 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
 
     for attempt in range(1, max_retries + 1):
         # Spinner animasi berjalan selama menunggu respons API.
-        _spinner.start()
-        _spinner.reset_live()  # estimasi output round ini mulai dari nol
+        # Mode quiet (mis. summarization) → tanpa spinner & tanpa hitung token.
+        if not quiet:
+            _spinner.start()
+            _spinner.reset_live()  # estimasi output round ini mulai dari nol
         try:
             response = requests.post(API_URL, headers=HEADERS, json=payload,
                                      timeout=120, stream=True)
@@ -5354,16 +5319,18 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
             # Fold token EXACT round ini ke total giliran. total_tokens (prompt +
             # completion) = token yang benar-benar diproses; dijumlah lintas round
             # = total giliran. Jika provider tak kirim usage, pakai estimasi output.
-            usage = data.get("usage") or {}
-            total = usage.get("total_tokens")
-            _spinner.add_tokens(total if total else _spinner.estimate_live_tokens())
-            _spinner.reset_live()
+            if not quiet:
+                usage = data.get("usage") or {}
+                total = usage.get("total_tokens")
+                _spinner.add_tokens(total if total else _spinner.estimate_live_tokens())
+                _spinner.reset_live()
             return data
 
         except Exception as e:
-            _spinner.reset_live()
-            # Hentikan spinner SEBELUM mencetak pesan retry/error.
-            _spinner.stop()
+            if not quiet:
+                _spinner.reset_live()
+                # Hentikan spinner SEBELUM mencetak pesan retry/error.
+                _spinner.stop()
             # Klasifikasi pesan error agar tetap informatif tanpa duplikasi blok.
             if isinstance(e, requests.exceptions.HTTPError):
                 error_msg = f"HTTP {e.response.status_code}: {e.response.text[:80]}"
@@ -5379,14 +5346,16 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
             last_error = e
             if attempt < max_retries:
                 delay = retry_base_delay * (2 ** (attempt - 1))
-                show_retry(error_msg, attempt, max_retries, delay)
+                if not quiet:
+                    show_retry(error_msg, attempt, max_retries, delay)
                 time.sleep(delay)
-            else:
+            elif not quiet:
                 show_retry_giving_up(error_msg)
 
         finally:
             # Apapun hasilnya, hentikan spinner sebelum mencetak apa pun.
-            _spinner.stop()
+            if not quiet:
+                _spinner.stop()
 
     raise last_error
 
@@ -6204,7 +6173,18 @@ def chat_session(session_name: str = None):
                 # Ringkasan kecil & redup: berapa lama giliran ini berjalan + token
                 show_turn_summary(turn_secs, _spinner.turn_tokens)
 
-                # CLEANUP: Hapus temporary skill message jika ada (agar tidak bocor ke session)
+                # ── COMPACT konteks (PERMANEN) — HANYA setelah model selesai ──
+                # Model sudah berhenti bicara di titik ini, jadi aman meringkas.
+                # Hasil compaction disimpan ke session (tidak diulang tiap call API).
+                try:
+                    new_messages, compacted, info = compact_history(messages)
+                    if compacted:
+                        messages = new_messages
+                        show_compact_notice(info, _estimate_tokens(messages))
+                except Exception as _ce:
+                    # Compaction gagal → jangan ganggu alur; riwayat tetap utuh.
+                    pass
+
                 # Auto-save setelah setiap exchange
                 save_session(session_name, messages)
 

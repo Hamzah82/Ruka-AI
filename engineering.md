@@ -147,14 +147,18 @@ MAX_READ_CHARS       → 1.500.000 karakter
 MAX_EXEC_OUTPUT_CHARS→ 200.000 karakter (stdout+stderr masing-masing)
 BINARY_SNIFF_BYTES   → 16.384 byte (deteksi file biner)
 TRUNCATION_THRESHOLD → 20.000 (baca 3 bagian + summary untuk file sangat besar)
-MAX_HISTORY_TOKENS   → 800.000 token estimasi (trim riwayat sebelum kirim API)
-KEEP_RECENT_MESSAGES → 2.000.000 (lantai keras pesan terbaru dipertahankan)
-HISTORY_TRIM_NOTICE  → True (tampilkan notice saat trim)
-ENABLE_SUMMARIZATION → True (ringkas riwayat lama secara LLM)
+MAX_HISTORY_TOKENS   → 1.000.000 token estimasi (ambang trigger compaction)
+COMPACT_KEEP_RECENT  → 10 (jumlah pesan TERAKHIR dipertahankan utuh saat compact)
+ENABLE_COMPACTION    → True (compact otomatis setelah model selesai menjawab)
+COMPACT_CHUNK_TOKENS → 60.000 (ukuran chunk saat meringkas)
+COMPACT_MAX_CHARS    → 150.000 (panjang maks ringkasan gabungan)
+COMPACT_MODEL        → None (None = pakai MODEL aktif)
+COMPACT_TEMPERATURE  → 0.3
+COMPACT_MAX_TOKENS   → 8.000 (token maks output ringkasan per chunk)
 ESTIMATE_CHARS_PER_TOKEN → 3 (estimasi token dari teks)
 ```
 
-> Konfigurasi juga bisa di-set via `config.json`. Prioritas: `config.json` (untuk `api_endpoint`, `model`, `api_key`) menimpa `config.py`; nilai lain mengikuti `config.py`.
+> Konfigurasi juga bisa di-set via `config.json`. Prioritas: `config.json` (untuk `api_endpoint`, `model`, `api_key`, `vision_model`) menimpa `config.py`; nilai lain mengikuti `config.py`.
 
 ### 4.2 Interrupt Mechanism
 
@@ -286,14 +290,19 @@ while True:
     9. Kembali ke step 4
 ```
 
-### Context Window & History Trim
+### Context Window & Compaction
 
-Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk mencegah "context length exceeded":
+Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk mencegah "context length exceeded" TANPA membuat model halu, riwayat di-**compact** (diringkas LLM) — bukan dibuang mentah:
 
-- `MAX_HISTORY_TOKENS = 800_000` — jika estimasi token melebihi ini, segmen riwayat tertua dibuang
-- System message dan pesan terbaru selalu dipertahankan
-- `HISTORY_TRIM_NOTICE = True` — satu baris notice ditampilkan saat trim terjadi
+- `MAX_HISTORY_TOKENS = 1_000_000` — saat estimasi token menyentuh ambang ini, compaction dipicu
+- **Hanya dipanggil SETELAH model selesai menjawab** (di loop utama `chat_session`), BUKAN di tengah giliran agentic saat tool call — jadi model tak pernah "dipotong" saat berbicara
+- `COMPACT_KEEP_RECENT = 10` — 10 pesan TERAKHIR dipertahankan UTUH; sisanya diringkas
+- **PERMANEN** — hasil compaction disimpan ke file session (`save_session`), sehingga tidak diulang tiap call API
+- `COMPACT_CHUNK_TOKENS = 60_000` — ringkasan dibuat per-chunk (agar riwayat besar aman diringkas tanpa melampaui konteks satu call LLM)
+- `COMPACT_MAX_CHARS = 150_000` — panjang maks ringkasan gabungan (dibuat DETAIL, tidak terlalu padat)
+- Ringkasan lama ikut diringkas ulang saat compact berikutnya (tidak menumpuk — tetap 1 blok ringkasan)
 - Estimasi pakai rumus `len(text) / 4` (konservatif, UNDER-estimate teks Indonesia)
+- `chat()` TIDAK lagi memangkas riwayat; `quiet=True` dipakai saat summarization (tanpa spinner/token)
 
 ---
 
@@ -570,7 +579,8 @@ Edit di `config.py`:
 ```python
 MAX_READ_LINES = 25_000         # baca file
 MAX_EXEC_OUTPUT_CHARS = 200_000 # output command
-MAX_HISTORY_TOKENS = 800_000    # context window trim
+MAX_HISTORY_TOKENS = 1_000_000  # ambang trigger compaction
+COMPACT_KEEP_RECENT = 10        # pesan terakhir dipertahankan utuh saat compact
 ```
 
 ---
@@ -687,12 +697,13 @@ Architecture     : Single-file CLI agent (main.py ~4.900 baris) + config.py + dy
 AI Backend       : OpenRouter API (OpenAI-compatible)
 Default Model    : meng/deepseek-v4-flash
 Model Override   : config.json → RUKA_MODEL env → config.py → /model dalam sesi (dengan alias)
-Tools            : 13 (file ops, folder ops, exec_command, discuss)
+Tools            : 15 (file ops, folder ops, exec_command, discuss, GUI control)
 Session Format   : JSON files di SCRIPT_DIR/sessions/
 Workspace        : os.getcwd() — folder tempat user menjalankan `ruka`
 Security         : Path traversal protection, command filter, timeout
 Retry            : 7x, exponential backoff 2s → 128s
-History Trim     : 800K token estimasi, deterministik + LLM summarization opsional
+Compaction       : 1M token estimasi → ringkas permanen (kecuali 10 pesan terakhir), disimpan ke session
+Vision           : VISION_MODEL terpisah untuk analisis gambar/screenshot
 Output Limits    : 25K baris / 1.5M chars (read), 200K chars (exec)
 Interrupt        : Queue-based real-time ('q' untuk stop)
 UI               : FooterUI floating prompt (ANSI scroll region) + fallback linear
