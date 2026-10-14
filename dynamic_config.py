@@ -48,6 +48,17 @@ def get_dynamic_config():
         result['COMPACT_MODEL'] = compact_val if compact_val else config.COMPACT_MODEL
     else:
         result['COMPACT_MODEL'] = config.COMPACT_MODEL
+
+    # Notifikasi suara — priority config.json, fallback config.py
+    # (WAJIB dibaca dari config.json agar /notif on|off bertahan antar-restart)
+    if json_config and 'notif_enabled' in json_config:
+        result['NOTIF_ENABLED'] = bool(json_config['notif_enabled'])
+    else:
+        result['NOTIF_ENABLED'] = getattr(config, 'NOTIF_ENABLED', False)
+    if json_config and 'notif_sound' in json_config and json_config['notif_sound']:
+        result['NOTIF_SOUND'] = json_config['notif_sound']
+    else:
+        result['NOTIF_SOUND'] = getattr(config, 'NOTIF_SOUND', "complete")
     
     api_key_json = ""
     if json_config and 'api_key' in json_config:
@@ -85,8 +96,6 @@ def get_dynamic_config():
     result['COMPACT_MAX_TOKENS'] = getattr(config, 'COMPACT_MAX_TOKENS', 16000)
     result['COMPACT_MSG_MAX_CHARS'] = getattr(config, 'COMPACT_MSG_MAX_CHARS', 12000)
     result['ESTIMATE_CHARS_PER_TOKEN'] = getattr(config, 'ESTIMATE_CHARS_PER_TOKEN', 4)
-    result['NOTIF_ENABLED'] = getattr(config, 'NOTIF_ENABLED', False)
-    result['NOTIF_SOUND'] = getattr(config, 'NOTIF_SOUND', "complete")
     result['NOTIF_SOUND_DIRS'] = getattr(config, 'NOTIF_SOUND_DIRS', [])
     result['BLOCKED_COMMANDS'] = config.BLOCKED_COMMANDS
     
