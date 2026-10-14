@@ -4741,6 +4741,7 @@ def tool_gui_window(action: str, title: str = "", x: int = 0, y: int = 0,
 _MEMORY_START = "<!--MEMORY_START-->"
 _MEMORY_END = "<!--MEMORY_END-->"
 _memory_dirty = False          # flag: index berubah → system prompt perlu refresh
+_memory_index_mtime = [None]   # cache mtime index.json (deteksi perubahan dari sesi lain)
 _memory_lock = threading.RLock()   # kunci antar-thread (dalam satu proses)
 _memory_flock = None               # modul fcntl (Unix) untuk kunci antar-PROSES
 
@@ -4797,10 +4798,20 @@ def _memory_index_path() -> str:
     return os.path.join(config.MEMORY_DIR, "index.json")
 
 def _slugify(name: str) -> str:
-    """Ubah nama jadi slug aman (huruf kecil, angka, tanda hubung)."""
+    """
+    Ubah nama jadi slug aman (huruf kecil, angka, tanda hubung).
+    Dibatasi panjangnya agar tidak melampaui batas nama file filesystem
+    (umumnya 255 byte) — file slug + ".md" harus muat. Bila nama dipotong,
+    tambahkan hash singkat agar dua nama panjang berbeda tidak bertabrakan.
+    """
     s = (name or "").strip().lower()
     s = re.sub(r"[^\w\s-]", "", s)
     s = re.sub(r"[\s_]+", "-", s).strip("-")
+    MAXLEN = 100
+    if len(s) > MAXLEN:
+        import hashlib
+        h = hashlib.md5(s.encode("utf-8")).hexdigest()[:8]
+        s = s[:MAXLEN - 9].strip("-") + "-" + h
     return s or "untitled"
 
 def _load_memory_index() -> dict:
@@ -4886,6 +4897,45 @@ def _refresh_memory_in_prompt(messages: list) -> bool:
                 updated = True
             break
     return updated
+
+
+def _memory_index_fingerprint():
+    """
+    Fingerprint murah index.json untuk deteksi perubahan dari sesi lain:
+    (mtime_ns, size). Menggabungkan keduanya agar tetap sensitif walau
+    granularitas mtime filesystem kasar. Return None bila file tak ada.
+    """
+    try:
+        st = os.stat(_memory_index_path())
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+def _memory_maybe_refresh(messages: list) -> bool:
+    """
+    Refresh blok memory di system prompt BILA perlu:
+      - flag _memory_dirty (perubahan lokal: memory_write/delete di proses ini), ATAU
+      - fingerprint index.json berubah (perubahan dari SESI/PROSES LAIN).
+    Dipanggil di akhir setiap giliran. Murah: cek os.stat dulu sebelum rebuild.
+
+    Return True bila blok di-refresh.
+    """
+    global _memory_dirty
+    changed_on_disk = (_memory_index_fingerprint() != _memory_index_mtime[0])
+
+    if not (_memory_dirty or changed_on_disk):
+        return False
+
+    try:
+        refreshed = _refresh_memory_in_prompt(messages)
+    except Exception:
+        refreshed = False
+
+    # Perbarui cache & reset flag (hindari rebuild terus-menerus walau prompt
+    # tak berubah, mis. marker tidak ada di sesi lama).
+    _memory_dirty = False
+    _memory_index_mtime[0] = _memory_index_fingerprint()
+    return refreshed
 
 def tool_memory_list() -> str:
     """Tampilkan daftar semua catatan dari index."""
@@ -6898,6 +6948,13 @@ def chat_session(session_name: str = None):
             
             messages.append({"role": "user", "content": user_input})
 
+            # Refresh blok memory SEBELUM kirim ke API — menangkap perubahan
+            # dari SESI/PROSES LAIN (mis. catatan baru ditulis sesi lain).
+            try:
+                _memory_maybe_refresh(messages)
+            except Exception:
+                pass
+
             # Mulai timer giliran — titik nol yang bertahan menembus semua tool call
             _spinner.begin_turn()
             try:
@@ -6938,16 +6995,14 @@ def chat_session(session_name: str = None):
                         unlock_input()
                         _drain_input_queue()
 
-                # ── Refresh blok memory di system prompt (jika index berubah) ──
-                # Auto-inject: agar AI selalu melihat daftar catatan TERBARU
-                # (mis. setelah memory_write/delete dalam giliran ini).
-                global _memory_dirty
-                if _memory_dirty:
-                    try:
-                        if _refresh_memory_in_prompt(messages):
-                            _memory_dirty = False
-                    except Exception:
-                        pass
+                # ── Refresh blok memory di system prompt (bila perlu) ──
+                # Auto-inject: agar AI selalu melihat daftar catatan TERBARU.
+                # Dicek via flag lokal (_memory_dirty) ATAU fingerprint index
+                # (menangkap perubahan dari SESI/PROSES LAIN). Murah.
+                try:
+                    _memory_maybe_refresh(messages)
+                except Exception:
+                    pass
 
                 # Auto-save setelah setiap exchange
                 save_session(session_name, messages)

@@ -368,13 +368,22 @@ data/memory/
 - Ringkasan index (slug + keterangan) disisipkan ke system prompt di antara marker
   `<!--MEMORY_START-->` … `<!--MEMORY_END-->` → AI SELALU melihat daftar catatan
   tanpa perlu memanggil `memory_list`.
-- Saat `memory_write`/`memory_delete` dipanggil, flag global `_memory_dirty = True`.
-- Di akhir setiap giliran (`chat_session`), jika `_memory_dirty`, `_refresh_memory_in_prompt()`
-  mengganti blok memory dengan versi terbaru → index di konteks selalu fresh.
+- `_memory_maybe_refresh(messages)` dipanggil di **awal & akhir setiap giliran**.
+  Refresh dijalankan bila salah satu terpenuhi:
+  1. **flag lokal** `_memory_dirty = True` (set oleh `memory_write`/`memory_delete`
+     di proses ini), ATAU
+  2. **fingerprint index berubah** — `_memory_index_fingerprint()` = `(mtime_ns, size)`
+     dibandingkan dengan cache `_memory_index_mtime`. Ini menangkap perubahan dari
+     **SESI/PROSES LAIN** (multi-terminal) sehingga konteks tetap sinkron.
 - Refresh HANYA mengganti blok antar marker (bukan rebuild seluruh prompt ~89KB) → hemat.
+  Cek `os.stat` dulu sebelum rebuild → sangat murah bila tak ada perubahan.
 - SEMUA catatan ditampilkan di blok (tanpa batas) — hanya slug + keterangan singkat
   (~13 token per catatan), jadi sangat hemat. Isi detail tetap via `memory_read`/`memory_search`.
 - Isi detail tetap dibaca fresh dari disk via `memory_read`/`memory_search`.
+- **Crash-safe**: file catatan `.md` ditulis via `_atomic_write_text()` (tmp → fsync →
+  `os.replace`), jadi tak pernah setengah-jadi & pembaca tak melihat konten parsial.
+- **Nama aman**: `_slugify()` membatasi panjang (100 char) + hash bila dipotong
+  (hindari tabrakan & error "File name too long"), menetralkan path traversal.
 
 **Konkurensi (anti lost-update):**
 - `_memory_file_lock()` — context manager yang mengunci operasi read-modify-write
