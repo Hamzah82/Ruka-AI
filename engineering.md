@@ -372,7 +372,8 @@ data/memory/
 - Di akhir setiap giliran (`chat_session`), jika `_memory_dirty`, `_refresh_memory_in_prompt()`
   mengganti blok memory dengan versi terbaru → index di konteks selalu fresh.
 - Refresh HANYA mengganti blok antar marker (bukan rebuild seluruh prompt ~89KB) → hemat.
-- Batas tampilan: `_MEMORY_MAX_LIST = 40` catatan (hemat token; sisanya via `memory_list`).
+- SEMUA catatan ditampilkan di blok (tanpa batas) — hanya slug + keterangan singkat
+  (~13 token per catatan), jadi sangat hemat. Isi detail tetap via `memory_read`/`memory_search`.
 - Isi detail tetap dibaca fresh dari disk via `memory_read`/`memory_search`.
 
 **Catatan:**

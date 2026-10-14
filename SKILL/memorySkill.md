@@ -75,8 +75,8 @@ Kamu lihat daftar catatan di system prompt (otomatis)
    → jika mencatat hal baru, panggil memory_write (daftar auto-refresh)
 ```
 
-> Daftar dibatasi maksimal 40 catatan di prompt (hemat token). Jika lebih,
-> gunakan `memory_list` untuk melihat semuanya.
+> SEMUA catatan ditampilkan di prompt (tanpa batas) — karena hanya slug +
+> keterangan singkat, sangat hemat token (~13 token per catatan).
 
 ---
 

@@ -4713,7 +4713,6 @@ def tool_gui_window(action: str, title: str = "", x: int = 0, y: int = 0,
 
 _MEMORY_START = "<!--MEMORY_START-->"
 _MEMORY_END = "<!--MEMORY_END-->"
-_MEMORY_MAX_LIST = 40          # maks catatan yang ditampilkan di prompt (hemat token)
 _memory_dirty = False          # flag: index berubah → system prompt perlu refresh
 
 def _ensure_memory_dir():
@@ -4760,8 +4759,8 @@ def _memory_path(slug: str) -> str:
 def _build_memory_section() -> str:
     """
     Bangun blok ringkasan memory untuk disisipkan ke system prompt.
-    Berisi daftar slug + keterangan (bukan isi penuh — agar hemat token).
-    Dibatasi _MEMORY_MAX_LIST catatan. Selalu dibungkus marker START/END.
+    Berisi daftar slug + keterangan (BUKAN isi penuh) — jadi sangat hemat token,
+    sehingga SEMUA catatan ditampilkan tanpa batas. Selalu dibungkus marker.
     """
     try:
         index = _load_memory_index()
@@ -4775,14 +4774,11 @@ def _build_memory_section() -> str:
     else:
         slugs = sorted(index.keys())
         total = len(slugs)
-        shown = slugs[:_MEMORY_MAX_LIST]
         lines = [f"🧠 MEMORY LINTAS-SESI — {total} catatan tersimpan:"]
-        for slug in shown:
+        for slug in slugs:
             meta = index.get(slug, {}) or {}
             desc = meta.get("description", "(tanpa keterangan)")
             lines.append(f"  • {slug} — {desc}")
-        if total > len(shown):
-            lines.append(f"  … (+{total - len(shown)} catatan lain; gunakan memory_list)")
         lines.append("Gunakan memory_read <nama> untuk isi lengkap, "
                      "memory_search <kw> untuk mencari.")
         body = "\n".join(lines)
