@@ -1222,6 +1222,7 @@ class Spinner:
         self._suffix = None         # teks pengganti "(... · q untuk interupsi)"
         self._turn_start_ts = 0.0   # awal giliran (di-reset hanya oleh begin_turn)
         self._turn_tokens = 0       # token EXACT terkumpul dari round yang sudah selesai
+        self._turn_requests = 0     # jumlah request API yang ditembakkan dalam giliran
         self._live_chars = 0        # estimasi REALTIME: karakter output round berjalan
         self._enabled = sys.stdout.isatty()
 
@@ -1229,6 +1230,7 @@ class Spinner:
         """Tandai awal giliran baru — titik nol timer & token. Dipanggil sekali per prompt user."""
         self._turn_start_ts = time.time()
         self._turn_tokens = 0
+        self._turn_requests = 0
         self._live_chars = 0
 
     def end_turn(self) -> float:
@@ -1252,6 +1254,13 @@ class Spinner:
         except (TypeError, ValueError):
             pass
 
+    def add_request(self, n: int = 1):
+        """Tambah hitungan request API yang ditembakkan dalam giliran ini."""
+        try:
+            self._turn_requests += int(n)
+        except (TypeError, ValueError):
+            pass
+
     def add_live_chars(self, c: int):
         """Tambah karakter output yang baru di-stream → estimasi token realtime naik."""
         self._live_chars += c
@@ -1268,6 +1277,11 @@ class Spinner:
     def turn_tokens(self) -> int:
         """Total token EXACT giliran (dipakai untuk ringkasan akhir)."""
         return self._turn_tokens
+
+    @property
+    def turn_requests(self) -> int:
+        """Total request API yang ditembakkan selama giliran ini."""
+        return self._turn_requests
 
     @property
     def display_tokens(self) -> int:
@@ -1308,10 +1322,15 @@ class Spinner:
                 f" · {_format_tokens_counter(live_tokens)}"
                 if live_tokens > 0 else ""
             )
+            # Jumlah request API yang sudah ditembakkan pada giliran ini.
+            req = (
+                f" · {self._turn_requests} request"
+                if self._turn_requests > 0 else ""
+            )
             content = (
                 f"{Style.ACCENT}{frame}{Style.RESET}  "
                 f"{Style.GREY_LIGHT}{word}…{Style.RESET} "
-                f"{Style.GREY}({_format_duration(elapsed)}{tok}"
+                f"{Style.GREY}({_format_duration(elapsed)}{tok}{req}"
                 f"{self._suffix if self._suffix is not None else ' · q untuk interupsi'})"
                 f"{Style.RESET}"
             )
@@ -3082,15 +3101,16 @@ def _emit_agent_text(text: str, interrupted: bool = False):
         print(f"  {ln}" if ln.strip() else "")
 
 
-def show_turn_summary(duration_secs: float, total_tokens: int = 0):
+def show_turn_summary(duration_secs: float, total_tokens: int = 0, total_requests: int = 0):
     """
-    Ringkasan kecil & redup setelah jawaban akhir: total durasi & token giliran.
-    Contoh:  ⎿ selesai dalam 12s | token : 13.2k
+    Ringkasan kecil & redup setelah jawaban akhir: total durasi, token, & request giliran.
+    Contoh:  ⎿ selesai dalam 12s | token : 13.2k | request : 3
     """
     if duration_secs <= 0:
         return
     tok = f" | token : {_format_tokens(total_tokens)}" if total_tokens > 0 else ""
-    print(f"\n  {Style.GREY_DARK}⎿ selesai dalam {_format_duration(duration_secs)}{tok}{Style.RESET}")
+    req = f" | request : {total_requests}" if total_requests > 0 else ""
+    print(f"\n  {Style.GREY_DARK}⎿ selesai dalam {_format_duration(duration_secs)}{tok}{req}{Style.RESET}")
 
 
 def show_compact_notice(info: str, summary_chars: int = 0):
@@ -6067,6 +6087,8 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
                 total = usage.get("total_tokens")
                 _spinner.add_tokens(total if total else _spinner.estimate_live_tokens())
                 _spinner.reset_live()
+                # Hitung request yang BERHASIL (bukan retry yang gagal).
+                _spinner.add_request(1)
             return data
 
         except Exception as e:
@@ -6971,8 +6993,8 @@ def chat_session(session_name: str = None):
                 if was_interrupted:
                     print(f"\n  {Style.GREY}■ Sesi agent diinterupsi. Kembali ke prompt utama.{Style.RESET}")
 
-                # Ringkasan kecil & redup: berapa lama giliran ini berjalan + token
-                show_turn_summary(turn_secs, _spinner.turn_tokens)
+                # Ringkasan kecil & redup: berapa lama giliran ini berjalan + token + request
+                show_turn_summary(turn_secs, _spinner.turn_tokens, _spinner.turn_requests)
 
                 # ── COMPACT konteks (PERMANEN) — HANYA setelah model selesai ──
                 # Model sudah berhenti bicara di titik ini, jadi aman meringkas.
@@ -7237,7 +7259,7 @@ if __name__ == "__main__":
                 reply, _, was_interrupted = process_response(msgs, data)
                 turn_secs = _spinner.end_turn()
                 _emit_agent_text(reply, interrupted=was_interrupted)
-                show_turn_summary(turn_secs, _spinner.turn_tokens)
+                show_turn_summary(turn_secs, _spinner.turn_tokens, _spinner.turn_requests)
                 print()
             except Exception as e:
                 _spinner.end_turn()

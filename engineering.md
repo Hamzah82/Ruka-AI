@@ -175,6 +175,23 @@ _check_interrupt_nonblock() → Cek queue non-blocking, deteksi 'q'
 Kelas `FooterUI` — floating prompt di bawah layar via ANSI scroll region.
 Lihat [Bagian 8](#8-footerui--floating-prompt) untuk detail.
 
+### 4.3b Spinner & Counter
+
+Kelas `Spinner` — animasi status satu-baris selama menunggu API. Menampilkan
+durasi giliran, token, dan **jumlah request API**:
+
+```
+✷  Menelaah… (3s · 12,500 Token · 2 request · q untuk interupsi)
+```
+
+- `begin_turn()` — reset timer, token, dan `_turn_requests` (per giliran).
+- `add_tokens(n)` — tambah token EXACT dari `usage` setelah satu round selesai.
+- `add_request(n=1)` — tambah hitungan request **sukses** (retry gagal tidak dihitung).
+- `turn_requests` (property) — total request dalam giliran ini.
+- `show_turn_summary(durasi, token, request)` — ringkasan akhir giliran:
+  `⎿ selesai dalam 12s | token : 13.2k | request : 3`
+- `quiet=True` (mis. summarization/compaction) → tidak dihitung (bukan giliran user).
+
 ### 4.4 Terminal Formatter
 
 Kelas `TerminalFormatter` — konversi markdown ke styled terminal output.

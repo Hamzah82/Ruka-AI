@@ -71,13 +71,15 @@ Ruka AI mengadopsi gaya antarmuka **bersih dan minimalis ala Claude Code** — f
 
   Total 76 baris.
 
-  ⎿ selesai dalam 12s
+  ⎿ selesai dalam 12s | token : 13.2k | request : 3
 ```
 
 > Saat menunggu respons API, spinner animasi berdenyut menampilkan status & timer:
-> `✷  Menelaah… (3s · q untuk interupsi)`
+> `✷  Menelaah… (3s · 12,500 Token · 2 request · q untuk interupsi)`
 >
-> Timer berjalan untuk **satu giliran penuh** — dari prompt user sampai jawaban akhir — dan tidak ter-reset di antara pemanggilan tool. Setelah selesai, durasi total ditampilkan sebagai ringkasan kecil & redup: `⎿ selesai dalam 12s`.
+> Timer berjalan untuk **satu giliran penuh** — dari prompt user sampai jawaban akhir — dan tidak ter-reset di antara pemanggilan tool. Setelah selesai, durasi total ditampilkan sebagai ringkasan kecil & redup: `⎿ selesai dalam 12s | token : 13.2k | request : 3`.
+>
+> **Counter request** menghitung berapa kali API ditembak selama satu giliran (termasuk semua round multi-step agentic). Retry yang gagal **tidak** dihitung — hanya request yang berhasil.
 
 Elemen visual: aksen **coral** hangat sebagai warna utama, skala abu-abu berlapis untuk teks sekunder, titik status **hijau** (sukses) / **merah** (error) pada setiap tool, serta panel rounded-corner `╭─╮`.
 
