@@ -85,6 +85,9 @@ def get_dynamic_config():
     result['COMPACT_MAX_TOKENS'] = getattr(config, 'COMPACT_MAX_TOKENS', 16000)
     result['COMPACT_MSG_MAX_CHARS'] = getattr(config, 'COMPACT_MSG_MAX_CHARS', 12000)
     result['ESTIMATE_CHARS_PER_TOKEN'] = getattr(config, 'ESTIMATE_CHARS_PER_TOKEN', 4)
+    result['NOTIF_ENABLED'] = getattr(config, 'NOTIF_ENABLED', False)
+    result['NOTIF_SOUND'] = getattr(config, 'NOTIF_SOUND', "complete")
+    result['NOTIF_SOUND_DIRS'] = getattr(config, 'NOTIF_SOUND_DIRS', [])
     result['BLOCKED_COMMANDS'] = config.BLOCKED_COMMANDS
     
     return result

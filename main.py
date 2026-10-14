@@ -106,6 +106,9 @@ config.COMPACT_TEMPERATURE = dynamic_cfg['COMPACT_TEMPERATURE']
 config.COMPACT_MAX_TOKENS = dynamic_cfg['COMPACT_MAX_TOKENS']
 config.COMPACT_MSG_MAX_CHARS = dynamic_cfg['COMPACT_MSG_MAX_CHARS']
 config.ESTIMATE_CHARS_PER_TOKEN = dynamic_cfg['ESTIMATE_CHARS_PER_TOKEN']
+config.NOTIF_ENABLED = dynamic_cfg['NOTIF_ENABLED']
+config.NOTIF_SOUND = dynamic_cfg['NOTIF_SOUND']
+config.NOTIF_SOUND_DIRS = dynamic_cfg['NOTIF_SOUND_DIRS']
 
 # Variabel global MODEL dan HEADERS harus bisa diakses langsung
 MODEL = config.MODEL
@@ -2660,6 +2663,8 @@ def show_help():
     _help_row("/model alias", "Daftar alias model yang tersimpan")
     _help_row("/model rm <alias>", "Hapus alias model")
     _help_row("/compact", "Compact konteks manual (jika AI mulai halu)")
+    _help_row("/notif on|off", "Nyalakan/matikan notifikasi suara saat giliran selesai")
+    _help_row("/notif set", "Picker interaktif memilih suara notifikasi")
     _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
 
     _help_section("CLI command (dari terminal)")
@@ -4744,6 +4749,301 @@ def tool_gui_window(action: str, title: str = "", x: int = 0, y: int = 0,
         return _run_gui(["wmctrl", "-r", title, "-e", f"0,{x},{y},-1,-1"])
     else:
         return f"Error: aksi window '{action}' tidak dikenal."
+
+
+# ============================================================
+# NOTIFIKASI SUARA - bunyi saat giliran AI selesai
+# ============================================================
+# Memutar suara notifikasi saat giliran AI selesai ("selesai dalam ..."),
+# agar user tahu pekerjaan sudah kelar walau tidak menatap terminal.
+# Konfigurasi: config.NOTIF_ENABLED / NOTIF_SOUND / NOTIF_SOUND_DIRS.
+# Toggle runtime via slash command: /notif on | /notif off | /notif set
+
+# Pemutar audio yang dicoba berurutan (yang tersedia di PATH dipakai).
+_NOTIF_PLAYERS = [
+    "paplay",      # PulseAudio/PipeWire
+    "pw-play",     # PipeWire native
+    "aplay",       # ALSA
+    "canberra-gtk-play",
+    "ffplay",      # ffmpeg
+    "mpv",
+    "play",        # sox
+]
+
+def _find_audio_player():
+    """Kembalikan nama player audio yang tersedia, atau None."""
+    for p in _NOTIF_PLAYERS:
+        if shutil.which(p):
+            return p
+    return None
+
+
+def _scan_sound_files() -> list:
+    """
+    Pindai folder suara sistem (config.NOTIF_SOUND_DIRS) dan kumpulkan file
+    audio (.oga/.ogg/.wav/.mp3/.flac/.m4a). Return list dict {name, path, dir}.
+    """
+    exts = (".oga", ".ogg", ".wav", ".mp3", ".flac", ".m4a")
+    found = []
+    seen = set()
+    for d in (getattr(config, "NOTIF_SOUND_DIRS", None) or []):
+        if not os.path.isdir(d):
+            continue
+        try:
+            for fn in sorted(os.listdir(d)):
+                if not fn.lower().endswith(exts):
+                    continue
+                full = os.path.join(d, fn)
+                if not os.path.isfile(full):
+                    continue
+                name = os.path.splitext(fn)[0]
+                if name in seen:
+                    continue
+                seen.add(name)
+                found.append({"name": name, "path": full, "dir": d})
+        except OSError:
+            continue
+    return found
+
+
+def _resolve_sound_path(name):
+    """
+    Cari path file suara berdasarkan nama dasar (tanpa ekstensi) atau path langsung.
+    Return path absolut bila ada, atau None.
+    """
+    if not name:
+        return None
+    if os.path.isabs(name) and os.path.isfile(name):
+        return name
+    for s in _scan_sound_files():
+        if s["name"] == name:
+            return s["path"]
+    low = name.lower()
+    for s in _scan_sound_files():
+        if low in s["name"].lower():
+            return s["path"]
+    return None
+
+
+def play_notification_sound(sound=None) -> bool:
+    """
+    Putar suara notifikasi. Non-blocking (background thread) agar tidak
+    menghambat alur. Return True bila berhasil memicu pemutaran.
+    `sound` = nama dasar suara; default config.NOTIF_SOUND.
+    """
+    if sound is None:
+        sound = getattr(config, "NOTIF_SOUND", "complete")
+    path = _resolve_sound_path(sound)
+    if not path:
+        return False
+    player = _find_audio_player()
+    if not player:
+        return False
+    cmd = [player, path]
+
+    def _play():
+        try:
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+    try:
+        threading.Thread(target=_play, daemon=True).start()
+        return True
+    except Exception:
+        return False
+
+
+def notify_turn_done():
+    """Putar suara notifikasi bila fitur aktif (dipanggil saat giliran selesai)."""
+    try:
+        if getattr(config, "NOTIF_ENABLED", False):
+            play_notification_sound()
+    except Exception:
+        pass
+
+
+# -- Pengaturan notifikasi (config.json + fallback config.py) --
+
+def _get_notif_settings() -> dict:
+    """Baca pengaturan notifikasi: config.json menimpa default config.py."""
+    cfg = _read_config_data()
+    enabled = cfg.get("notif_enabled", getattr(config, "NOTIF_ENABLED", False))
+    sound = cfg.get("notif_sound", getattr(config, "NOTIF_SOUND", "complete"))
+    return {"enabled": bool(enabled), "sound": sound or "complete"}
+
+
+def _save_notif_settings(enabled=None, sound=None):
+    """Simpan pengaturan notifikasi ke config.json (persisten)."""
+    cfg = _read_config_data()
+    if enabled is not None:
+        cfg["notif_enabled"] = bool(enabled)
+    if sound is not None:
+        cfg["notif_sound"] = sound
+    _write_config_data(cfg)
+    try:
+        s = _get_notif_settings()
+        config.NOTIF_ENABLED = s["enabled"]
+        config.NOTIF_SOUND = s["sound"]
+    except Exception:
+        pass
+
+
+def _notif_status_text() -> str:
+    """Teks status notifikasi untuk ditampilkan ke user."""
+    s = _get_notif_settings()
+    state = "AKTIF" if s["enabled"] else "MATI"
+    return f"Notifikasi: {state} . suara: {s['sound']}"
+
+
+def pick_sound_interactive():
+    """
+    TUI picker suara interaktif (ala pick_model_interactive):
+      - panah atas/bawah navigasi, kiri/kanan ganti halaman, Enter PREVIEW
+        (putar suara), q batal.
+      - Setelah preview, tekan Enter SEKALI LAGI untuk menyetel suara itu.
+    Fallback ke input nomor jika termios tidak tersedia.
+    Return nama suara yang dipilih (disetel), atau None bila dibatalkan.
+    """
+    sounds = _scan_sound_files()
+    if not sounds:
+        print(f"\n  {Style.WARN}x{Style.RESET} {Style.GREY}Tidak ada file suara ditemukan di folder sistem.{Style.RESET}")
+        return None
+
+    n = len(sounds)
+    PAGE_SIZE = 15
+    total_pages = (n + PAGE_SIZE - 1) // PAGE_SIZE
+
+    if not _HAS_TERMIOS or not sys.stdin.isatty():
+        print(f"\n  {Style.ACCENT}*{Style.RESET} {Style.BOLD}Pilih Suara Notifikasi{Style.RESET}")
+        print(f"  {_rule()}")
+        for i, s in enumerate(sounds, 1):
+            print(f"  {Style.GREY_DARK}{i:>3}{Style.RESET} {Style.GREY_LIGHT}{s['name']}{Style.RESET}")
+        print()
+        try:
+            choice = input(f"  {Style.GREY}Nomor suara (Enter untuk batal): {Style.RESET}").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not choice:
+            return None
+        if choice.isdigit():
+            i = int(choice) - 1
+            return sounds[i]["name"] if 0 <= i < n else None
+        return None
+
+    page = 0
+    idx = 0
+    previewed = False
+
+    def _page_items(p):
+        return sounds[p * PAGE_SIZE: p * PAGE_SIZE + PAGE_SIZE]
+
+    prev_scroll = [2 + len(_page_items(0))]
+
+    def _render(p, sel, first_draw):
+        items = _page_items(p)
+        cur_scroll = 2 + len(items)
+        if not first_draw:
+            sys.stdout.write(f"\033[{prev_scroll[0]}A\r\033[J")
+        out = [""]
+        pg_hint = (f"  {Style.GREY}Hal. {p + 1}/{total_pages}  {Style.GREY_DARK}<- ->{Style.RESET}"
+                   if total_pages > 1 else "")
+        hint = ("Enter SET suara ini . panah pilih . q batal"
+                if previewed else
+                "Enter dengar (preview) . panah pilih . q batal")
+        out.append(
+            f"  {Style.ACCENT}*{Style.RESET} {Style.BOLD}Pilih Suara Notifikasi{Style.RESET}"
+            f"  {Style.GREY}({n} suara){Style.RESET}"
+            f"  {Style.GREY_DARK}{hint}{Style.RESET}{pg_hint}"
+        )
+        out.append(f"  {_rule()}")
+        for i, s in enumerate(items):
+            is_sel = (i == sel)
+            if is_sel:
+                marker = f"{Style.ACCENT}>{Style.RESET}"
+                nm = f"{Style.ACCENT}{Style.BOLD}"
+                meta = Style.GREY_LIGHT
+            else:
+                marker = " "
+                nm = Style.GREY_LIGHT
+                meta = Style.GREY
+            tag = f"  {Style.OK}> preview{Style.RESET}" if (is_sel and previewed) else ""
+            out.append(f"  {marker} {nm}{s['name']}{Style.RESET}{meta}{tag}{Style.RESET}")
+        sys.stdout.write("\n".join(out))
+        sys.stdout.flush()
+        prev_scroll[0] = cur_scroll
+
+    _render(page, idx, first_draw=True)
+
+    fd = sys.stdin.fileno()
+    old_attrs = termios.tcgetattr(fd)
+
+    def _read1():
+        return os.read(fd, 1).decode("latin-1")
+
+    try:
+        new_attrs = termios.tcgetattr(fd)
+        new_attrs[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
+        new_attrs[6][termios.VMIN] = 1
+        new_attrs[6][termios.VTIME] = 0
+        termios.tcsetattr(fd, termios.TCSADRAIN, new_attrs)
+
+        while True:
+            ch = _read1()
+            if ch == "\x1b":
+                r, _, _ = select.select([fd], [], [], 0.05)
+                if r:
+                    nxt = _read1()
+                    if nxt == "[":
+                        arrow = _read1()
+                        items = _page_items(page)
+                        if arrow == "A":
+                            idx = (idx - 1) % len(items)
+                            previewed = False
+                            _render(page, idx, first_draw=False)
+                        elif arrow == "B":
+                            idx = (idx + 1) % len(items)
+                            previewed = False
+                            _render(page, idx, first_draw=False)
+                        elif arrow == "C":
+                            if total_pages > 1:
+                                page = (page + 1) % total_pages
+                                idx = 0
+                                previewed = False
+                                _render(page, idx, first_draw=False)
+                        elif arrow == "D":
+                            if total_pages > 1:
+                                page = (page - 1) % total_pages
+                                idx = 0
+                                previewed = False
+                                _render(page, idx, first_draw=False)
+                else:
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return None
+
+            elif ch in ("\r", "\n"):
+                selected = _page_items(page)[idx]
+                if not previewed:
+                    play_notification_sound(selected["name"])
+                    previewed = True
+                    _render(page, idx, first_draw=False)
+                else:
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return selected["name"]
+
+            elif ch in ("q", "Q", "\x03"):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return None
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
 
 
 # ============================================================
@@ -6852,6 +7152,51 @@ def chat_session(session_name: str = None):
                     _drain_input_queue()
                 continue
 
+            # ── /notif — atur notifikasi suara (on|off|set) ─────────────
+            if user_input.lower().strip().startswith("/notif"):
+                parts = user_input.split(maxsplit=1)
+                sub = parts[1].strip().lower() if len(parts) > 1 else ""
+
+                if sub in ("on", "aktif", "nyala"):
+                    _save_notif_settings(enabled=True)
+                    print(f"\n  {Style.OK}●{Style.RESET} {Style.GREY_LIGHT}Notifikasi suara diaktifkan.{Style.RESET}")
+                    print(f"  {Style.GREY}{_notif_status_text()}{Style.RESET}")
+                elif sub in ("off", "mati", "nonaktif"):
+                    _save_notif_settings(enabled=False)
+                    print(f"\n  {Style.WARN}●{Style.RESET} {Style.GREY_LIGHT}Notifikasi suara dimatikan.{Style.RESET}")
+                    print(f"  {Style.GREY}{_notif_status_text()}{Style.RESET}")
+                elif sub in ("set", "pilih", "choose"):
+                    # Picker interaktif: Enter = preview, Enter lagi = set
+                    _stop_input_reader()
+                    if _footer is not None and _footer.armed:
+                        _footer.disarm()
+                    try:
+                        chosen = pick_sound_interactive()
+                    finally:
+                        if _footer is not None:
+                            _footer.arm(idle_hint=(
+                                f"{Style.GREY}Ketik pesan · {Style.GREY_LIGHT}/help{Style.GREY} bantuan · "
+                                f"{Style.GREY_LIGHT}exit{Style.GREY} keluar{Style.RESET}"
+                            ))
+                        _start_input_reader()
+                    if chosen:
+                        _save_notif_settings(sound=chosen)
+                        print(f"\n  {Style.OK}●{Style.RESET} {Style.GREY_LIGHT}Suara notifikasi diset:{Style.RESET} {Style.ACCENT}{chosen}{Style.RESET}")
+                        print(f"  {Style.GREY}{_notif_status_text()}{Style.RESET}")
+                    else:
+                        print(f"\n  {Style.GREY}Dibatalkan.{Style.RESET}")
+                elif sub in ("test", "coba", "play"):
+                    s = _get_notif_settings()
+                    ok = play_notification_sound(s["sound"])
+                    if ok:
+                        print(f"\n  {Style.OK}●{Style.RESET} {Style.GREY_LIGHT}Memutar suara:{Style.RESET} {Style.ACCENT}{s['sound']}{Style.RESET}")
+                    else:
+                        print(f"\n  {Style.WARN}●{Style.RESET} {Style.GREY}Gagal memutar (file suara/player tidak ditemukan).{Style.RESET}")
+                else:
+                    print(f"\n  {Style.GREY}{_notif_status_text()}{Style.RESET}")
+                    print(f"  {Style.GREY_DARK}Penggunaan: /notif on | /notif off | /notif set | /notif test{Style.RESET}")
+                continue
+
             # ── /models — picker model interaktif ────────────────────────
             if user_input.lower().strip() in ("/models", "/model-list", "/model-picker"):
                 # Nonaktifkan FooterUI & input reader sementara agar picker
@@ -6995,6 +7340,7 @@ def chat_session(session_name: str = None):
 
                 # Ringkasan kecil & redup: berapa lama giliran ini berjalan + token + request
                 show_turn_summary(turn_secs, _spinner.turn_tokens, _spinner.turn_requests)
+                notify_turn_done()   # putar suara notifikasi bila fitur aktif
 
                 # ── COMPACT konteks (PERMANEN) — HANYA setelah model selesai ──
                 # Model sudah berhenti bicara di titik ini, jadi aman meringkas.
@@ -7260,6 +7606,7 @@ if __name__ == "__main__":
                 turn_secs = _spinner.end_turn()
                 _emit_agent_text(reply, interrupted=was_interrupted)
                 show_turn_summary(turn_secs, _spinner.turn_tokens, _spinner.turn_requests)
+                notify_turn_done()   # putar suara notifikasi bila fitur aktif
                 print()
             except Exception as e:
                 _spinner.end_turn()

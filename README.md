@@ -24,6 +24,7 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Ganti Model dalam Sesi** — Slash command `/model <namaModel>` untuk mengganti model AI aktif tanpa restart, lengkap dengan **sistem alias** supaya tidak perlu mengetik nama model panjang: `/model set <alias>|<namaModel>` lalu cukup `/model <alias>`
 - **Compact Konteks Otomatis & Manual** — Saat riwayat menyentuh ambang token, konteks otomatis di-compact (diringkas permanen) kecuali 5 giliran terakhir. Bisa juga dipicu manual dengan `/compact` jika AI mulai terasa halu. Dioptimalkan untuk provider bertarif **flat per request** (1 request per compact, output ringkasan sedetail mungkin)
 - **Memori Lintas-Sesi** — Ruka dapat mencatat hal penting (preferensi user, keputusan proyek, konfigurasi) ke catatan persisten yang tersimpan di `data/memory/`. Catatan berupa file `.md` terpisah per materi + index `json`, sehingga pengetahuan tetap tersedia di sesi mendatang. Daftar catatan otomatis disisipkan ke konteks (auto-inject) dan di-refresh saat ada perubahan
+- **Notifikasi Suara** — Saat giliran AI selesai, laptop bisa membunyikan suara notifikasi agar kamu tahu pekerjaan sudah kelar walau tidak menatap terminal. Nyalakan/matikan dengan `/notif on|off`, pilih suara lewat picker interaktif `/notif set` (Enter pertama = dengar preview, Enter kedua = set)
 
 ---
 
@@ -427,6 +428,8 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - `/model alias` — Daftar alias model yang tersimpan
 - `/model rm <alias>` — Hapus alias model
 - `/compact` — Compact konteks manual (jika AI mulai halu)
+- `/notif on|off` — Nyalakan/matikan notifikasi suara saat giliran selesai
+- `/notif set` — Picker interaktif memilih suara notifikasi
 - `/team <tugas>` — Bentuk tim & diskusi kolaboratif multi-agent
 
 > Slash command tetap menggunakan format kebab-case dengan prefix `/`.

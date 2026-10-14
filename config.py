@@ -146,6 +146,24 @@ COMPACT_MSG_MAX_CHARS = 12_000   # batas karakter per-pesan saat menyusun payloa
 ESTIMATE_CHARS_PER_TOKEN = 3     # ↑ dari 4 → lebih aggressive untuk 1M context window
 
 # ============================================================
+# NOTIFIKASI SUARA — bunyi saat giliran AI selesai
+# ============================================================
+# Saat giliran AI selesai (muncul "⎿ selesai dalam …"), putar suara notifikasi
+# agar user tahu pekerjaan sudah kelar walau sedang tidak menatap terminal.
+# Bisa di-toggle runtime via slash command: /notif on | /notif off | /notif set
+NOTIF_ENABLED = False            # default mati (user nyalakan via /notif on)
+# Suara default: nama file di folder suara sistem (lihat NOTIF_SOUND_DIRS).
+# /notif set menampilkan picker interaktif untuk memilih suara.
+NOTIF_SOUND = "complete"         # nama dasar (tanpa ekstensi) — mis. 'complete.oga'
+# Folder yang dipindai untuk mencari file suara (yang ada dipakai).
+NOTIF_SOUND_DIRS = [
+    "/usr/share/sounds/freedesktop/stereo",
+    "/usr/share/sounds/LinuxMint/stereo",
+    "/usr/share/sounds/alsa",
+    "/usr/share/sounds",
+]
+
+# ============================================================
 # SECURITY — BLOCKED COMMANDS
 # ============================================================
 # Perintah yang TIDAK BOLEH dijalankan oleh agent.

@@ -192,6 +192,29 @@ durasi giliran, token, dan **jumlah request API**:
   `⎿ selesai dalam 12s | token : 13.2k | request : 3`
 - `quiet=True` (mis. summarization/compaction) → tidak dihitung (bukan giliran user).
 
+### 4.3c Notifikasi Suara
+
+Memutar suara saat giliran AI selesai (dipanggil bersama `show_turn_summary`).
+
+- `_NOTIF_PLAYERS` — daftar pemutar audio yang dicoba berurutan:
+  `paplay`, `pw-play`, `aplay`, `canberra-gtk-play`, `ffplay`, `mpv`, `play`.
+  `_find_audio_player()` mengembalikan yang pertama tersedia di PATH.
+- `_scan_sound_files()` — pindai `config.NOTIF_SOUND_DIRS` untuk file
+  `.oga/.ogg/.wav/.mp3/.flac/.m4a`; return list `{name, path, dir}`.
+- `_resolve_sound_path(name)` — cari path suara by nama dasar / path langsung.
+- `play_notification_sound(sound)` — putar **non-blocking** (thread daemon);
+  return True bila berhasil memicu.
+- `notify_turn_done()` — dipanggil saat giliran selesai; putar bila
+  `config.NOTIF_ENABLED`.
+- `_get_notif_settings()` / `_save_notif_settings()` — baca/tulis pengaturan
+  (`notif_enabled`, `notif_sound`) di `config.json` (persisten, menimpa config.py).
+- `pick_sound_interactive()` — TUI picker suara (ala `pick_model_interactive`):
+  ↑↓ navigasi, ←→ halaman, **Enter pertama = preview**, **Enter kedua = set**,
+  `q` batal. Fallback ke input nomor bila non-TTY.
+
+Slash command: `/notif on|off`, `/notif set`, `/notif test`.
+Konfigurasi (`config.py`): `NOTIF_ENABLED`, `NOTIF_SOUND`, `NOTIF_SOUND_DIRS`.
+
 ### 4.4 Terminal Formatter
 
 Kelas `TerminalFormatter` — konversi markdown ke styled terminal output.
@@ -247,6 +270,8 @@ Slash commands dalam sesi:
 /model alias            → daftar alias model
 /model rm <alias>       → hapus alias model
 /compact                → compact konteks manual (paksa ringkas riwayat)
+/notif on|off           → nyalakan/matikan notifikasi suara saat giliran selesai
+/notif set              → picker interaktif memilih suara notifikasi
 /team <tugas>           → bentuk tim & diskusi kolaboratif multi-agent
 /help                   → tampilkan bantuan
 /clear                  → bersihkan layar
@@ -576,6 +601,8 @@ Session disimpan di 2 titik:
 | `/model alias` | Daftar alias model |
 | `/model rm <alias>` | Hapus alias model |
 | `/compact` | Compact konteks manual (paksa ringkas riwayat) |
+| `/notif on|off` | Nyalakan/matikan notifikasi suara |
+| `/notif set` | Picker interaktif memilih suara notifikasi |
 | `/team <tugas>` | Diskusi multi-agent |
 | `python main.py listSessions` | CLI: list sessions |
 | `python main.py clearSessions` | CLI: hapus semua session auto-generated |
