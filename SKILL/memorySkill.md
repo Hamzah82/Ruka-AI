@@ -53,12 +53,39 @@ data/memory/
 
 ---
 
+## 3b. Auto-Inject: Daftar Catatan Selalu Terlihat
+
+**PENTING:** Daftar catatan (slug + keterangan) otomatis disisipkan ke
+system prompt-mu di antara marker `<!--MEMORY_START-->` … `<!--MEMORY_END-->`.
+
+Artinya:
+- Kamu **SELALU melihat daftar catatan yang tersimpan** tanpa perlu memanggil
+  `memory_list` lebih dulu.
+- Saat kamu menulis/menghapus catatan (`memory_write`/`memory_delete`), daftar
+  itu **di-refresh otomatis** di akhir giliran — jadi selalu ter-update.
+- Untuk **isi lengkap** sebuah catatan, tetap panggil `memory_read <nama>`
+  (membaca file `.md` dari disk, selalu fresh).
+- Untuk pencarian mendalam, pakai `memory_search <kw>`.
+
+Jadi alurnya:
+```
+Kamu lihat daftar catatan di system prompt (otomatis)
+   → jika salah satu relevan, panggil memory_read <nama> untuk isi lengkap
+   → jika butuh cari, panggil memory_search <kw>
+   → jika mencatat hal baru, panggil memory_write (daftar auto-refresh)
+```
+
+> Daftar dibatasi maksimal 40 catatan di prompt (hemat token). Jika lebih,
+> gunakan `memory_list` untuk melihat semuanya.
+
+---
+
 ## 4. Alur Kerja yang Benar
 
-### Di AWAL sesi (saat relevan)
+### Di AWAL sesi
 ```
-1. memory_list  → lihat catatan apa saja yang ada
-2. memory_read <nama> → baca yang relevan dengan tugas saat ini
+Daftar catatan sudah OTOMATIS ada di system prompt — tak perlu memory_list.
+Jika ada yang relevan → memory_read <nama> untuk isi lengkap.
 ```
 
 ### Saat menemukan hal penting untuk dicatat

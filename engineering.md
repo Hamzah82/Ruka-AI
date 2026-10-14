@@ -360,7 +360,20 @@ data/memory/
 - `_ensure_memory_dir()` — pastikan folder ada
 - `_slugify(name)` — normalisasi nama jadi slug aman
 - `_load_memory_index()` / `_save_memory_index()` — baca/tulis index.json
+- `_build_memory_section()` — bangun blok ringkasan (slug + description) untuk system prompt
+- `_refresh_memory_in_prompt(messages)` — ganti HANYA blok memory (antar marker) di system prompt
 - `tool_memory_list/read/write/search/delete()` — 5 tool memory
+
+**Auto-Inject (penting):**
+- Ringkasan index (slug + keterangan) disisipkan ke system prompt di antara marker
+  `<!--MEMORY_START-->` … `<!--MEMORY_END-->` → AI SELALU melihat daftar catatan
+  tanpa perlu memanggil `memory_list`.
+- Saat `memory_write`/`memory_delete` dipanggil, flag global `_memory_dirty = True`.
+- Di akhir setiap giliran (`chat_session`), jika `_memory_dirty`, `_refresh_memory_in_prompt()`
+  mengganti blok memory dengan versi terbaru → index di konteks selalu fresh.
+- Refresh HANYA mengganti blok antar marker (bukan rebuild seluruh prompt ~89KB) → hemat.
+- Batas tampilan: `_MEMORY_MAX_LIST = 40` catatan (hemat token; sisanya via `memory_list`).
+- Isi detail tetap dibaca fresh dari disk via `memory_read`/`memory_search`.
 
 **Catatan:**
 - `MEMORY_DIR = SCRIPT_DIR/data/memory` (di `config.py`)

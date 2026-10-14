@@ -4706,6 +4706,15 @@ def tool_gui_window(action: str, title: str = "", x: int = 0, y: int = 0,
 #            data/memory/index.json  -> index: slug -> {description, tags, ...}
 # Folder data/ di-ignore git. Berguna agar Ruka "mengingat" hal penting
 # (preferensi user, keputusan proyek, konfigurasi) di sesi mendatang.
+#
+# Auto-inject: ringkasan index disisipkan ke system prompt (di antara marker
+# MEMORY_START/MEMORY_END) agar AI SELALU sadar ada catatan apa saja. Saat ada
+# perubahan memory, bagian ini di-refresh (lihat _refresh_memory_in_prompt).
+
+_MEMORY_START = "<!--MEMORY_START-->"
+_MEMORY_END = "<!--MEMORY_END-->"
+_MEMORY_MAX_LIST = 40          # maks catatan yang ditampilkan di prompt (hemat token)
+_memory_dirty = False          # flag: index berubah → system prompt perlu refresh
 
 def _ensure_memory_dir():
     """Pastikan folder memory ada."""
@@ -4747,6 +4756,66 @@ def _save_memory_index(index: dict) -> None:
 def _memory_path(slug: str) -> str:
     """Path file .md untuk sebuah slug."""
     return os.path.join(config.MEMORY_DIR, f"{slug}.md")
+
+def _build_memory_section() -> str:
+    """
+    Bangun blok ringkasan memory untuk disisipkan ke system prompt.
+    Berisi daftar slug + keterangan (bukan isi penuh — agar hemat token).
+    Dibatasi _MEMORY_MAX_LIST catatan. Selalu dibungkus marker START/END.
+    """
+    try:
+        index = _load_memory_index()
+    except Exception:
+        index = {}
+
+    if not index:
+        body = ("🧠 MEMORY LINTAS-SESI: Belum ada catatan tersimpan.\n"
+                "Gunakan memory_write untuk mencatat hal penting "
+                "(preferensi user, keputusan proyek, konfigurasi).")
+    else:
+        slugs = sorted(index.keys())
+        total = len(slugs)
+        shown = slugs[:_MEMORY_MAX_LIST]
+        lines = [f"🧠 MEMORY LINTAS-SESI — {total} catatan tersimpan:"]
+        for slug in shown:
+            meta = index.get(slug, {}) or {}
+            desc = meta.get("description", "(tanpa keterangan)")
+            lines.append(f"  • {slug} — {desc}")
+        if total > len(shown):
+            lines.append(f"  … (+{total - len(shown)} catatan lain; gunakan memory_list)")
+        lines.append("Gunakan memory_read <nama> untuk isi lengkap, "
+                     "memory_search <kw> untuk mencari.")
+        body = "\n".join(lines)
+
+    return f"{_MEMORY_START}\n{body}\n{_MEMORY_END}"
+
+def _refresh_memory_in_prompt(messages: list) -> bool:
+    """
+    Ganti HANYA blok memory (antar marker) di system prompt dengan versi terbaru.
+    Return True bila ada yang di-update.
+    Tidak menyentuh bagian prompt lain (skills, session info) → hemat & aman.
+    """
+    try:
+        new_block = _build_memory_section()
+    except Exception:
+        return False
+
+    pat = re.compile(
+        re.escape(_MEMORY_START) + r".*?" + re.escape(_MEMORY_END),
+        re.DOTALL,
+    )
+    updated = False
+    for i, m in enumerate(messages):
+        if m.get("role") != "system":
+            continue
+        content = m.get("content") or ""
+        if _MEMORY_START in content and _MEMORY_END in content:
+            new_content = pat.sub(lambda _: new_block, content, count=1)
+            if new_content != content:
+                messages[i] = {**m, "content": new_content}
+                updated = True
+            break
+    return updated
 
 def tool_memory_list() -> str:
     """Tampilkan daftar semua catatan dari index."""
@@ -4848,6 +4917,10 @@ def tool_memory_write(name: str, description: str, content: str,
     except Exception as e:
         return f"Catatan tersimpan, tapi gagal update index: {e}"
 
+    # Tandai perlu refresh blok memory di system prompt (auto-inject).
+    global _memory_dirty
+    _memory_dirty = True
+
     aksi = "diperbarui" if existed else "dibuat"
     return (f"Catatan '{slug}' berhasil {aksi} ({len(new_content)} karakter).\n"
             f"  keterangan: {description.strip()}\n"
@@ -4924,6 +4997,9 @@ def tool_memory_delete(name: str) -> str:
             removed.append("index.json")
         except Exception as e:
             return f"File dihapus, tapi gagal update index: {e}"
+    # Tandai perlu refresh blok memory di system prompt (auto-inject).
+    global _memory_dirty
+    _memory_dirty = True
     return f"Catatan '{slug}' berhasil dihapus ({', '.join(removed)})."
 
 # ORCHESTRATION — Multi-Agent
@@ -6179,7 +6255,9 @@ def get_system_prompt(session_name: str = None) -> str:
         "  • memory_delete — hapus catatan (hanya jika user minta).\n"
         "Catat hal berguna jangka panjang: preferensi user, keputusan teknis, konfigurasi yang\n"
         "disepakati, alur kerja khusus. JANGAN mencatat hal sepele. Pisahkan per materi, beri\n"
-        "'description' + 'tags' yang jelas agar mudah dicari."
+        "'description' + 'tags' yang jelas agar mudah dicari.\n\n"
+        "Berikut DAFTAR CATATAN yang sudah tersimpan (di-refresh otomatis saat ada perubahan):\n"
+        + _build_memory_section()
         + skills_section
         + session_info
     )
@@ -6775,6 +6853,17 @@ def chat_session(session_name: str = None):
                     finally:
                         unlock_input()
                         _drain_input_queue()
+
+                # ── Refresh blok memory di system prompt (jika index berubah) ──
+                # Auto-inject: agar AI selalu melihat daftar catatan TERBARU
+                # (mis. setelah memory_write/delete dalam giliran ini).
+                global _memory_dirty
+                if _memory_dirty:
+                    try:
+                        if _refresh_memory_in_prompt(messages):
+                            _memory_dirty = False
+                    except Exception:
+                        pass
 
                 # Auto-save setelah setiap exchange
                 save_session(session_name, messages)
