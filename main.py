@@ -4714,6 +4714,53 @@ def tool_gui_window(action: str, title: str = "", x: int = 0, y: int = 0,
 _MEMORY_START = "<!--MEMORY_START-->"
 _MEMORY_END = "<!--MEMORY_END-->"
 _memory_dirty = False          # flag: index berubah → system prompt perlu refresh
+_memory_lock = threading.RLock()   # kunci antar-thread (dalam satu proses)
+_memory_flock = None               # modul fcntl (Unix) untuk kunci antar-PROSES
+
+
+def _memory_file_lock():
+    """
+    Context manager: kunci file lintas-PROSES untuk operasi memory
+    (cegah race condition saat 2+ sesi/instance Ruka menulis bersamaan).
+
+    Pakai fcntl.flock (Unix). Di platform tanpa fcntl (mis. Windows) →
+    no-op (masih dilindungi _memory_lock antar-thread).
+    """
+    global _memory_flock
+    if _memory_flock is None:
+        try:
+            import fcntl as _f
+            _memory_flock = _f
+        except Exception:
+            _memory_flock = False  # tandai: tidak tersedia
+
+    class _Lock:
+        def __enter__(self):
+            _memory_lock.acquire()
+            self._fh = None
+            if _memory_flock:
+                try:
+                    _ensure_memory_dir()
+                    self._fh = open(os.path.join(config.MEMORY_DIR, ".lock"), "w")
+                    _memory_flock.flock(self._fh, _memory_flock.LOCK_EX)
+                except Exception:
+                    self._fh = None
+            return self
+
+        def __exit__(self, *exc):
+            if self._fh is not None:
+                try:
+                    _memory_flock.flock(self._fh, _memory_flock.LOCK_UN)
+                except Exception:
+                    pass
+                try:
+                    self._fh.close()
+                except Exception:
+                    pass
+            _memory_lock.release()
+            return False
+
+    return _Lock()
 
 def _ensure_memory_dir():
     """Pastikan folder memory ada."""
@@ -4863,7 +4910,7 @@ def tool_memory_read(name: str) -> str:
 
 def tool_memory_write(name: str, description: str, content: str,
                       tags=None, mode: str = "replace") -> str:
-    """Simpan/perbarui catatan + update index."""
+    """Simpan/perbarui catatan + update index (aman dari race antar-sesi)."""
     slug = _slugify(name)
     if not slug:
         return "Error: nama catatan tidak valid."
@@ -4872,46 +4919,54 @@ def tool_memory_write(name: str, description: str, content: str,
 
     _ensure_memory_dir()
     path = _memory_path(slug)
-    index = _load_memory_index()
-    existed = slug in index or os.path.exists(path)
     mode = (mode or "replace").strip().lower()
 
-    if existed and mode == "append" and os.path.exists(path):
+    # ── Semua operasi baca-ubah-tulis DI DALAM lock ───────────────────────
+    # Kunci mencegah race: dua sesi menulis index bersamaan → catatan hilang.
+    # Index di-reload DI DALAM lock agar selalu memakai versi terbaru.
+    with _memory_file_lock():
+        index = _load_memory_index()          # re-read (fresh, di dalam lock)
+        existed = slug in index or os.path.exists(path)
+
+        if existed and mode == "append" and os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    old = f.read()
+            except Exception:
+                old = ""
+            sep = "\n\n" if old.strip() else ""
+            new_content = f"{old}{sep}{content}"
+        else:
+            new_content = content
+
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                old = f.read()
-        except Exception:
-            old = ""
-        sep = "\n\n" if old.strip() else ""
-        new_content = f"{old}{sep}{content}"
-    else:
-        new_content = content
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+        except Exception as e:
+            return f"Error menulis catatan: {e}"
 
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-    except Exception as e:
-        return f"Error menulis catatan: {e}"
+        if isinstance(tags, list):
+            tag_list = [str(t).strip() for t in tags if str(t).strip()]
+        elif isinstance(tags, str) and tags.strip():
+            tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        else:
+            # tags tidak dikirim → pertahankan tag lama agar tak hilang saat update
+            old_meta = index.get(slug, {}) or {}
+            tag_list = list(old_meta.get("tags") or [])
 
-    if isinstance(tags, list):
-        tag_list = [str(t).strip() for t in tags if str(t).strip()]
-    elif isinstance(tags, str) and tags.strip():
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    else:
-        # tags tidak dikirim → pertahankan tag lama (jika ada) agar tak hilang saat update
-        old_meta = index.get(slug, {}) or {}
-        tag_list = list(old_meta.get("tags") or [])
-
-    index[slug] = {
-        "description": description.strip(),
-        "tags": tag_list,
-        "updated_at": datetime.now().isoformat(timespec="seconds"),
-        "file": f"{slug}.md",
-    }
-    try:
-        _save_memory_index(index)
-    except Exception as e:
-        return f"Catatan tersimpan, tapi gagal update index: {e}"
+        # Re-load index SEKALI lagi tepat sebelum tulis: kalau sesi lain menambah
+        # catatan setelah _load di atas, perubahan itu tetap ikut tersimpan.
+        index = _load_memory_index()
+        index[slug] = {
+            "description": description.strip(),
+            "tags": tag_list,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "file": f"{slug}.md",
+        }
+        try:
+            _save_memory_index(index)
+        except Exception as e:
+            return f"Catatan tersimpan, tapi gagal update index: {e}"
 
     # Tandai perlu refresh blok memory di system prompt (auto-inject).
     global _memory_dirty
@@ -4972,27 +5027,34 @@ def tool_memory_search(query: str) -> str:
     return "\n".join(lines)
 
 def tool_memory_delete(name: str) -> str:
-    """Hapus catatan + entri index-nya."""
+    """Hapus catatan + entri index-nya (aman dari race antar-sesi)."""
     slug = _slugify(name)
-    index = _load_memory_index()
-    if slug not in index and not os.path.exists(_memory_path(slug)):
-        return f"Error: catatan '{name}' tidak ditemukan."
-
     removed = []
     path = _memory_path(slug)
-    if os.path.exists(path):
-        try:
-            os.remove(path)
-            removed.append(f"{slug}.md")
-        except Exception as e:
-            return f"Error menghapus file catatan: {e}"
-    if slug in index:
-        del index[slug]
-        try:
-            _save_memory_index(index)
-            removed.append("index.json")
-        except Exception as e:
-            return f"File dihapus, tapi gagal update index: {e}"
+
+    # Operasi hapus DI DALAM lock (cegah race dengan sesi lain yang menulis index).
+    with _memory_file_lock():
+        index = _load_memory_index()   # re-read fresh di dalam lock
+        if slug not in index and not os.path.exists(path):
+            return f"Error: catatan '{name}' tidak ditemukan."
+
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                removed.append(f"{slug}.md")
+            except Exception as e:
+                return f"Error menghapus file catatan: {e}"
+        if slug in index:
+            # Re-load sekali lagi tepat sebelum tulis (ambil perubahan terbaru).
+            index = _load_memory_index()
+            if slug in index:
+                del index[slug]
+            try:
+                _save_memory_index(index)
+                removed.append("index.json")
+            except Exception as e:
+                return f"File dihapus, tapi gagal update index: {e}"
+
     # Tandai perlu refresh blok memory di system prompt (auto-inject).
     global _memory_dirty
     _memory_dirty = True

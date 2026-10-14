@@ -376,6 +376,17 @@ data/memory/
   (~13 token per catatan), jadi sangat hemat. Isi detail tetap via `memory_read`/`memory_search`.
 - Isi detail tetap dibaca fresh dari disk via `memory_read`/`memory_search`.
 
+**Konkurensi (anti lost-update):**
+- `_memory_file_lock()` — context manager yang mengunci operasi read-modify-write
+  index, mencegah **race condition** saat 2+ sesi/instance Ruka menulis bersamaan.
+- Dua lapis: `threading.RLock` (`_memory_lock`, antar-thread dalam 1 proses) +
+  `fcntl.flock` (kunci file `.lock`, antar-PROSES di Unix).
+- Semua operasi baca-ubah-tulis (`memory_write`, `memory_delete`) dijalankan DI DALAM lock.
+- Index di-`_load_memory_index()` ulang DI DALAM lock (bukan pakai snapshot lama),
+  sehingga perubahan sesi lain selalu ikut tersimpan.
+- Tanpa lock: dua proses yang overlap di jendela load→save akan saling menimpa
+  (lost update) → catatan hilang. Lock menjamin operasi serial.
+
 **Catatan:**
 - `MEMORY_DIR = SCRIPT_DIR/data/memory` (di `config.py`)
 - `memory_write` WAJIB menyertakan `description` (keterangan untuk apa catatan ini)
