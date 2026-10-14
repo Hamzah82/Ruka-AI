@@ -2022,6 +2022,33 @@ def _atomic_write_json(path: str, data: dict, make_backup: bool = True):
             pass
 
 
+def _atomic_write_text(path: str, text: str):
+    """
+    Tulis file teks secara ATOMIK & crash-safe (tmpfile → flush+fsync →
+    os.replace). Dipakai untuk catatan memory (.md) agar tulisan tidak pernah
+    setengah jadi/terpotong saat crash atau ditulis bersamaan.
+
+    File lama tetap utuh sampai os.replace berhasil. Meneruskan exception ke
+    caller bila gagal.
+    """
+    dir_ = os.path.dirname(path) or "."
+    os.makedirs(dir_, exist_ok=True)
+
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", suffix=".tmp", dir=dir_)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)  # atomik di POSIX & Windows pada FS sama
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _session_path(name: str) -> str:
     """Dapatkan path file session berdasarkan nama."""
     # Sanitize nama session — hanya alphanumeric, dash, underscore
@@ -4940,8 +4967,7 @@ def tool_memory_write(name: str, description: str, content: str,
             new_content = content
 
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            _atomic_write_text(path, new_content)   # atomik & crash-safe
         except Exception as e:
             return f"Error menulis catatan: {e}"
 

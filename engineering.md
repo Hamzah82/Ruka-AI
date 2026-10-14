@@ -386,6 +386,16 @@ data/memory/
   sehingga perubahan sesi lain selalu ikut tersimpan.
 - Tanpa lock: dua proses yang overlap di jendela load→save akan saling menimpa
   (lost update) → catatan hilang. Lock menjamin operasi serial.
+- `_atomic_write_text()` — penulisan file `.md` catatan juga ATOMIK (tmp → fsync →
+  `os.replace`), sehingga pembaca tak pernah melihat konten parsial & file tak
+  setengah-jadi saat crash.
+
+**Perilaku 2 sesi menulis CATATAN YANG SAMA (terverifikasi aman):**
+- `mode="append"` → kedua sesi digabung (serial via lock); tidak ada baris hilang.
+- `mode="replace"` → **last-write-wins** (perilaku WAJAR; sesi terakhir menang).
+- `write` + `delete` pada catatan sama → konsisten antara file `.md` & index
+  (tidak ada korupsi); hasil akhir tergantung urutan.
+- Catatan BERBEDA oleh banyak sesi → index selalu utuh (tidak ada yang hilang).
 
 **Catatan:**
 - `MEMORY_DIR = SCRIPT_DIR/data/memory` (di `config.py`)
