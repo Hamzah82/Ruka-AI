@@ -69,7 +69,7 @@ Ruka AI adalah **CLI-based AI agent** yang memungkinkan user berinteraksi dengan
 │  └─────────────────────┬───────────────────────┘  │
 │                        │                          │
 │  ┌─────────────────────▼───────────────────────┐  │
-│  │              TOOL EXECUTOR (13 tools)        │  │
+│  │              TOOL EXECUTOR (23 tools)        │  │
 │  │  read_file │ write_file │ edit_file          │  │
 │  │  list_files │ delete_file │ copy_file        │  │
 │  │  move_file │ get_file_info │ create_folder   │  │
@@ -182,7 +182,7 @@ Lihat [Bagian 9](#9-terminal-formatter) untuk detail.
 
 ### 4.5 Tool Definitions & Executor
 
-- `TOOLS` array — 13 tool dalam format OpenAI Function Calling Schema (baris ~2370)
+- `TOOLS` array — 23 tool dalam format OpenAI Function Calling Schema
 - `execute_tool(name, arguments)` — dispatcher ke fungsi tool masing-masing
 
 ### 4.6 Core Functions
@@ -316,7 +316,7 @@ Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk men
 
 ## 6. Tool System
 
-### Daftar Tools (13 total)
+### Daftar Tools (23 total)
 
 | Tool | Fungsi |
 |------|--------|
@@ -333,6 +333,42 @@ Setiap round menambah pesan ke `messages[]` yang dikirim ulang ke API. Untuk men
 | `list_all` | Struktur direktori tree (max_depth default 3) |
 | `exec_command` | Jalankan perintah terminal; timeout default 60s |
 | `discuss` | Diskusi kolaboratif multi-agent dengan peran berbeda |
+| `gui_screenshot` | Screenshot layar X11 (opsional langsung analisis via vision) |
+| `gui_analyze` | Analisis gambar/screenshot dengan VISION_MODEL |
+| `gui_mouse` | Kontrol kursor mouse (move/click/click_at/scroll/get) |
+| `gui_keyboard` | Input keyboard (key/type) |
+| `gui_window` | Kelola jendela (list/focus/close/maximize/minimize/move) |
+| `memory_list` | Daftar catatan lintas-sesi |
+| `memory_read` | Baca isi satu catatan |
+| `memory_write` | Buat/perbarui catatan (satu materi = satu file .md) |
+| `memory_search` | Cari catatan berdasar kata kunci |
+| `memory_delete` | Hapus catatan |
+
+### Memory Lintas-Sesi (Cross-Session Notes)
+
+Ruka punya sistem catatan **persisten lintas sesi** agar dapat "mengingat" hal penting di sesi mendatang.
+
+**Struktur** (di `data/memory/`, folder `data/` di-ignore git):
+```
+data/memory/
+├── index.json          # index: slug → {description, tags, updated_at, file}
+├── <slug>.md           # satu catatan = satu file (satu materi)
+└── ...
+```
+
+**Fungsi** (`main.py`):
+- `_ensure_memory_dir()` — pastikan folder ada
+- `_slugify(name)` — normalisasi nama jadi slug aman
+- `_load_memory_index()` / `_save_memory_index()` — baca/tulis index.json
+- `tool_memory_list/read/write/search/delete()` — 5 tool memory
+
+**Catatan:**
+- `MEMORY_DIR = SCRIPT_DIR/data/memory` (di `config.py`)
+- `memory_write` WAJIB menyertakan `description` (keterangan untuk apa catatan ini)
+- `mode='append'` untuk menambah isi; `replace` (default) menimpa
+- Tags dipertahankan saat update jika tidak dikirim ulang
+- Index disimpan atomik + backup via `_atomic_write_json()`
+- Skill guide: `SKILL/memorySkill.md`
 
 ### Tool `discuss` (Multi-Agent Discussion)
 
@@ -602,7 +638,7 @@ Dibangun oleh `get_system_prompt(session_name)`, dikirim sebagai pesan `system` 
 ### Isi
 
 1. Karakter & personality — "Ruka AI, agent kura-kura 🐢, bijaksana dan teliti"
-2. Daftar 13 tools dan cara penggunaannya
+2. Daftar 23 tools dan cara penggunaannya
 3. Instruksi multi-step execution (tanpa konfirmasi user per langkah)
 4. Instruksi format output — Bahasa Indonesia, bullet point, emoji 🐢
 5. **Instruksi wajib baca `SKILL/skills.md`** via `read_file` saat awal session
@@ -707,7 +743,7 @@ Architecture     : Single-file CLI agent (main.py ~4.900 baris) + config.py + dy
 AI Backend       : OpenRouter API (OpenAI-compatible)
 Default Model    : meng/deepseek-v4-flash
 Model Override   : config.json → RUKA_MODEL env → config.py → /model dalam sesi (dengan alias)
-Tools            : 15 (file ops, folder ops, exec_command, discuss, GUI control)
+Tools            : 23 (file, folder, exec, discuss, GUI control, memory)
 Session Format   : JSON files di SCRIPT_DIR/sessions/
 Workspace        : os.getcwd() — folder tempat user menjalankan `ruka`
 Security         : Path traversal protection, command filter, timeout

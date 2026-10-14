@@ -67,6 +67,7 @@ def get_dynamic_config():
     result['BASE_DIR'] = config.BASE_DIR
     result['SCRIPT_DIR'] = config.SCRIPT_DIR
     result['SESSIONS_DIR'] = config.SESSIONS_DIR
+    result['MEMORY_DIR'] = getattr(config, 'MEMORY_DIR', os.path.join(config.SCRIPT_DIR, "data", "memory"))
     result['DEFAULT_CMD_TIMEOUT'] = config.DEFAULT_CMD_TIMEOUT
     result['MAX_RETRIES'] = config.MAX_RETRIES
     result['RETRY_BASE_DELAY'] = config.RETRY_BASE_DELAY

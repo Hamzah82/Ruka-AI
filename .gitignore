@@ -191,6 +191,8 @@ config/
 
 # Session data (chat history)
 sessions/
+# Memory / catatan lintas-sesi (data lokal user, tidak untuk dipublikasikan)
+data/
 # Backup / old files
 skills_old.md
 # Workspace folder

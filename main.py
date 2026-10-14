@@ -86,6 +86,7 @@ config.HEADERS = dynamic_cfg['HEADERS']
 config.BASE_DIR = dynamic_cfg['BASE_DIR']
 config.SCRIPT_DIR = dynamic_cfg['SCRIPT_DIR']
 config.SESSIONS_DIR = dynamic_cfg['SESSIONS_DIR']
+config.MEMORY_DIR = dynamic_cfg['MEMORY_DIR']
 config.DEFAULT_CMD_TIMEOUT = dynamic_cfg['DEFAULT_CMD_TIMEOUT']
 config.MAX_RETRIES = dynamic_cfg['MAX_RETRIES']
 config.RETRY_BASE_DELAY = dynamic_cfg['RETRY_BASE_DELAY']
@@ -117,6 +118,7 @@ RETRY_BASE_DELAY = config.RETRY_BASE_DELAY
 DEFAULT_CMD_TIMEOUT = config.DEFAULT_CMD_TIMEOUT
 BLOCKED_COMMANDS = config.BLOCKED_COMMANDS
 SESSIONS_DIR = config.SESSIONS_DIR
+MEMORY_DIR = config.MEMORY_DIR
 BASE_DIR = config.BASE_DIR
 SCRIPT_DIR = config.SCRIPT_DIR
 
@@ -3894,6 +3896,129 @@ TOOLS = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_list",
+            "description": (
+                "Menampilkan daftar semua catatan (memory) lintas-sesi yang tersimpan. "
+                "Setiap catatan berisi: judul (slug), keterangan/deskripsi singkat isinya, "
+                "tag, dan tanggal update. Gunakan ini di AWAL sesi atau saat butuh tahu "
+                "pengetahuan apa saja yang sudah pernah dicatat. "
+                "Catatan bersifat PERSISTEN lintas sesi — berguna untuk mengingat "
+                "preferensi user, keputusan proyek, konfigurasi, dsb."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_read",
+            "description": (
+                "Membaca isi lengkap satu catatan (memory) berdasarkan nama/slug-nya. "
+                "Gunakan setelah memory_list untuk melihat isi detail catatan tertentu."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nama/slug catatan (mis. 'preferensi-user', 'proyek-ruka'). Lihat daftar via memory_list."
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_write",
+            "description": (
+                "Menyimpan atau MEMPERBARUI sebuah catatan (memory) lintas-sesi. "
+                "Satu catatan = satu materi/topik (file .md terpisah). "
+                "Jika catatan dengan nama tersebut sudah ada, isinya akan DIPERBARUI "
+                "(mode 'replace') atau DITAMBAH di akhir (mode 'append'). "
+                "WAJIB sertakan 'description' — keterangan singkat untuk apa catatan ini, "
+                "agar model lain di sesi mendatang tahu kapan catatan ini relevan. "
+                "Gunakan ini untuk mencatat hal penting: preferensi user, keputusan "
+                "teknis, konfigurasi, alur kerja, atau pengetahuan yang berguna nanti."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nama/slug catatan (huruf kecil, tanda hubung; mis. 'preferensi-user'). Satu nama = satu materi."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Keterangan singkat: catatan ini untuk apa / berisi apa. Dipakai di index agar mudah dicari."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Isi catatan (markdown)."
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Opsional. Tag/kata kunci untuk memudahkan pencarian (mis. ['python', 'konfigurasi'])."
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "Opsional (default 'replace'): 'replace' menimpa isi lama, 'append' menambah di akhir isi lama."
+                    }
+                },
+                "required": ["name", "description", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_search",
+            "description": (
+                "Mencari catatan (memory) lintas-sesi berdasarkan kata kunci. "
+                "Mencocokkan pada nama, keterangan, tag, dan isi catatan. "
+                "Gunakan saat butuh menemukan catatan relevan tanpa tahu nama persisnya."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Kata kunci pencarian (case-insensitive)."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_delete",
+            "description": (
+                "Menghapus sebuah catatan (memory) lintas-sesi berdasarkan nama/slug-nya. "
+                "Gunakan hanya jika user meminta menghapus catatan tertentu."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nama/slug catatan yang akan dihapus."
+                    }
+                },
+                "required": ["name"]
+            }
+        }
     }
 ]
 
@@ -4575,6 +4700,232 @@ def tool_gui_window(action: str, title: str = "", x: int = 0, y: int = 0,
 
 
 # ============================================================
+# MEMORY / CATATAN LINTAS-SESI (cross-session notes)
+# ============================================================
+# Struktur:  data/memory/<slug>.md   -> isi catatan (satu materi = satu file)
+#            data/memory/index.json  -> index: slug -> {description, tags, ...}
+# Folder data/ di-ignore git. Berguna agar Ruka "mengingat" hal penting
+# (preferensi user, keputusan proyek, konfigurasi) di sesi mendatang.
+
+def _ensure_memory_dir():
+    """Pastikan folder memory ada."""
+    os.makedirs(config.MEMORY_DIR, exist_ok=True)
+
+def _memory_index_path() -> str:
+    return os.path.join(config.MEMORY_DIR, "index.json")
+
+def _slugify(name: str) -> str:
+    """Ubah nama jadi slug aman (huruf kecil, angka, tanda hubung)."""
+    s = (name or "").strip().lower()
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_]+", "-", s).strip("-")
+    return s or "untitled"
+
+def _load_memory_index() -> dict:
+    """Baca index.json. Return dict {slug: {description, tags, updated_at, file}}."""
+    _ensure_memory_dir()
+    path = _memory_index_path()
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                if "notes" in data and isinstance(data["notes"], dict):
+                    return data["notes"]
+                return data
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+def _save_memory_index(index: dict) -> None:
+    """Tulis index.json (atomik + backup)."""
+    _ensure_memory_dir()
+    path = _memory_index_path()
+    payload = {"notes": index, "updated_at": datetime.now().isoformat()}
+    _atomic_write_json(path, payload)
+
+def _memory_path(slug: str) -> str:
+    """Path file .md untuk sebuah slug."""
+    return os.path.join(config.MEMORY_DIR, f"{slug}.md")
+
+def tool_memory_list() -> str:
+    """Tampilkan daftar semua catatan dari index."""
+    index = _load_memory_index()
+    if not index:
+        return ("Belum ada catatan tersimpan. Gunakan memory_write untuk membuat "
+                "catatan baru (mis. preferensi user, keputusan proyek, konfigurasi).")
+    lines = [f"Daftar catatan lintas-sesi ({len(index)} item):", ""]
+    for slug in sorted(index.keys()):
+        meta = index.get(slug, {}) or {}
+        desc = meta.get("description", "(tanpa keterangan)")
+        tags = meta.get("tags") or []
+        updated = meta.get("updated_at", "")
+        tag_str = f"  [tag: {', '.join(tags)}]" if tags else ""
+        upd_str = f"  (diupdate: {updated})" if updated else ""
+        lines.append(f"- {slug}")
+        lines.append(f"    keterangan: {desc}{tag_str}{upd_str}")
+    lines.append("")
+    lines.append("Gunakan memory_read <nama> untuk melihat isi lengkap.")
+    return "\n".join(lines)
+
+def tool_memory_read(name: str) -> str:
+    """Baca isi catatan berdasarkan slug."""
+    slug = _slugify(name)
+    index = _load_memory_index()
+    if slug not in index:
+        matches = [s for s in index if slug in s or s in slug]
+        if len(matches) == 1:
+            slug = matches[0]
+        else:
+            hint = f" Catatan mirip: {', '.join(matches[:5])}." if matches else ""
+            return f"Error: catatan '{name}' tidak ditemukan.{hint}"
+    path = _memory_path(slug)
+    if not os.path.exists(path):
+        return f"Error: file catatan '{slug}.md' tidak ditemukan (index tidak sinkron)."
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        return f"Error membaca catatan: {e}"
+    meta = index.get(slug, {}) or {}
+    header = f"# Catatan: {slug}"
+    if meta.get("description"):
+        header += f"\n> {meta['description']}"
+    if meta.get("tags"):
+        header += f"\n> Tag: {', '.join(meta['tags'])}"
+    header += f"\n> Terakhir diupdate: {meta.get('updated_at', 'tidak diketahui')}\n"
+    return f"{header}\n{content}" if content else f"{header}\n(catatan kosong)"
+
+def tool_memory_write(name: str, description: str, content: str,
+                      tags=None, mode: str = "replace") -> str:
+    """Simpan/perbarui catatan + update index."""
+    slug = _slugify(name)
+    if not slug:
+        return "Error: nama catatan tidak valid."
+    if not (description or "").strip():
+        return "Error: parameter 'description' wajib (keterangan untuk apa catatan ini)."
+
+    _ensure_memory_dir()
+    path = _memory_path(slug)
+    index = _load_memory_index()
+    existed = slug in index or os.path.exists(path)
+    mode = (mode or "replace").strip().lower()
+
+    if existed and mode == "append" and os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                old = f.read()
+        except Exception:
+            old = ""
+        sep = "\n\n" if old.strip() else ""
+        new_content = f"{old}{sep}{content}"
+    else:
+        new_content = content
+
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+    except Exception as e:
+        return f"Error menulis catatan: {e}"
+
+    if isinstance(tags, list):
+        tag_list = [str(t).strip() for t in tags if str(t).strip()]
+    elif isinstance(tags, str) and tags.strip():
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    else:
+        # tags tidak dikirim → pertahankan tag lama (jika ada) agar tak hilang saat update
+        old_meta = index.get(slug, {}) or {}
+        tag_list = list(old_meta.get("tags") or [])
+
+    index[slug] = {
+        "description": description.strip(),
+        "tags": tag_list,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "file": f"{slug}.md",
+    }
+    try:
+        _save_memory_index(index)
+    except Exception as e:
+        return f"Catatan tersimpan, tapi gagal update index: {e}"
+
+    aksi = "diperbarui" if existed else "dibuat"
+    return (f"Catatan '{slug}' berhasil {aksi} ({len(new_content)} karakter).\n"
+            f"  keterangan: {description.strip()}\n"
+            f"  tag: {', '.join(tag_list) if tag_list else '(tidak ada)'}")
+
+def tool_memory_search(query: str) -> str:
+    """Cari catatan berdasarkan keyword (nama, keterangan, tag, isi)."""
+    q = (query or "").strip().lower()
+    if not q:
+        return "Error: parameter 'query' wajib."
+    index = _load_memory_index()
+    if not index:
+        return "Belum ada catatan tersimpan."
+
+    hits = []
+    for slug, meta in index.items():
+        meta = meta or {}
+        desc = (meta.get("description") or "").lower()
+        tags = " ".join(meta.get("tags") or []).lower()
+        body = ""
+        path = _memory_path(slug)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    body = f.read().lower()
+            except Exception:
+                body = ""
+        score = 0
+        if q in slug.lower():
+            score += 3
+        if q in desc:
+            score += 2
+        if q in tags:
+            score += 2
+        if q in body:
+            score += 1
+        if score > 0:
+            hits.append((score, slug, meta))
+
+    if not hits:
+        return f"Tidak ada catatan yang cocok dengan '{query}'."
+
+    hits.sort(key=lambda x: (-x[0], x[1]))
+    lines = [f"Hasil pencarian '{query}' ({len(hits)} catatan cocok):", ""]
+    for score, slug, meta in hits:
+        desc = meta.get("description", "(tanpa keterangan)")
+        tags = meta.get("tags") or []
+        tag_str = f"  [tag: {', '.join(tags)}]" if tags else ""
+        lines.append(f"- {slug}  (skor {score})")
+        lines.append(f"    {desc}{tag_str}")
+    lines.append("")
+    lines.append("Gunakan memory_read <nama> untuk isi lengkap.")
+    return "\n".join(lines)
+
+def tool_memory_delete(name: str) -> str:
+    """Hapus catatan + entri index-nya."""
+    slug = _slugify(name)
+    index = _load_memory_index()
+    if slug not in index and not os.path.exists(_memory_path(slug)):
+        return f"Error: catatan '{name}' tidak ditemukan."
+
+    removed = []
+    path = _memory_path(slug)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+            removed.append(f"{slug}.md")
+        except Exception as e:
+            return f"Error menghapus file catatan: {e}"
+    if slug in index:
+        del index[slug]
+        try:
+            _save_memory_index(index)
+            removed.append("index.json")
+        except Exception as e:
+            return f"File dihapus, tapi gagal update index: {e}"
+    return f"Catatan '{slug}' berhasil dihapus ({', '.join(removed)})."
+
 # ORCHESTRATION — Multi-Agent
 # ============================================================
 
@@ -5042,6 +5393,22 @@ def execute_tool(name: str, arguments: dict) -> str:
             arguments.get("image_path", "/tmp/ruka_screen.png"),
             arguments.get("prompt", "Deskripsikan apa yang terlihat di layar ini secara detail, termasuk posisi elemen penting (tombol, menu, teks) dengan koordinat perkiraan."),
         )
+    elif name == "memory_list":
+        result = tool_memory_list()
+    elif name == "memory_read":
+        result = tool_memory_read(arguments["name"])
+    elif name == "memory_write":
+        result = tool_memory_write(
+            arguments["name"],
+            arguments["description"],
+            arguments["content"],
+            arguments.get("tags"),
+            arguments.get("mode", "replace"),
+        )
+    elif name == "memory_search":
+        result = tool_memory_search(arguments["query"])
+    elif name == "memory_delete":
+        result = tool_memory_delete(arguments["name"])
     else:
         result = f"Error: Tool '{name}' tidak dikenal."
     return result
@@ -5797,9 +6164,22 @@ def get_system_prompt(session_name: str = None) -> str:
         "  • vercelSkill.md — deploy & konfigurasi Vercel\n"
         "  • emailSkill.md — kirim email via msmtp\n"
         "  • frontendDesignSkill.md — desain website/landing page/frontend\n"
+        "  • screenControlSkill.md — kontrol GUI desktop (mouse/keyboard/jendela/screenshot)\n"
         "\n"
         "JADI: Baca skill yang relevan saat dibutuhkan. Jangan ragu untuk membaca\n"
-        "beberapa skill jika tugas membutuhkannya."
+        "beberapa skill jika tugas membutuhkannya.\n\n"
+        "🧠 MEMORY LINTAS-SESI (PENTING):\n"
+        "Kamu punya sistem catatan PERSISTEN yang bertahan lintas sesi (folder 'data/memory/').\n"
+        "Gunakan untuk 'mengingat' hal penting agar sesi mendatang bisa membacanya kembali:\n"
+        "  • memory_list   — lihat semua catatan + keterangannya (lakukan di awal sesi / saat butuh).\n"
+        "  • memory_read   — baca isi lengkap satu catatan (berdasar nama).\n"
+        "  • memory_write  — buat/perbarui catatan (satu materi = satu file .md). WAJIB sertakan\n"
+        "                    'description' (untuk apa catatan ini). mode='append' untuk menambah.\n"
+        "  • memory_search — cari catatan berdasar kata kunci (nama/keterangan/tag/isi).\n"
+        "  • memory_delete — hapus catatan (hanya jika user minta).\n"
+        "Catat hal berguna jangka panjang: preferensi user, keputusan teknis, konfigurasi yang\n"
+        "disepakati, alur kerja khusus. JANGAN mencatat hal sepele. Pisahkan per materi, beri\n"
+        "'description' + 'tags' yang jelas agar mudah dicari."
         + skills_section
         + session_info
     )

@@ -35,6 +35,7 @@ Skill yang tersedia:
 - `emailSkill.md` — kirim email via msmtp
 - `frontendDesignSkill.md` — desain website/landing page/frontend
 - `screenControlSkill.md` — kontrol GUI desktop (X11): mouse, keyboard, jendela, screenshot
+- `memorySkill.md` — catatan lintas-sesi (memory): simpan/cari/ingat hal penting antar sesi
 
 **Alur yang benar:** kenali tugas → tentukan skill yang relevan → baca skill tersebut dengan `read_file("SKILL/<nama_skill>.md")` → ikuti panduannya → kerjakan tugas. Jangan ragu membaca beberapa skill jika tugas membutuhkannya.
 
@@ -72,7 +73,7 @@ Catatan: `list_files()` hanya menampilkan file (bukan folder). Untuk cek folder 
 
 ---
 
-## 3. Tools & Cara Pakai (13 tools)
+## 3. Tools & Cara Pakai (23 tools)
 
 ### File Operations
 - `read_file(filename)` — baca isi file (UTF-8). Cek path traversal, file ada.
@@ -93,6 +94,14 @@ Catatan: `list_files()` hanya menampilkan file (bukan folder). Untuk cek folder 
 
 ### Terminal
 - `exec_command(command, timeout=60)` — jalankan bash. Perintah berbahaya diblokir otomatis. stderr ditandai `[stderr]`.
+
+### Memory Lintas-Sesi (cross-session notes)
+- `memory_list()` — daftar semua catatan lintas-sesi + keterangannya.
+- `memory_read(name)` — baca isi lengkap satu catatan.
+- `memory_write(name, description, content, tags?, mode?)` — buat/perbarui catatan (satu materi = satu file `.md`). `description` WAJIB. `mode='append'` untuk menambah.
+- `memory_search(query)` — cari catatan berdasar keyword (nama/keterangan/tag/isi).
+- `memory_delete(name)` — hapus catatan.
+- Detail: baca `SKILL/memorySkill.md`.
 
 ### Orchestration
 - `discuss(topic, team, max_rounds=0)` — diskusi multi-agent. Lihat bagian 14.
@@ -296,7 +305,7 @@ Round 5: cat ~/.msmtp.log → cek hasil
 
 ### Aturan
 - Tulis topik lengkap — sub-agent tidak tahu konteks percakapan
-- Sub-agent punya akses 12 tools yang sama, berjalan di BASE_DIR yang sama
+- Sub-agent punya akses 23 tools yang sama, berjalan di BASE_DIR yang sama
 - Max depth 3 level rekursi
 - Nama agen: `{"name": "NamaAgen", "role": "peran"}` (boleh spasi/underscore)
 
@@ -359,6 +368,7 @@ SKILL (baca manual sesuai kebutuhan):
 - Email:    read_file("SKILL/emailSkill.md") saat butuh kirim email
 - Frontend: read_file("SKILL/frontendDesignSkill.md") saat butuh desain website/UI
 - Screen:   read_file("SKILL/screenControlSkill.md") saat butuh kontrol GUI desktop (mouse/keyboard/jendela/screenshot)
+- Memory:   read_file("SKILL/memorySkill.md") saat butuh mencatat/mengingat hal penting lintas sesi
 ```
 
 ---
@@ -406,6 +416,7 @@ Skill yang tersedia:
 - `emailSkill.md` — kirim email via msmtp
 - `frontendDesignSkill.md` — desain website/landing page/frontend
 - `screenControlSkill.md` — kontrol GUI desktop (X11): mouse, keyboard, jendela, screenshot
+- `memorySkill.md` — catatan lintas-sesi (memory): simpan/cari/ingat hal penting antar sesi
 
 **Alur yang benar:** kenali tugas → tentukan skill yang relevan → baca skill tersebut dengan `read_file("SKILL/<nama_skill>.md")` → ikuti panduannya → kerjakan tugas. Jangan ragu membaca beberapa skill jika tugas membutuhkannya.
 
@@ -443,7 +454,7 @@ Catatan: `list_files()` hanya menampilkan file (bukan folder). Untuk cek folder 
 
 ---
 
-## 3. Tools & Cara Pakai (13 tools)
+## 3. Tools & Cara Pakai (23 tools)
 
 ### File Operations
 - `read_file(filename)` — baca isi file (UTF-8). Cek path traversal, file ada.
@@ -464,6 +475,14 @@ Catatan: `list_files()` hanya menampilkan file (bukan folder). Untuk cek folder 
 
 ### Terminal
 - `exec_command(command, timeout=60)` — jalankan bash. Perintah berbahaya diblokir otomatis. stderr ditandai `[stderr]`.
+
+### Memory Lintas-Sesi (cross-session notes)
+- `memory_list()` — daftar semua catatan lintas-sesi + keterangannya.
+- `memory_read(name)` — baca isi lengkap satu catatan.
+- `memory_write(name, description, content, tags?, mode?)` — buat/perbarui catatan (satu materi = satu file `.md`). `description` WAJIB. `mode='append'` untuk menambah.
+- `memory_search(query)` — cari catatan berdasar keyword (nama/keterangan/tag/isi).
+- `memory_delete(name)` — hapus catatan.
+- Detail: baca `SKILL/memorySkill.md`.
 
 ### Orchestration
 - `discuss(topic, team, max_rounds=0)` — diskusi multi-agent. Lihat bagian 14.
@@ -667,7 +686,7 @@ Round 5: cat ~/.msmtp.log → cek hasil
 
 ### Aturan
 - Tulis topik lengkap — sub-agent tidak tahu konteks percakapan
-- Sub-agent punya akses 12 tools yang sama, berjalan di BASE_DIR yang sama
+- Sub-agent punya akses 23 tools yang sama, berjalan di BASE_DIR yang sama
 - Max depth 3 level rekursi
 - Nama agen: `{"name": "NamaAgen", "role": "peran"}` (boleh spasi/underscore)
 
@@ -730,6 +749,7 @@ SKILL (baca manual sesuai kebutuhan):
 - Email:    read_file("SKILL/emailSkill.md") saat butuh kirim email
 - Frontend: read_file("SKILL/frontendDesignSkill.md") saat butuh desain website/UI
 - Screen:   read_file("SKILL/screenControlSkill.md") saat butuh kontrol GUI desktop (mouse/keyboard/jendela/screenshot)
+- Memory:   read_file("SKILL/memorySkill.md") saat butuh mencatat/mengingat hal penting lintas sesi
 ```
 
 ---
@@ -961,7 +981,7 @@ User Input → System Prompt + Chat History → OpenRouter API
 
 ### Anggota Tubuh: 13 Tools
 
-Berikut "anggota tubuhku" — 13 tools yang bisa aku gunakan:
+Berikut "anggota tubuhku" — 23 tools yang bisa aku gunakan:
 
 **Tangan Kanan (File Operations):**
 - `read_file` — Membaca isi file
@@ -1828,7 +1848,7 @@ Tool berikut **TIDAK ADA** dan tidak boleh dipanggil:
 - ❌ `prepend_file` — Tidak ada! Untuk menambah teks di awal file, gunakan `edit_file` dengan `operation="prepend"`.
 - ❌ `replace_file` — Tidak ada! Untuk mengganti teks dalam file, gunakan `edit_file` dengan `operation="replace"`.
 
-Selalu ingat: tools yang tersedia hanya 12 tool yang terdaftar di bagian "Anggota Tubuh" di atas. Jangan memanggil tool yang tidak ada dalam daftar tersebut.
+Selalu ingat: tools yang tersedia hanya 23 tool yang terdaftar di bagian "Anggota Tubuh" di atas. Jangan memanggil tool yang tidak ada dalam daftar tersebut.
 
 ### Mengedit File
 
@@ -2080,7 +2100,7 @@ Ruka AI mendukung **orchestration** — kemampuan mendelegasikan sub-tugas ke ag
 - Tulis `task` dengan lengkap — sub-agent tidak tahu konteks percakapan sebelumnya
 - Gunakan `context` untuk meneruskan hasil sub-agent ke sub-agent berikutnya
 - Jangan memanggil `agent` dari dalam sub-agent yang sudah di kedalaman 3 (error otomatis)
-- Sub-agent memiliki akses ke semua 12 tools yang sama (read_file, exec_command, dll.)
+- Sub-agent memiliki akses ke semua 23 tools yang sama (read_file, exec_command, dll.)
 - Setiap sub-agent berjalan di direktori kerja yang SAMA (BASE_DIR tidak berubah)
 - **Nama agen** — selalu gunakan struktur `{"name": "NamaAgen", "role": "peran"}`. Contoh: `{"name": "Backend Dev", "role": "Implementasi server"}`. Boleh pakai spasi atau underscore di value `"name"`.
 - **JANGAN menetapkan `max_rounds`** — biarkan kosong agar diskusi berlangsung sepanjang yang dibutuhkan. Koordinator yang memutuskan kapan diskusi selesai.

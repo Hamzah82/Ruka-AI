@@ -23,6 +23,7 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 - **Konfigurasi Fleksibel via CLI** — Ubah endpoint API, model AI, dan API key dengan mudah menggunakan command `ruka change` (atau `ruka model` untuk ganti model saja). Konfigurasi disimpan di `config.json` dan aman dari commit Git
 - **Ganti Model dalam Sesi** — Slash command `/model <namaModel>` untuk mengganti model AI aktif tanpa restart, lengkap dengan **sistem alias** supaya tidak perlu mengetik nama model panjang: `/model set <alias>|<namaModel>` lalu cukup `/model <alias>`
 - **Compact Konteks Otomatis & Manual** — Saat riwayat menyentuh ambang token, konteks otomatis di-compact (diringkas permanen) kecuali 5 giliran terakhir. Bisa juga dipicu manual dengan `/compact` jika AI mulai terasa halu. Dioptimalkan untuk provider bertarif **flat per request** (1 request per compact, output ringkasan sedetail mungkin)
+- **Memori Lintas-Sesi** — Ruka dapat mencatat hal penting (preferensi user, keputusan proyek, konfigurasi) ke catatan persisten yang tersimpan di `data/memory/`. Catatan berupa file `.md` terpisah per materi + index `json`, sehingga pengetahuan tetap tersedia di sesi mendatang
 
 ---
 
@@ -82,7 +83,7 @@ Elemen visual: aksen **coral** hangat sebagai warna utama, skala abu-abu berlapi
 
 ---
 
-## 🛠️ Kemampuan Tools (12 Total)
+## 🛠️ Kemampuan Tools
 
 **Tangan Kanan (File Operations):**
 - `read_file` — Membaca isi file teks dari direktori kerja
@@ -103,6 +104,23 @@ Elemen visual: aksen **coral** hangat sebagai warna utama, skala abu-abu berlapi
 
 **Mulut & Kaki (Terminal Execution):**
 - `exec_command` — Menjalankan perintah terminal (bash/shell)
+
+**GUI Control (X11):**
+- `gui_screenshot` — Ambil screenshot layar (opsional langsung analisis)
+- `gui_analyze` — Analisis gambar/screenshot dengan model vision
+- `gui_mouse` — Kontrol kursor mouse (move, click, scroll)
+- `gui_keyboard` — Input keyboard (tombol & ketik teks)
+- `gui_window` — Kelola jendela (list, focus, close, maximize)
+
+**Memori Lintas-Sesi (Cross-Session Memory):**
+- `memory_list` — Daftar semua catatan lintas-sesi
+- `memory_read` — Baca isi satu catatan
+- `memory_write` — Buat/perbarui catatan (satu materi = satu file `.md`)
+- `memory_search` — Cari catatan berdasar kata kunci
+- `memory_delete` — Hapus catatan
+
+**Orkestrasi:**
+- `discuss` — Diskusi kolaboratif multi-agent
 
 ---
 
@@ -526,11 +544,15 @@ Ruka-AI/
 │   ├── pptSkill.md   # Panduan pembuatan PPT
 │   ├── browsingSkill.md  # Panduan browsing & web scraping
 │   ├── vercelSkill.md    # Panduan deploy Vercel
-│   └── emailSkill.md     # Panduan email via msmtp
+│   ├── emailSkill.md     # Panduan email via msmtp
+│   ├── screenControlSkill.md # Panduan kontrol GUI desktop
+│   └── memorySkill.md    # Panduan catatan lintas-sesi (memory)
 ├── sessions/         # Folder penyimpanan session (tidak di-push ke git)
 │   ├── session_20250701_143022.json
 │   ├── kerja-proyek.json
 │   └── ...
+├── data/             # Data lokal: memory lintas-sesi (tidak di-push ke git)
+│   └── memory/       # Catatan .md per materi + index.json
 └── README.md         # Dokumentasi project ini
 ```
 

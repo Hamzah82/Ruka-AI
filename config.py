@@ -59,6 +59,13 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Session harus tetap di folder main.py meskipun workspace user berbeda
 SESSIONS_DIR = os.path.join(SCRIPT_DIR, "sessions")
 
+# Folder untuk MEMORY / catatan lintas-sesi (cross-session memory).
+# Catatan berupa file .md (satu materi = satu file) + index.json yang berisi
+# daftar & keterangan tiap catatan. SELALU di SCRIPT_DIR (folder instalasi),
+# sehingga catatan tetap tersedia meski workspace user berbeda.
+# Folder ini di-ignore git (lihat .gitignore: data/).
+MEMORY_DIR = os.path.join(SCRIPT_DIR, "data", "memory")
+
 # ============================================================
 # TIMEOUT & RETRY CONFIGURATION
 # ============================================================
