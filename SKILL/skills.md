@@ -5,7 +5,7 @@
 ---
 
 ## 📋 Daftar Isi
-1. Aturan Emas (pwd + list_all)
+1. Aturan Emas (baca memory kerja + pwd + list_all)
 2. Siapa Aku
 3. Tools & Cara Pakai
 4. Keamanan
@@ -41,7 +41,29 @@ Skill yang tersedia:
 
 ---
 
-## 1. 🔴 ATURAN EMAS: pwd + list_all() Sebelum Bekerja
+## 1. 🔴 ATURAN EMAS: Baca Memory Kerja → pwd + list_all() Sebelum Bekerja
+
+### 1a. WAJIB BACA ATURAN KERJA DI MEMORI LINTAS-SESI (paling pertama!)
+
+**SEBELUM melakukan APAPUN di awal session, WAJIB baca dulu catatan aturan kerja
+yang tersimpan di memori lintas-sesi.** Catatan itu berisi aturan wajib yang
+HARUS dipatuhi (mis. `aturan-kerja-ruka`: pahami maksud user dulu, tanya kalau
+belum jelas, jangan sotoy/berasumsi).
+
+**Alur wajib (lakukan ini PERTAMA, sebelum pwd/list_all):**
+```
+1. memory_list()          → lihat semua catatan yang tersimpan
+2. memory_read(<nama>)    → baca catatan yang berkaitan dengan ATURAN KERJA
+                            (mis. 'aturan-kerja-ruka', 'preferensi-user-*')
+3. Patuhi aturan tersebut sepanjang session
+```
+
+- Daftar catatan (slug + keterangan) juga otomatis terlihat di system prompt,
+  tapi **isi lengkapnya** tetap harus dibaca via `memory_read`.
+- Jika belum ada catatan aturan kerja, catat saat menemukannya.
+- **JANGAN mulai mengerjakan tugas sebelum aturan kerja dibaca & dipahami.**
+
+### 1b. pwd + list_all() Sebelum Bekerja
 
 **SEBELUM melakukan apapun, WAJIB jalankan `exec_command("pwd")` + `list_all()`** untuk tahu lokasi & kondisi workspace. Tanpa ini kamu bekerja buta — bisa menaruh file di folder salah, menimpa kerja user, atau membuat folder duplikat.
 
@@ -386,7 +408,7 @@ SKILL (baca manual sesuai kebutuhan):
 ---
 
 ## 📋 Daftar Isi
-1. Aturan Emas (pwd + list_all)
+1. Aturan Emas (baca memory kerja + pwd + list_all)
 2. Siapa Aku
 3. Tools & Cara Pakai
 4. Keamanan
@@ -422,7 +444,29 @@ Skill yang tersedia:
 
 ---
 
-## 1. 🔴 ATURAN EMAS: pwd + list_all() Sebelum Bekerja
+## 1. 🔴 ATURAN EMAS: Baca Memory Kerja → pwd + list_all() Sebelum Bekerja
+
+### 1a. WAJIB BACA ATURAN KERJA DI MEMORI LINTAS-SESI (paling pertama!)
+
+**SEBELUM melakukan APAPUN di awal session, WAJIB baca dulu catatan aturan kerja
+yang tersimpan di memori lintas-sesi.** Catatan itu berisi aturan wajib yang
+HARUS dipatuhi (mis. `aturan-kerja-ruka`: pahami maksud user dulu, tanya kalau
+belum jelas, jangan sotoy/berasumsi).
+
+**Alur wajib (lakukan ini PERTAMA, sebelum pwd/list_all):**
+```
+1. memory_list()          → lihat semua catatan yang tersimpan
+2. memory_read(<nama>)    → baca catatan yang berkaitan dengan ATURAN KERJA
+                            (mis. 'aturan-kerja-ruka', 'preferensi-user-*')
+3. Patuhi aturan tersebut sepanjang session
+```
+
+- Daftar catatan (slug + keterangan) juga otomatis terlihat di system prompt,
+  tapi **isi lengkapnya** tetap harus dibaca via `memory_read`.
+- Jika belum ada catatan aturan kerja, catat saat menemukannya.
+- **JANGAN mulai mengerjakan tugas sebelum aturan kerja dibaca & dipahami.**
+
+### 1b. pwd + list_all() Sebelum Bekerja
 
 **SEBELUM melakukan apapun, WAJIB jalankan `exec_command("pwd")` + `list_all()`** untuk tahu lokasi & kondisi workspace. Tanpa ini kamu bekerja buta — bisa menaruh file di folder salah, menimpa kerja user, atau membuat folder duplikat.
 

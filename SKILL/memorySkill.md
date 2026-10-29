@@ -56,7 +56,7 @@ data/memory/
 ## 3b. Auto-Inject: Daftar Catatan Selalu Terlihat
 
 **PENTING:** Daftar catatan (slug + keterangan) otomatis disisipkan ke
-system prompt-mu di antara marker `<!--MEMORY_START-->` … `<!--MEMORY_END-->`.
+system prompt-mu (blok daftar catatan, ditandai marker internal).
 
 Artinya:
 - Kamu **SELALU melihat daftar catatan yang tersimpan** tanpa perlu memanggil
