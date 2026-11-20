@@ -69,6 +69,8 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 # ============================================================
 import json
 from dynamic_config import get_dynamic_config
+from ruka.policy import MODES as APPROVAL_MODES
+from ruka.policy import evaluate_tool as evaluate_tool_policy
 
 # Load konfigurasi gabungan dari config.json + fallback ke config.py
 dynamic_cfg = get_dynamic_config()
@@ -110,6 +112,7 @@ config.NOTIF_ENABLED = dynamic_cfg['NOTIF_ENABLED']
 config.NOTIF_SOUND = dynamic_cfg['NOTIF_SOUND']
 config.NOTIF_SOUND_DIRS = dynamic_cfg['NOTIF_SOUND_DIRS']
 config.ALLOW_INTERNAL_WRITE = dynamic_cfg['ALLOW_INTERNAL_WRITE']
+config.APPROVAL_MODE = dynamic_cfg['APPROVAL_MODE']
 
 # Variabel global MODEL dan HEADERS harus bisa diakses langsung
 MODEL = config.MODEL
@@ -1037,6 +1040,43 @@ def _reset_interrupt():
 def _is_interrupted() -> bool:
     """Cek apakah interrupt telah di-request."""
     return _interrupt_event.is_set()
+
+
+def _request_approval(description: str, detail: str = "") -> tuple:
+    """
+    Minta konfirmasi user untuk aksi berisiko (mode approval `ask`).
+
+    Returns: (approved: bool, note: str). Di lingkungan non-TTY (single prompt,
+    CI, pipe) aksi berisiko DITOLAK karena tidak ada cara aman untuk bertanya.
+    """
+    if not sys.stdin.isatty():
+        return False, (
+            "tidak ada TTY untuk konfirmasi; jalankan dengan --yolo "
+            "atau ubah mode dengan /mode auto"
+        )
+
+    was_armed = _footer_pause()
+    _stop_input_reader()
+    answer = ""
+    try:
+        print()
+        print(f"  {Style.WARN}⚠ Persetujuan diperlukan{Style.RESET} {Style.GREY}— aksi berisiko{Style.RESET}")
+        print(f"  {Style.GREY_LIGHT}{description}{Style.RESET}")
+        if detail:
+            print(f"  {Style.GREY_DARK}{detail}{Style.RESET}")
+        sys.stdout.write(f"  {Style.WARN}Setujui?{Style.RESET} [y/N] ")
+        sys.stdout.flush()
+        answer = sys.stdin.readline()
+    except (EOFError, KeyboardInterrupt, OSError):
+        answer = ""
+    finally:
+        _drain_input_queue()
+        _start_input_reader()
+        if was_armed:
+            _footer_resume()
+
+    approved = answer.strip().lower() in ("y", "ya", "yes", "ok", "lanjut", "setuju")
+    return approved, "" if approved else "dibatalkan user"
 
 
 # ============================================================
@@ -2658,6 +2698,8 @@ def show_help():
     _help_row("ruka <path>", "Override workspace ke path tertentu")
     _help_row("ruka \"<prompt>\"", "Mode prompt tunggal (langsung jawab)")
     _help_row("ruka change", "Ubah endpoint model dan API key di config.json")
+    _help_row("ruka --plan", "Mulai dalam mode read-only (tanpa tulis/eksekusi berisiko)")
+    _help_row("ruka --yolo", "Mulai dalam mode auto (tanpa konfirmasi)")
 
     _help_section("Slash command (dalam sesi)")
     _help_row("/help", "Tampilkan bantuan ini")
@@ -2673,6 +2715,7 @@ def show_help():
     _help_row("/model alias", "Daftar alias model yang tersimpan")
     _help_row("/model rm <alias>", "Hapus alias model")
     _help_row("/compact", "Compact konteks manual (jika AI mulai halu)")
+    _help_row("/mode ask|auto|plan", "Mode izin: konfirmasi / bebas / read-only")
     _help_row("/notif on|off", "Nyalakan/matikan notifikasi suara saat giliran selesai")
     _help_row("/notif set", "Picker interaktif memilih suara notifikasi")
     _help_row("/team <tugas>", "Bentuk tim & diskusi kolaboratif multi-agent")
@@ -2730,6 +2773,10 @@ def show_banner(session_name: str = None, session_meta: dict = None, is_new: boo
     print()
     print(f"  {Style.GREY}cwd{Style.RESET}      {bullet} {Style.GREY_LIGHT}{_shorten_path(config.BASE_DIR)}{Style.RESET}")
     print(f"  {Style.GREY}model{Style.RESET}    {bullet} {Style.GREY_LIGHT}{MODEL}{Style.RESET}")
+    print(
+        f"  {Style.GREY}mode{Style.RESET}     {bullet} "
+        f"{Style.GREY_LIGHT}{getattr(config, 'APPROVAL_MODE', 'ask')}{Style.RESET}"
+    )
 
     if session_name:
         if is_new:
@@ -5869,6 +5916,21 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
 
 
 def execute_tool(name: str, arguments: dict) -> str:
+    # ── Gerbang kebijakan (mode ask/auto/plan) ──────────────────
+    decision = evaluate_tool_policy(
+        name, arguments, config.BASE_DIR, getattr(config, "APPROVAL_MODE", "ask")
+    )
+    if not decision.allowed:
+        return f"Error: {decision.reason}"
+    if decision.needs_approval:
+        arg_preview = json.dumps(arguments, ensure_ascii=False)[:200]
+        approved, note = _request_approval(
+            f"{name} — {arg_preview}",
+            decision.reason,
+        )
+        if not approved:
+            return f"Error: Aksi '{name}' tidak dijalankan ({note})."
+
     if name == "read_file":
         result = tool_read_file(
             arguments["filename"],
@@ -7179,6 +7241,27 @@ def chat_session(session_name: str = None):
                     _drain_input_queue()
                 continue
 
+            # ── /mode — mode izin eksekusi (ask|auto|plan) ──────────────
+            if user_input.lower().strip().startswith("/mode"):
+                parts = user_input.split(maxsplit=1)
+                sub = parts[1].strip().lower() if len(parts) > 1 else ""
+                if sub in APPROVAL_MODES:
+                    config.APPROVAL_MODE = sub
+                    print(
+                        f"\n  {Style.OK}●{Style.RESET} {Style.GREY_LIGHT}Mode izin diubah ke "
+                        f"{Style.ACCENT}{sub}{Style.RESET}"
+                    )
+                else:
+                    print(
+                        f"\n  {Style.GREY}Mode aktif: {Style.ACCENT}{config.APPROVAL_MODE}{Style.RESET} "
+                        f"{Style.GREY_DARK}(ask = konfirmasi aksi berisiko, auto = bebas, "
+                        f"plan = read-only){Style.RESET}"
+                    )
+                    print(
+                        f"  {Style.GREY}Gunakan: {Style.GREY_LIGHT}/mode ask|auto|plan{Style.RESET}"
+                    )
+                continue
+
             # ── /notif — atur notifikasi suara (on|off|set) ─────────────
             if user_input.lower().strip().startswith("/notif"):
                 parts = user_input.split(maxsplit=1)
@@ -7521,6 +7604,32 @@ def check_for_updates() -> bool:
 # ============================================================
 
 if __name__ == "__main__":
+    # ── Flag runtime: --yolo / --plan / --approval <mode> ─────
+    # Diekstrak sebelum parsing workspace/session agar tidak dianggap path.
+    _argv = [sys.argv[0]]
+    _flag_mode = None
+    _i = 1
+    while _i < len(sys.argv):
+        _a = sys.argv[_i]
+        if _a == "--yolo":
+            _flag_mode = "auto"
+        elif _a == "--plan":
+            _flag_mode = "plan"
+        elif _a in ("--approval", "--mode") and _i + 1 < len(sys.argv):
+            _flag_mode = sys.argv[_i + 1].strip().lower()
+            _i += 1
+        elif _a.startswith(("--approval=", "--mode=")):
+            _flag_mode = _a.split("=", 1)[1].strip().lower()
+        else:
+            _argv.append(_a)
+        _i += 1
+    sys.argv = _argv
+    if _flag_mode:
+        if _flag_mode in APPROVAL_MODES:
+            config.APPROVAL_MODE = _flag_mode
+        else:
+            print(f"Mode approval tidak dikenal: {_flag_mode} (pakai: ask|auto|plan)")
+
     # ── Cek update dari remote saat startup ──────────────────
     needs_restart = check_for_updates()
     if needs_restart:

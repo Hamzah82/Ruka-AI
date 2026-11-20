@@ -98,6 +98,7 @@ def get_dynamic_config():
     result['ESTIMATE_CHARS_PER_TOKEN'] = getattr(config, 'ESTIMATE_CHARS_PER_TOKEN', 4)
     result['NOTIF_SOUND_DIRS'] = getattr(config, 'NOTIF_SOUND_DIRS', [])
     result['ALLOW_INTERNAL_WRITE'] = getattr(config, 'ALLOW_INTERNAL_WRITE', False)
+    result['APPROVAL_MODE'] = getattr(config, 'APPROVAL_MODE', 'ask')
     result['BLOCKED_COMMANDS'] = config.BLOCKED_COMMANDS
     
     return result

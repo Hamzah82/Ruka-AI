@@ -164,6 +164,18 @@ NOTIF_SOUND_DIRS = [
 ]
 
 # ============================================================
+# SECURITY — APPROVAL MODE
+# ============================================================
+# ask  : operasi berisiko (hapus, mv, rm, sudo, tulis di luar workspace) minta
+#        konfirmasi user; operasi aman berjalan otomatis.
+# auto : semua diizinkan (kecuali BLOCKED_COMMANDS yang tetap ditolak).
+# plan : read-only — operasi tulis & perintah non-read-only diblokir.
+# Bisa diubah saat runtime dengan /mode, atau dari CLI: --yolo / --plan.
+APPROVAL_MODE = (os.getenv("RUKA_APPROVAL_MODE") or "ask").strip().lower()
+if APPROVAL_MODE not in ("ask", "auto", "plan"):
+    APPROVAL_MODE = "ask"
+
+# ============================================================
 # SECURITY — PATH & WRITE POLICY
 # ============================================================
 # Agent boleh MEMBACA dari workspace (BASE_DIR) dan folder instalasi
