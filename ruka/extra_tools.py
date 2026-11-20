@@ -76,7 +76,10 @@ def grep_files(
         return f"Error: regex tidak valid: {e}"
 
     base = Path(base_dir).resolve()
-    start = _resolve(base_dir, path)
+    try:
+        start = _resolve(base_dir, path)
+    except ValueError as e:
+        return f"Error: {e}"
     patterns = load_ignore_patterns(base_dir)
     matches: list[str] = []
     scanned = 0
@@ -120,14 +123,20 @@ def glob_files(pattern: str, base_dir: str, path: str = ".", max_results: int = 
     if not pattern:
         return "Error: pattern kosong."
     base = Path(base_dir).resolve()
-    start = _resolve(base_dir, path)
+    try:
+        start = _resolve(base_dir, path)
+    except ValueError as e:
+        return f"Error: {e}"
     patterns = load_ignore_patterns(base_dir)
     results: list[str] = []
+
+    if pattern.startswith("/"):
+        return "Error: pola absolut tidak diizinkan; gunakan path relatif terhadap workspace."
 
     # Path.glob mendukung '**'. Untuk pola absolut/traversal, _resolve sudah menolak.
     try:
         candidates = sorted(start.glob(pattern))
-    except (ValueError, OSError) as e:
+    except (ValueError, OSError, NotImplementedError) as e:
         return f"Error: pola glob tidak valid: {e}"
 
     for item in candidates:
@@ -245,7 +254,10 @@ def _apply_hunks(old_text: str, hunks) -> str:
                 out.append(text)
         cursor = idx
     out.extend(old_lines[cursor:])
-    trailing = "\n" if old_text.endswith("\n") else ""
+    if not out:
+        return ""
+    # File baru selalu ditutup newline; file lama mengikuti konvensi aslinya.
+    trailing = "\n" if (not old_text or old_text.endswith("\n")) else ""
     return "\n".join(out) + trailing
 
 

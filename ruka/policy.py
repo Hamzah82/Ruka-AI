@@ -29,6 +29,7 @@ MUTATING_TOOLS = frozenset(
         "move_file",
         "create_folder",
         "delete_folder",
+        "apply_patch",
         "memory_write",
         "memory_delete",
         "gui_mouse",

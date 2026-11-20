@@ -69,8 +69,11 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 # ============================================================
 import json
 from dynamic_config import get_dynamic_config
+from ruka.extra_tools import apply_patch as apply_patch_text
+from ruka.extra_tools import fuzzy_replace, glob_files, grep_files
 from ruka.policy import MODES as APPROVAL_MODES
 from ruka.policy import evaluate_tool as evaluate_tool_policy
+from ruka.rules import build_rules_section
 
 # Load konfigurasi gabungan dari config.json + fallback ke config.py
 dynamic_cfg = get_dynamic_config()
@@ -4141,6 +4144,94 @@ TOOLS = [
                 "required": ["name"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grep",
+            "description": (
+                "Mencari pola regex di ISI file workspace dan mengembalikan "
+                "'path:baris: isi'. Jauh lebih hemat token daripada membaca banyak "
+                "file atau menjalankan grep lewat shell. Folder umum seperti .git, "
+                "node_modules, .venv otomatis dilewati."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Pola regex, mis. 'def main\\(' atau 'TODO|FIXME'."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Opsional. File atau folder awal (default '.')."
+                    },
+                    "glob": {
+                        "type": "string",
+                        "description": "Opsional. Filter nama file, mis. '*.py'."
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Opsional (default false)."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Opsional. Batas hasil (default 100)."
+                    }
+                },
+                "required": ["pattern"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "glob",
+            "description": (
+                "Mencari path file/folder dengan pola glob, mis. '**/*.py' atau "
+                "'src/**/test_*.ts'. Gunakan untuk menemukan file tanpa menebak nama."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Pola glob relatif terhadap path awal."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Opsional. Folder awal (default '.')."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Opsional. Batas hasil (default 200)."
+                    }
+                },
+                "required": ["pattern"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "apply_patch",
+            "description": (
+                "Menerapkan unified diff (format '--- a/file' / '+++ b/file' / '@@') "
+                "ke satu atau beberapa file sekaligus. Lebih andal daripada edit_file "
+                "untuk perubahan multi-baris: konteks divalidasi ketat dan file ditulis "
+                "atomik. Gunakan '/dev/null' pada header untuk membuat/menghapus file."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patch": {
+                        "type": "string",
+                        "description": "Isi patch unified diff lengkap."
+                    }
+                },
+                "required": ["patch"]
+            }
+        }
     }
 ]
 
@@ -4300,6 +4391,26 @@ def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str =
                 return "Error: Parameter 'old_text' tidak boleh string kosong untuk operasi 'replace'."
             count = current_content.count(old_text)
             if count == 0:
+                # Fallback: cocokkan dengan mengabaikan indentasi/spasi tepi baris.
+                # Banyak kegagalan edit berasal dari perbedaan spasi yang tidak
+                # esensial, dan fallback ini menghemat satu putaran tool.
+                fuzzy, fuzzy_count = fuzzy_replace(
+                    current_content, old_text, new_text, replace_all
+                )
+                if fuzzy is not None:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(fuzzy)
+                    times = "semua kemunculan" if replace_all and fuzzy_count > 1 else "1 kemunculan"
+                    return (
+                        f"File '{filename}' berhasil diedit (fuzzy match: {times}; "
+                        "spasi/indentasi diabaikan)."
+                    )
+                if fuzzy_count > 1:
+                    return (
+                        f"Error: Teks tidak cocok persis, dan fuzzy match menemukan "
+                        f"{fuzzy_count} kemunculan di '{filename}'. Perjelas konteks "
+                        "old_text atau set replace_all=true."
+                    )
                 return f"Error: Teks '{old_text[:50]}{'...' if len(old_text) > 50 else ''}' tidak ditemukan dalam file '{filename}'."
             if count > 1 and not replace_all:
                 return (
@@ -6029,6 +6140,27 @@ def execute_tool(name: str, arguments: dict) -> str:
         result = tool_memory_search(arguments["query"])
     elif name == "memory_delete":
         result = tool_memory_delete(arguments["name"])
+    elif name == "grep":
+        result = grep_files(
+            arguments["pattern"],
+            config.BASE_DIR,
+            arguments.get("path", "."),
+            arguments.get("glob"),
+            arguments.get("case_sensitive", False),
+            arguments.get("max_results", 100),
+        )
+    elif name == "glob":
+        result = glob_files(
+            arguments["pattern"],
+            config.BASE_DIR,
+            arguments.get("path", "."),
+            arguments.get("max_results", 200),
+        )
+    elif name == "apply_patch":
+        try:
+            result = apply_patch_text(arguments["patch"], config.BASE_DIR)
+        except Exception as e:
+            result = f"Error: patch gagal diterapkan: {e}"
     else:
         result = f"Error: Tool '{name}' tidak dikenal."
     return result
@@ -6903,13 +7035,15 @@ def get_system_prompt(session_name: str = None) -> str:
         + "\n══════════════════════════════════════════════════════════════\n"
         if skills_content else ""
     )
+    rules_section = build_rules_section(config.BASE_DIR)
 
     return (
         "Kamu adalah Ruka AI, agent kura-kura (turtle) yang dapat mengelola file dan folder "
         "di direktori kerja pengguna, serta menjalankan perintah terminal (bash). "
         "Kamu memiliki kemampuan: membaca file, menulis file, menghapus file, "
         "menyalin file, memindahkan/rename file, membuat folder, menghapus folder, "
-        "melihat info file/folder, melihat struktur direktori, dan "
+        "mencari isi file (grep), menemukan path (glob), menerapkan patch multi-file "
+        "(apply_patch), melihat info file/folder, melihat struktur direktori, dan "
         "menjalankan perintah terminal (bash/shell) di local device pengguna. "
         "Kamu BOLEH memanggil tools secara berantai dalam satu respons — "
         "misalnya: list_files dulu untuk tahu file apa yang ada, "
@@ -6971,6 +7105,7 @@ def get_system_prompt(session_name: str = None) -> str:
         "'description' + 'tags' yang jelas agar mudah dicari.\n\n"
         "Berikut DAFTAR CATATAN yang sudah tersimpan (di-refresh otomatis saat ada perubahan):\n"
         + _build_memory_section()
+        + rules_section
         + skills_section
         + session_info
     )

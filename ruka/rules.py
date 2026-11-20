@@ -81,7 +81,9 @@ def load_ignore_patterns(base_dir: str) -> list[str]:
 
 def is_ignored(rel_path: str, patterns: list[str] | None = None) -> bool:
     """True bila path relatif harus dilewati tool pencarian."""
-    rel_path = rel_path.replace(os.sep, "/").lstrip("./")
+    rel_path = rel_path.replace(os.sep, "/")
+    while rel_path.startswith("./"):
+        rel_path = rel_path[2:]
     parts = rel_path.split("/")
     if any(part in DEFAULT_IGNORE_DIRS for part in parts[:-1]):
         return True
