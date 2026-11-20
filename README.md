@@ -104,6 +104,12 @@ Elemen visual: aksen **coral** hangat sebagai warna utama, skala abu-abu berlapi
 **Mata & Telinga (Information Gathering):**
 - `list_files` — Menampilkan daftar semua file di direktori kerja
 - `get_file_info` — Menampilkan info detail file/folder (ukuran, tanggal, izin)
+- `grep` — Cari regex di isi file, hasil `path:baris: isi` (hemat token)
+- `glob` — Temukan path dengan pola glob, mis. `**/*.py`
+
+**Patch & Edit Presisi:**
+- `apply_patch` — Terapkan unified diff multi-file (konteks divalidasi ketat, tulis atomik)
+- `edit_file` — Replace/append/prepend, dengan fallback fuzzy bila spasi/indentasi berbeda
 
 **Mulut & Kaki (Terminal Execution):**
 - `exec_command` — Menjalankan perintah terminal (bash/shell)
@@ -428,6 +434,9 @@ Ruka AI menyimpan semua riwayat percakapan secara otomatis di folder `sessions/`
 - `/model alias` — Daftar alias model yang tersimpan
 - `/model rm <alias>` — Hapus alias model
 - `/compact` — Compact konteks manual (jika AI mulai halu)
+- `/undo` — Batalkan perubahan file dari tool terakhir (checkpoint)
+- `/stats` — Statistik konteks, session, checkpoint, dan memori
+- `/mode ask|auto|plan` — Mode izin: konfirmasi aksi berisiko / bebas / read-only
 - `/notif on|off` — Nyalakan/matikan notifikasi suara saat giliran selesai
 - `/notif set` — Picker interaktif memilih suara notifikasi
 - `/team <tugas>` — Bentuk tim & diskusi kolaboratif multi-agent
@@ -470,7 +479,7 @@ Command ini akan menampilkan menu help yang rapi dan terbagi dalam beberapa bagi
 python main.py searchSessions proyek
 ```
 
-Command ini akan mencari semua session yang namanya mengandung keyword `proyek` (case-insensitive). Berguna ketika punya banyak session dan ingin cepat menemukan session tertentu.
+Command ini mencari keyword (case-insensitive) di **nama session dan isi pesan** — termasuk argumen tool yang pernah dipanggil. Hasil menampilkan jumlah kecocokan dan cuplikan konteks di sekitarnya.
 
 Output contoh:
 
@@ -478,9 +487,10 @@ Output contoh:
   ✻ Pencarian 'proyek' — 2/8 session
   ────────────────────────────────────────────────────────────────
    1 ⏺ kerja-proyek
-       45 pesan · diupdate 2025-07-03 09:15 · 120.3 KB
+       45 pesan · diupdate 2025-07-03 09:15 · 120.3 KB · 3 kecocokan isi
+       ⎿  [user] …tolong lanjutkan proyek inventaris…
    2 ⏺ proyek-akhir
-       23 pesan · diupdate 2025-07-05 18:22 · 58.7 KB
+       23 pesan · diupdate 2025-07-05 18:22 · 58.7 KB · cocok nama
 ```
 
 ### Mengubah Konfigurasi API dari CLI
@@ -520,12 +530,48 @@ Session disimpan secara otomatis setelah setiap exchange (user prompt + AI respo
 
 ## 🔒 Keamanan
 
-Ruka AI dilengkapi dengan beberapa lapisan keamanan:
+Ruka AI dilengkapi beberapa lapisan keamanan:
 
-- **Path Traversal Protection** — Semua path dibatasi hanya di dalam direktori kerja, akses ke luar direktori ditolak
-- **Perintah Berbahaya Diblokir** — Perintah seperti `rm -rf /`, `mkfs`, `dd if=/dev/zero`, `shutdown`, `format`, dan sejenisnya otomatis ditolak
-- **Izin File Diperiksa** — Penanganan error untuk file/folder yang tidak memiliki izin akses
-- **Timeout Perintah** — Setiap perintah terminal memiliki batas waktu default 60 detik
+- **Pemisahan hak baca/tulis** — Agent boleh membaca workspace dan folder instalasi (`SKILL/`), tetapi operasi tulis default **hanya** di workspace. `main.py`, `SKILL/`, dan `config.json` tidak bisa ditimpa lewat prompt injection. Buka dengan `RUKA_ALLOW_INTERNAL_WRITE=1` bila memang perlu.
+- **Mode izin (approval)** — `ask` (default): aksi berisiko minta konfirmasi; `auto`: semua jalan; `plan`: read-only. Ubah dengan `/mode` atau `--yolo` / `--plan`.
+- **Klasifikasi risiko perintah** — Sebelum `exec_command`, perintah dinilai: `safe`, `moderate`, atau `danger` (rm, dd, sudo, chmod, git push, pipe ke shell, akses `.ssh`/`.env`, tulis di luar workspace, dll.). Di mode `ask`, yang `danger` harus disetujui; di `plan` semua non-read-only ditolak.
+- **Checkpoint & `/undo`** — Isi file lama disalin ke `<workspace>/.ruka/checkpoints/` sebelum diubah. `/undo` mengembalikan perubahan tool terakhir (termasuk folder yang dihapus).
+- **Path traversal & symlink protection** — Path divalidasi dengan `realpath` + `commonpath`, bukan `startswith`, sehingga `/proj-rahasia` tidak lolos sebagai anak `/proj`.
+- **`config.json` aman** — Ditulis atomik dan diberi permission `0600` karena menyimpan API key.
+- **Auto-update opt-in** — Startup tidak lagi menjalankan `git fetch/pull` diam-diam. Gunakan `ruka --update` atau `RUKA_AUTO_UPDATE=1`.
+- **Perintah berbahaya diblokir** — Blocklist keras tetap berlaku di semua mode (`rm -rf /`, `mkfs`, `dd if=/dev/zero`, `shutdown`, dll.).
+- **Timeout perintah** — Setiap perintah terminal memiliki batas waktu (default 60 detik).
+
+> **Catatan:** `ask` tidak bisa bertanya di lingkungan non-TTY (pipe/CI). Di sana aksi berisiko otomatis ditolak; gunakan `--yolo` bila memang disengaja.
+
+### Batas biaya & loop agent
+
+- `MAX_ROUNDS_PER_TURN` (default 50) — Setelah batas tercapai, model dipaksa memberi jawaban akhir tanpa tool.
+- `MAX_IDENTICAL_TOOL_CALLS` (default 2) — Tool dengan argumen identik tidak dieksekusi terus-menerus; model diminta ganti strategi.
+- `MAX_TEAM_ROUNDS` (default 8) — Jaring pengaman biaya untuk `/team`.
+- Retry hanya untuk error transien (408/429/5xx, timeout); error auth/request invalid tidak diulang. `Retry-After` dihormati.
+- Compaction adaptif: bila ringkasan melebihi context window, chunk dibelah otomatis; kegagalan dilaporkan, bukan diam-diam.
+
+---
+
+## 📌 Aturan Workspace
+
+Letakkan salah satu file berikut di workspace agar otomatis masuk ke system prompt:
+
+- `RUKA.md`
+- `AGENTS.md`
+- `.ruka/rules.md`
+
+Contoh:
+
+```markdown
+# Aturan proyek
+- Selalu jalankan `pytest -q` sebelum commit.
+- Gunakan 4 spasi, bukan tab.
+- Jangan pernah menyentuh folder `legacy/`.
+```
+
+Tool `grep`/`glob` juga menghormati `.rukaignore` (satu pola per baris, mendukung `#` komentar dan pola folder seperti `vendor/`). Folder umum (`.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `build`) otomatis dilewati.
 
 ---
 
@@ -533,13 +579,23 @@ Ruka AI dilengkapi dengan beberapa lapisan keamanan:
 
 ```
 Ruka-AI/
-├── main.py           # Source code utama — seluruh logic agent
+├── main.py           # Entry point + agent loop & UI terminal
+├── ruka/             # Modul yang sudah dipisah dari main.py
+│   ├── policy.py     # Mode izin & klasifikasi risiko perintah
+│   ├── checkpoints.py# Snapshot file & undo
+│   ├── extra_tools.py# grep, glob, apply_patch, fuzzy edit
+│   └── rules.py      # RUKA.md/AGENTS.md + .rukaignore
 ├── config.py         # Konfigurasi (API key, model, BASE_DIR, SCRIPT_DIR)
 ├── dynamic_config.py # Gabungan konfigurasi config.json (prioritas) + config.py
 ├── config.json       # Konfigurasi API endpoint & model + alias (disimpan lokal, tidak di-push)
 ├── CHANGE_CONFIG_GUIDE.md  # Panduan penggunaan command 'ruka change'
 ├── install.sh        # Installer alias `ruka` ke ~/.bashrc
-├── requirements.txt  # Dependensi Python yang dibutuhkan
+├── requirements.txt  # Dependensi runtime
+├── requirements-dev.txt # Dependensi pengembangan (pytest, ruff)
+├── pyproject.toml    # Metadata, konfigurasi pytest & ruff
+├── .github/workflows/ci.yml # CI: ruff, compileall, pytest
+├── tests/            # Unit test (security, policy, tools, retry, checkpoint, ...)
+├── scripts/          # Script diagnostik (compact/turns)
 ├── .env.example      # Template konfigurasi API key
 ├── .env              # Konfigurasi API key (tidak di-push ke git)
 ├── .gitignore        # Daftar file/folder yang diabaikan git
@@ -561,6 +617,8 @@ Ruka-AI/
 └── README.md         # Dokumentasi project ini
 ```
 
+Checkpoint undo disimpan per-workspace di `<workspace>/.ruka/checkpoints/` (di-ignore git).
+
 ---
 
 ## ⚙️ Konfigurasi
@@ -568,8 +626,16 @@ Ruka-AI/
 Konfigurasi dapat diatur di `config.py` (hardcode) atau `config.json` (dinamis, prioritas lebih tinggi):
 
 - `MODEL` — Default: `meng/deepseek-v4-flash` — Model AI yang digunakan via OpenRouter (bisa di-override via env `RUKA_MODEL`)
+- `APPROVAL_MODE` — Default: `ask` — `ask` (konfirmasi aksi berisiko), `auto`, atau `plan` (read-only); env `RUKA_APPROVAL_MODE`
+- `ALLOW_INTERNAL_WRITE` — Default: `false` — izinkan agent menulis ke folder instalasi (`main.py`, `SKILL/`, `config.json`); env `RUKA_ALLOW_INTERNAL_WRITE=1`
+- `CHECKPOINT_ENABLED` — Default: `true` — snapshot file sebelum diubah agar `/undo` tersedia; env `RUKA_CHECKPOINT=0` untuk mematikan
+- `CHECKPOINT_KEEP` — Default: `30` — jumlah grup checkpoint yang disimpan
+- `AUTO_UPDATE` — Default: `false` — tarik update git saat startup (opt-in); env `RUKA_AUTO_UPDATE=1`
+- `MAX_ROUNDS_PER_TURN` — Default: `50` — batas putaran tool per giliran user
+- `MAX_IDENTICAL_TOOL_CALLS` — Default: `2` — batas eksekusi tool+args identik per giliran
+- `MAX_TEAM_ROUNDS` — Default: `8` — batas putaran `/team`
 - `DEFAULT_CMD_TIMEOUT` — Default: `60` — Timeout default untuk eksekusi perintah (detik)
-- `MAX_RETRIES` — Default: `7` — Jumlah maksimum retry jika request gagal
+- `MAX_RETRIES` — Default: `7` — Jumlah maksimum retry untuk error transien
 - `RETRY_BASE_DELAY` — Default: `2` — Delay dasar untuk exponential backoff (detik)
 - `BASE_DIR` — Default: `os.getcwd()` (folder tempat user memanggil) — Workspace tempat file dikelola (bisa di-override via CLI)
 - `SCRIPT_DIR` — Path absolut ke folder main.py — dipakai untuk akses SKILL/, .env, dan file internal (tidak pernah berubah)
@@ -583,8 +649,20 @@ Konfigurasi dapat diatur di `config.py` (hardcode) atau `config.json` (dinamis, 
 
 ## 📦 Dependensi
 
-- **requests** (>=2.28.0) — HTTP client untuk berkomunikasi dengan OpenRouter API
-- **python-dotenv** (>=1.0.0) — Memuat variabel environment dari file `.env`
+Runtime:
+
+- **requests** (>=2.28.0,<3) — HTTP client untuk berkomunikasi dengan API
+- **python-dotenv** (>=1.0.0,<2) — Memuat variabel environment dari file `.env`
+
+Pengembangan (opsional):
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .          # lint (aturan fatal)
+python -m pytest -q   # unit test
+```
+
+CI menjalankan ruff, `compileall`, dan pytest pada Python 3.10 & 3.12 (`.github/workflows/ci.yml`).
 
 ---
 
