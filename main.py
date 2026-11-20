@@ -74,6 +74,7 @@ from ruka.extra_tools import fuzzy_replace, glob_files, grep_files, patch_paths
 from ruka.policy import MODES as APPROVAL_MODES
 from ruka.policy import evaluate_tool as evaluate_tool_policy
 from ruka.rules import build_rules_section
+from ruka.checkpoints import checkpoint_root
 from ruka.checkpoints import save_before_change as checkpoint_save
 from ruka.checkpoints import undo_last as checkpoint_undo
 
@@ -2317,11 +2318,56 @@ def clear_sessions() -> str:
     return "\n".join(parts)
 
 
+def _message_search_text(message: dict) -> str:
+    """Teks yang bisa dicari dari satu pesan (content + argumen tool)."""
+    parts = []
+    content = message.get("content")
+    if isinstance(content, str):
+        parts.append(content)
+    elif isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+    for tc in message.get("tool_calls") or []:
+        fn = tc.get("function") or {}
+        parts.append(str(fn.get("name") or ""))
+        parts.append(str(fn.get("arguments") or ""))
+    return "\n".join(p for p in parts if p)
+
+
+def _session_content_matches(path: str, keyword_lower: str, max_hits: int = 3) -> tuple:
+    """Cari keyword di isi session. Returns (total_hits, snippets)."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return 0, []
+    hits = 0
+    snippets = []
+    for message in data.get("messages", []):
+        text = _message_search_text(message)
+        low = text.lower()
+        idx = low.find(keyword_lower)
+        if idx < 0:
+            continue
+        role = message.get("role", "?")
+        while idx >= 0:
+            hits += 1
+            if len(snippets) < max_hits:
+                start = max(0, idx - 60)
+                end = min(len(text), idx + len(keyword_lower) + 60)
+                snippet = " ".join(text[start:end].split())
+                snippets.append(f"[{role}] …{snippet}…")
+            idx = low.find(keyword_lower, idx + len(keyword_lower))
+    return hits, snippets
+
+
 def search_sessions(keyword: str) -> str:
     """
-    Cari session berdasarkan keyword (case-insensitive).
-    Mencocokkan keyword dengan nama session.
-    Returns: formatted string dengan hasil pencarian.
+    Cari session berdasarkan keyword (case-insensitive) di NAMA dan ISI pesan.
+    Returns: formatted string dengan hasil pencarian + cuplikan konteks.
     """
     all_sessions = list_sessions()
 
@@ -2329,23 +2375,82 @@ def search_sessions(keyword: str) -> str:
         return "ℹ️ Tidak ada session tersimpan."
 
     keyword_lower = keyword.strip().lower()
-    matched = [s for s in all_sessions if keyword_lower in s["name"].lower()]
+    if not keyword_lower:
+        return "Error: kata kunci pencarian kosong."
 
-    if not matched:
+    results = []
+    for s in all_sessions:
+        name_match = keyword_lower in s["name"].lower()
+        path = os.path.join(config.SESSIONS_DIR, f"{s['name']}.json")
+        hits, snippets = _session_content_matches(path, keyword_lower)
+        if name_match or hits:
+            results.append({"session": s, "name_match": name_match, "hits": hits, "snippets": snippets})
+
+    # Session dengan kecocokan isi terbanyak tampil lebih dulu.
+    results.sort(key=lambda r: (not r["name_match"], -r["hits"]))
+
+    if not results:
         return f"  {Style.GREY}Tidak ditemukan session yang mengandung {Style.GREY_LIGHT}'{keyword}'{Style.GREY}.{Style.RESET}"
 
-    # Format hasil pencarian — gaya bersih ala Claude Code
     lines = [
-        f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Pencarian{Style.RESET} {Style.GREY}'{keyword}' — {len(matched)}/{len(all_sessions)} session{Style.RESET}",
+        f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Pencarian{Style.RESET} {Style.GREY}'{keyword}' — {len(results)}/{len(all_sessions)} session{Style.RESET}",
         f"  {_rule()}",
     ]
 
-    for i, s in enumerate(matched, 1):
+    for i, r in enumerate(results, 1):
+        s = r["session"]
         size_str = _format_size(s["size"])
-        lines.append(f"  {Style.GREY_DARK}{i:>2}{Style.RESET} {Style.ACCENT_DIM}⏺{Style.RESET} {Style.GREY_LIGHT}{s['name']}{Style.RESET}")
-        lines.append(f"       {Style.GREY}{s['messages']} pesan · diupdate {s['updated']} · {size_str}{Style.RESET}")
+        hit_note = f" · {r['hits']} kecocokan isi" if r["hits"] else " · cocok nama"
+        lines.append(
+            f"  {Style.GREY_DARK}{i:>2}{Style.RESET} {Style.ACCENT_DIM}⏺{Style.RESET} "
+            f"{Style.GREY_LIGHT}{s['name']}{Style.RESET}"
+        )
+        lines.append(
+            f"       {Style.GREY}{s['messages']} pesan · diupdate {s['updated']} · "
+            f"{size_str}{hit_note}{Style.RESET}"
+        )
+        for snippet in r["snippets"]:
+            lines.append(f"       {Style.GREY_DARK}⎿{Style.RESET}  {Style.GREY}{snippet}{Style.RESET}")
 
     return "\n".join(lines)
+
+
+def _collect_stats(messages: list) -> str:
+    """Ringkasan pemakaian: session, konteks aktif, checkpoint, memori."""
+    sessions = list_sessions()
+    total_msgs = sum(s["messages"] for s in sessions)
+    total_size = sum(s["size"] for s in sessions)
+
+    try:
+        cp_root = checkpoint_root(config.BASE_DIR)
+        cp_groups = len([n for n in os.listdir(cp_root) if os.path.isdir(os.path.join(cp_root, n))])
+    except OSError:
+        cp_groups = 0
+
+    try:
+        memory_files = [n for n in os.listdir(config.MEMORY_DIR) if n.endswith(".md")]
+    except OSError:
+        memory_files = []
+
+    tokens = _estimate_tokens(messages)
+    limit = int(getattr(config, "MAX_HISTORY_TOKENS", 0) or 0)
+    pct = f" ({tokens * 100 // limit}% dari ambang compact)" if limit else ""
+
+    lines = [
+        f"\n  {Style.ACCENT}✻{Style.RESET} {Style.BOLD}Statistik{Style.RESET}",
+        f"  {_rule()}",
+        f"  {Style.GREY}workspace{Style.RESET}    {Style.GREY_LIGHT}{config.BASE_DIR}{Style.RESET}",
+        f"  {Style.GREY}model{Style.RESET}        {Style.GREY_LIGHT}{MODEL}{Style.RESET}",
+        f"  {Style.GREY}mode izin{Style.RESET}    {Style.GREY_LIGHT}{getattr(config, 'APPROVAL_MODE', 'ask')}{Style.RESET}",
+        f"  {Style.GREY}konteks{Style.RESET}      {Style.GREY_LIGHT}~{tokens:,} token{pct}{Style.RESET}",
+        f"  {Style.GREY}pesan aktif{Style.RESET}  {Style.GREY_LIGHT}{len(messages)}{Style.RESET}",
+        f"  {Style.GREY}session{Style.RESET}      {Style.GREY_LIGHT}{len(sessions)} tersimpan · "
+        f"{total_msgs} pesan · {_format_size(total_size)}{Style.RESET}",
+        f"  {Style.GREY}checkpoint{Style.RESET}   {Style.GREY_LIGHT}{cp_groups} grup (undo tersedia){Style.RESET}",
+        f"  {Style.GREY}memori{Style.RESET}       {Style.GREY_LIGHT}{len(memory_files)} catatan{Style.RESET}",
+    ]
+    return "\n".join(lines)
+
 
 
 def rename_session(old_name: str, new_name: str) -> str:
@@ -2726,6 +2831,7 @@ def show_help():
     _help_row("/model rm <alias>", "Hapus alias model")
     _help_row("/compact", "Compact konteks manual (jika AI mulai halu)")
     _help_row("/undo", "Batalkan perubahan file dari tool terakhir")
+    _help_row("/stats", "Statistik konteks, session, checkpoint, dan memori")
     _help_row("/mode ask|auto|plan", "Mode izin: konfirmasi / bebas / read-only")
     _help_row("/notif on|off", "Nyalakan/matikan notifikasi suara saat giliran selesai")
     _help_row("/notif set", "Picker interaktif memilih suara notifikasi")
@@ -7596,6 +7702,11 @@ def chat_session(session_name: str = None):
                 msg = checkpoint_undo(config.BASE_DIR)
                 color = Style.OK if msg.startswith("Undo") else Style.GREY
                 print(f"\n  {color}●{Style.RESET} {Style.GREY_LIGHT}{msg}{Style.RESET}")
+                continue
+
+            # ── /stats — ringkasan pemakaian & konteks ──────────────────
+            if user_input.lower().strip() in ("/stats", "/statistik"):
+                print(_collect_stats(messages))
                 continue
 
             # ── /mode — mode izin eksekusi (ask|auto|plan) ──────────────
