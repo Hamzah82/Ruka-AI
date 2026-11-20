@@ -9,16 +9,20 @@ Ruka AI adalah agent CLI (Command Line Interface) yang terinspirasi dari karakte
 ## ✨ Fitur Utama
 
 - **Manajemen File Lengkap** — Baca, tulis, hapus, salin, dan pindahkan file
+- **Pencarian & Patch Hemat Token** — Tool `grep` (regex di isi file), `glob` (temukan path), dan `apply_patch` (unified diff multi-file) sehingga agent tidak perlu membaca seluruh file
 - **Manajemen Folder** — Buat, hapus folder (termasuk rekursif), dan tampilkan struktur direktori dalam format tree
 - **Eksekusi Terminal** — Jalankan perintah bash/shell langsung dari percakapan
-- **Session Management** — Simpan, muat, hapus, dan rename sesi percakapan dengan mudah
-- **Multi-Step Agentic Loop** — AI dapat memanggil tool secara berantai dalam satu sesi (misalnya: list file → baca → edit → simpan)
+- **Mode Izin (Approval)** — `ask` (default, konfirmasi aksi berisiko), `auto`, atau `plan` (read-only). Perintah diklasifikasi `safe`/`moderate`/`danger` sebelum dieksekusi
+- **Checkpoint & `/undo`** — File lama disimpan otomatis sebelum diubah; batalkan perubahan tool terakhir tanpa kehilangan pekerjaan
+- **Aturan Workspace** — `RUKA.md`/`AGENTS.md`/`.ruka/rules.md` otomatis jadi aturan proyek; `.rukaignore` menyaring hasil pencarian
+- **Session Management** — Simpan, muat, hapus, rename, dan cari isi sesi percakapan (full-text) dengan mudah
+- **Multi-Step Agentic Loop** — AI dapat memanggil tool secara berantai dalam satu sesi (misalnya: list file → baca → edit → simpan), dengan batas putaran & deteksi loop
 - **UI/UX ala Claude Code** — Tampilan terminal bersih & minimalis: panel sambutan rounded, marker `⏺`/`⎿` untuk tool & jawaban, prompt chevron `❯`, palet coral hangat, dan spinner animasi dengan timer berjalan
 - **Interupsi Real-Time** — Tekan `q` kapan saja untuk menghentikan proses yang sedang berjalan
 - **Markdown to Terminal Formatter** — Output AI diformat dari markdown ke styled terminal text yang rapi (header, list, code block, tabel)
-- **Retry dengan Exponential Backoff** — Otomatis retry hingga 5 kali jika request ke API gagal
-- **Lapisan Keamanan Best-Effort** — Pembatasan path (realpath+commonpath ke BASE_DIR/SCRIPT_DIR), denylist perintah destruktif (best-effort, **bukan sandbox**), scrub API key dari env subprocess, dan cap output. Lihat bagian [Keamanan](#-keamanan) untuk model ancaman
-- **Unlimited Rounds** — Tidak ada batas maksimum round per sesi
+- **Retry Cerdas** — Hanya error transien (timeout, 429, 5xx) yang diulang, dengan exponential backoff + jitter dan menghormati `Retry-After`; error auth/request invalid langsung dilaporkan
+- **Lapisan Keamanan Best-Effort** — Pemisahan hak baca/tulis (tulis hanya di workspace), pembatasan path (realpath+commonpath), denylist perintah destruktif, scrub API key dari env subprocess, dan cap output. Lihat bagian [Keamanan](#-keamanan) untuk model ancaman
+- **Batas Putaran & Deteksi Loop** — `MAX_ROUNDS_PER_TURN` + blokir tool dengan argumen identik yang diulang, agar biaya API tidak membengkak
 - **Workspace = Folder Pemanggil** — Workspace otomatis mengikuti folder tempat kamu menjalankan perintah (cwd). Pasang alias `ruka` lewat `install.sh`, lalu `cd` ke folder mana pun dan ketik `ruka`. Bisa juga di-override dengan `python main.py <path> <namaSesi>`. Folder `SKILL/`, `sessions/`, dan `.env` selalu diakses dari folder instalasi
 - **Konfigurasi Fleksibel via CLI** — Ubah endpoint API, model AI, dan API key dengan mudah menggunakan command `ruka change` (atau `ruka model` untuk ganti model saja). Konfigurasi disimpan di `config.json` dan aman dari commit Git
 - **Ganti Model dalam Sesi** — Slash command `/model <namaModel>` untuk mengganti model AI aktif tanpa restart, lengkap dengan **sistem alias** supaya tidak perlu mengetik nama model panjang: `/model set <alias>|<namaModel>` lalu cukup `/model <alias>`
