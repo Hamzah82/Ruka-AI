@@ -104,6 +104,7 @@ def get_dynamic_config():
     result['NOTIF_SOUND_DIRS'] = getattr(config, 'NOTIF_SOUND_DIRS', [])
     result['ALLOW_INTERNAL_WRITE'] = getattr(config, 'ALLOW_INTERNAL_WRITE', False)
     result['APPROVAL_MODE'] = getattr(config, 'APPROVAL_MODE', 'ask')
+    result['AUTO_UPDATE'] = getattr(config, 'AUTO_UPDATE', False)
     result['BLOCKED_COMMANDS'] = config.BLOCKED_COMMANDS
     
     return result

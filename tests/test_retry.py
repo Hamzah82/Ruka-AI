@@ -40,7 +40,7 @@ class RetryPolicyTest(unittest.TestCase):
         main.time.sleep, main._consume_stream, main.requests.post = self._orig
 
     def _run(self, side_effect, **kwargs):
-        with mock.patch.object(main.requests, "post", side_effect=side_effect) as post:
+        with mock.patch.object(main.HTTP_SESSION, "post", side_effect=side_effect) as post:
             try:
                 result = main.chat(
                     [{"role": "user", "content": "hi"}],

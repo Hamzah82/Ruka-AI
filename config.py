@@ -191,6 +191,17 @@ NOTIF_SOUND_DIRS = [
 ]
 
 # ============================================================
+# AUTO UPDATE (opt-in)
+# ============================================================
+# Default MATI: startup tidak melakukan git fetch/pull otomatis. Menjalankan
+# kode terbaru dari remote tanpa persetujuan user adalah risiko supply-chain
+# (dan mengubah source saat agent sedang bekerja). Aktifkan dengan
+# RUKA_AUTO_UPDATE=1 atau "auto_update": true di config.json.
+AUTO_UPDATE = os.getenv("RUKA_AUTO_UPDATE", "").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+
+# ============================================================
 # SECURITY — APPROVAL MODE
 # ============================================================
 # ask  : operasi berisiko (hapus, mv, rm, sudo, tulis di luar workspace) minta

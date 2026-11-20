@@ -119,6 +119,7 @@ config.NOTIF_SOUND = dynamic_cfg['NOTIF_SOUND']
 config.NOTIF_SOUND_DIRS = dynamic_cfg['NOTIF_SOUND_DIRS']
 config.ALLOW_INTERNAL_WRITE = dynamic_cfg['ALLOW_INTERNAL_WRITE']
 config.APPROVAL_MODE = dynamic_cfg['APPROVAL_MODE']
+config.AUTO_UPDATE = dynamic_cfg['AUTO_UPDATE']
 config.MAX_ROUNDS_PER_TURN = dynamic_cfg['MAX_ROUNDS_PER_TURN']
 config.MAX_IDENTICAL_TOOL_CALLS = dynamic_cfg['MAX_IDENTICAL_TOOL_CALLS']
 config.MAX_TEAM_ROUNDS = dynamic_cfg['MAX_TEAM_ROUNDS']
@@ -130,6 +131,10 @@ MODEL = config.MODEL
 VISION_MODEL = config.VISION_MODEL
 API_URL = config.API_URL
 HEADERS = config.HEADERS
+
+# Satu Session untuk semua request HTTP: koneksi TLS & DNS di-reuse, sehingga
+# tiap request tidak membayar handshake baru (terasa pada tool call beruntun).
+HTTP_SESSION = requests.Session()
 OPENROUTER_API_KEY = config.OPENROUTER_API_KEY
 MAX_RETRIES = config.MAX_RETRIES
 RETRY_BASE_DELAY = config.RETRY_BASE_DELAY
@@ -2815,6 +2820,7 @@ def show_help():
     _help_row("ruka change", "Ubah endpoint model dan API key di config.json")
     _help_row("ruka --plan", "Mulai dalam mode read-only (tanpa tulis/eksekusi berisiko)")
     _help_row("ruka --yolo", "Mulai dalam mode auto (tanpa konfirmasi)")
+    _help_row("ruka --update", "Cek & tarik update dari git remote (opt-in)")
 
     _help_section("Slash command (dalam sesi)")
     _help_row("/help", "Tampilkan bantuan ini")
@@ -4951,7 +4957,7 @@ def analyze_screenshot(image_path: str = "/tmp/ruka_screen.png",
             "max_tokens": 1500,
             "stream": False,
         }
-        resp = requests.post(API_URL, headers=HEADERS, json=payload, timeout=120)
+        resp = HTTP_SESSION.post(API_URL, headers=HEADERS, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
@@ -6811,7 +6817,7 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
             _spinner.start()
             _spinner.reset_live()  # estimasi output round ini mulai dari nol
         try:
-            response = requests.post(API_URL, headers=HEADERS, json=payload,
+            response = HTTP_SESSION.post(API_URL, headers=HEADERS, json=payload,
                                      timeout=120, stream=True)
             response.raise_for_status()
             data = _consume_stream(response)
@@ -7975,12 +7981,18 @@ def chat_session(session_name: str = None):
 # AUTO-UPDATE — cek & pull dari remote saat startup
 # ============================================================
 
-def check_for_updates() -> bool:
+def check_for_updates(force: bool = False) -> bool:
     """
     Cek apakah ada update dari remote repository.
     Jika ada → git pull → return True (artinya perlu restart).
     Jika tidak ada / bukan repo → return False (lanjut jalan normal).
+
+    Auto-update bersifat OPT-IN: tanpa force/AUTO_UPDATE, fungsi ini tidak
+    menyentuh jaringan sama sekali.
     """
+    if not force and not getattr(config, "AUTO_UPDATE", False):
+        return False
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Pastikan folder ini adalah git repo
@@ -8081,6 +8093,7 @@ if __name__ == "__main__":
     # Diekstrak sebelum parsing workspace/session agar tidak dianggap path.
     _argv = [sys.argv[0]]
     _flag_mode = None
+    _force_update = False
     _i = 1
     while _i < len(sys.argv):
         _a = sys.argv[_i]
@@ -8088,6 +8101,8 @@ if __name__ == "__main__":
             _flag_mode = "auto"
         elif _a == "--plan":
             _flag_mode = "plan"
+        elif _a == "--update":
+            _force_update = True
         elif _a in ("--approval", "--mode") and _i + 1 < len(sys.argv):
             _flag_mode = sys.argv[_i + 1].strip().lower()
             _i += 1
@@ -8104,7 +8119,7 @@ if __name__ == "__main__":
             print(f"Mode approval tidak dikenal: {_flag_mode} (pakai: ask|auto|plan)")
 
     # ── Cek update dari remote saat startup ──────────────────
-    needs_restart = check_for_updates()
+    needs_restart = check_for_updates(force=_force_update)
     if needs_restart:
         # Update berhasil → suruh user restart & exit
         sys.exit(0)
