@@ -7730,6 +7730,15 @@ def chat_session(session_name: str = None):
                 sub = parts[1].strip().lower() if len(parts) > 1 else ""
                 if sub in APPROVAL_MODES:
                     config.APPROVAL_MODE = sub
+                    # Persist ke config.json (bila ada) agar bertahan antar-restart.
+                    try:
+                        cfg_path = os.path.join(SCRIPT_DIR, "config.json")
+                        if os.path.exists(cfg_path):
+                            data = _read_config_data()
+                            data["approval_mode"] = sub
+                            _write_config_data(data)
+                    except Exception:
+                        pass
                     print(
                         f"\n  {Style.OK}●{Style.RESET} {Style.GREY_LIGHT}Mode izin diubah ke "
                         f"{Style.ACCENT}{sub}{Style.RESET}"

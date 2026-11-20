@@ -106,5 +106,15 @@ def get_dynamic_config():
     result['APPROVAL_MODE'] = getattr(config, 'APPROVAL_MODE', 'ask')
     result['AUTO_UPDATE'] = getattr(config, 'AUTO_UPDATE', False)
     result['BLOCKED_COMMANDS'] = config.BLOCKED_COMMANDS
-    
+
+    # Override dari config.json untuk preferensi yang aman diubah user.
+    if json_config:
+        mode = str(json_config.get('approval_mode', '')).strip().lower()
+        if mode in ('ask', 'auto', 'plan'):
+            result['APPROVAL_MODE'] = mode
+        if 'auto_update' in json_config:
+            result['AUTO_UPDATE'] = bool(json_config['auto_update'])
+        if 'checkpoint_enabled' in json_config:
+            result['CHECKPOINT_ENABLED'] = bool(json_config['checkpoint_enabled'])
+
     return result
