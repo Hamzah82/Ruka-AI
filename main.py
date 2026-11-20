@@ -113,6 +113,9 @@ config.NOTIF_SOUND = dynamic_cfg['NOTIF_SOUND']
 config.NOTIF_SOUND_DIRS = dynamic_cfg['NOTIF_SOUND_DIRS']
 config.ALLOW_INTERNAL_WRITE = dynamic_cfg['ALLOW_INTERNAL_WRITE']
 config.APPROVAL_MODE = dynamic_cfg['APPROVAL_MODE']
+config.MAX_ROUNDS_PER_TURN = dynamic_cfg['MAX_ROUNDS_PER_TURN']
+config.MAX_IDENTICAL_TOOL_CALLS = dynamic_cfg['MAX_IDENTICAL_TOOL_CALLS']
+config.MAX_TEAM_ROUNDS = dynamic_cfg['MAX_TEAM_ROUNDS']
 
 # Variabel global MODEL dan HEADERS harus bisa diakses langsung
 MODEL = config.MODEL
@@ -5677,7 +5680,11 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
     if len(team) > 6:
         return "Error: Maksimum 6 anggota tim per diskusi."
 
-    max_rounds = max(0, int(max_rounds))  # 0 = tidak terbatas
+    # Jaring pengaman biaya: 0 (tanpa batas) tetap dibatasi MAX_TEAM_ROUNDS.
+    max_rounds = max(0, int(max_rounds))
+    hard_cap = int(getattr(config, "MAX_TEAM_ROUNDS", 8) or 0)
+    if hard_cap and (max_rounds == 0 or max_rounds > hard_cap):
+        max_rounds = hard_cap
 
     # Riwayat diskusi bersama — semua anggota bisa membaca ini tiap giliran
     discussion: list[dict] = []  # {"name": str, "round": int, "content": str}
@@ -6268,6 +6275,23 @@ def _summarize_chunk_detailed(chunk_messages: list) -> str:
         )
         text = (resp["choices"][0]["message"]["content"] or "").strip()
         return text
+    except ContextLengthError:
+        # Chunk terlalu besar untuk context window model → belah & coba lagi.
+        # Ini membuat compaction tetap jalan pada model berkonteks kecil,
+        # alih-alih gagal diam-diam setiap giliran.
+        if len(chunk_messages) > 1:
+            mid = len(chunk_messages) // 2
+            left = _summarize_chunk_detailed(chunk_messages[:mid])
+            right = _summarize_chunk_detailed(chunk_messages[mid:])
+            return "\n\n".join(part for part in (left, right) if part)
+        # Satu pesan saja: potong isinya menjadi separuh lalu ringkas ulang.
+        only = chunk_messages[0]
+        content = only.get("content")
+        if isinstance(content, str) and len(content) > 2000:
+            shorter = dict(only)
+            shorter["content"] = content[: len(content) // 2] + "\n…[dipotong karena batas konteks]"
+            return _summarize_chunk_detailed([shorter])
+        return ""
     except Exception:
         return ""
 
@@ -6280,23 +6304,33 @@ def _summarize_detailed(messages: list) -> str:
     chunk_tokens = getattr(config, "COMPACT_CHUNK_TOKENS", 700_000)
     summaries = []
     cur, cur_tokens = [], 0
+    total_chunks = 0
+
+    def _flush(chunk):
+        nonlocal total_chunks
+        total_chunks += 1
+        s = _summarize_chunk_detailed(chunk)
+        if s:
+            summaries.append(s)
 
     for m in messages:
         mt = _estimate_tokens([m])
         if cur and (cur_tokens + mt) > chunk_tokens:
-            s = _summarize_chunk_detailed(cur)
-            if s:
-                summaries.append(s)
+            _flush(cur)
             cur, cur_tokens = [], 0
         cur.append(m)
         cur_tokens += mt
 
     if cur:
-        s = _summarize_chunk_detailed(cur)
-        if s:
-            summaries.append(s)
+        _flush(cur)
 
-    return "\n\n".join(summaries).strip()
+    result = "\n\n".join(summaries).strip()
+    if result and len(summaries) < total_chunks:
+        result += (
+            f"\n\n[…{total_chunks - len(summaries)} dari {total_chunks} bagian gagal "
+            "diringkas; sebagian detail mungkin hilang…]"
+        )
+    return result
 
 
 def _split_into_turns(body: list) -> list:
@@ -6373,7 +6407,14 @@ def compact_history(messages: list, keep_turns: int = None,
     # -- Ringkas bagian lama secara DETAIL --
     summary = _summarize_detailed(to_compact)
     if not summary:
-        return messages, False, ""  # gagal -> jangan ubah apa pun
+        # Jangan ubah riwayat, TAPI beri tahu caller agar user tidak bingung
+        # mengapa sesi tetap kepanjangan.
+        return (
+            messages,
+            False,
+            "compact gagal: ringkasan kosong (konteks terlalu besar atau API error). "
+            "Coba /new, atau kecilkan COMPACT_CHUNK_TOKENS / ganti COMPACT_MODEL.",
+        )
 
     max_chars = getattr(config, "COMPACT_MAX_CHARS", 120_000)
     if len(summary) > max_chars:
@@ -6396,6 +6437,37 @@ def compact_history(messages: list, keep_turns: int = None,
         f"dipertahankan utuh ({len(to_keep)} pesan)."
     )
     return new_messages, True, info
+
+
+class ContextLengthError(Exception):
+    """Payload melebihi context window model (tidak berguna untuk di-retry)."""
+
+
+class NonRetryableAPIError(Exception):
+    """Error API permanen (auth, request invalid) — jangan di-retry."""
+
+
+# Status HTTP yang layak di-retry. 400/401/403/404/422 TIDAK termasuk:
+# mengulanginya hanya membuang waktu & kuota.
+RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+RETRYABLE_HINTS = (
+    "rate limit", "rate-limit", "overload", "temporarily", "timeout",
+    "timed out", "unavailable", "try again", "server error",
+)
+_CONTEXT_HINTS = (
+    "context length", "context window", "maximum context", "too many tokens",
+    "prompt is too long", "exceeds the maximum", "reduce the length",
+)
+
+
+def _looks_like_context_error(text: str) -> bool:
+    t = (text or "").lower()
+    return any(h in t for h in _CONTEXT_HINTS)
+
+
+def _looks_retryable(text: str) -> bool:
+    t = (text or "").lower()
+    return any(h in t for h in RETRYABLE_HINTS)
 
 
 def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
@@ -6461,7 +6533,12 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
             response.raise_for_status()
             data = _consume_stream(response)
             if "error" in data:
-                raise Exception(f"OpenRouter error: {data['error']}")
+                err_text = json.dumps(data["error"], ensure_ascii=False)
+                if _looks_like_context_error(err_text):
+                    raise ContextLengthError(err_text)
+                if not _looks_retryable(err_text):
+                    raise NonRetryableAPIError(f"API error: {err_text[:300]}")
+                raise RuntimeError(f"API error: {err_text[:300]}")
             # Fold token EXACT round ini ke total giliran. total_tokens (prompt +
             # completion) = token yang benar-benar diproses; dijumlah lintas round
             # = total giliran. Jika provider tak kirim usage, pakai estimasi output.
@@ -6479,9 +6556,29 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
                 _spinner.reset_live()
                 # Hentikan spinner SEBELUM mencetak pesan retry/error.
                 _spinner.stop()
+            # Error permanen: langsung naikkan, jangan buang waktu/kuota.
+            if isinstance(e, (ContextLengthError, NonRetryableAPIError)):
+                raise
+
             # Klasifikasi pesan error agar tetap informatif tanpa duplikasi blok.
+            retry_after = None
             if isinstance(e, requests.exceptions.HTTPError):
-                error_msg = f"HTTP {e.response.status_code}: {e.response.text[:80]}"
+                status = e.response.status_code if e.response is not None else None
+                body = (e.response.text if e.response is not None else "") or ""
+                error_msg = f"HTTP {status}: {body[:120]}"
+
+                if _looks_like_context_error(body):
+                    raise ContextLengthError(error_msg) from e
+                if status not in RETRYABLE_STATUS:
+                    raise
+                # Hormati Retry-After (detik) pada 429/503, dengan batas aman.
+                if status in (429, 503) and e.response is not None:
+                    ra = e.response.headers.get("Retry-After")
+                    if ra:
+                        try:
+                            retry_after = max(0.0, min(float(ra), 120.0))
+                        except (TypeError, ValueError):
+                            retry_after = None
             elif isinstance(e, requests.exceptions.ConnectionError):
                 error_msg = f"Connection error: {str(e)[:80]}"
             elif isinstance(e, requests.exceptions.Timeout):
@@ -6494,6 +6591,9 @@ def chat(messages: list, temperature: float = 0.7, max_tokens: int = 16384,
             last_error = e
             if attempt < max_retries:
                 delay = retry_base_delay * (2 ** (attempt - 1))
+                if retry_after is not None:
+                    delay = max(delay, retry_after)
+                delay += random.uniform(0, 0.25)  # jitter hindari thundering herd
                 if not quiet:
                     show_retry(error_msg, attempt, max_retries, delay)
                 time.sleep(delay)
@@ -6513,10 +6613,11 @@ def process_response(messages: list, data: dict) -> tuple:
     Agentic loop — model dapat memanggil tools secara berantai (multi-step)
     dalam satu prompt hingga ia selesai dan mengembalikan teks akhir.
 
-    Round UNLIMITED — tidak ada batas maksimum.
     Agent berhenti jika:
       1. Model selesai (tidak ada tool_calls)
       2. User mengetik 'q' untuk interupsi (setelah round saat ini selesai)
+      3. Batas MAX_ROUNDS_PER_TURN tercapai → model dipaksa menjawab final
+      4. Tool+args identik dipanggil berulang tanpa kemajuan
 
     PENTING: Narasi model (content) HANYA ditampilkan jika model juga
     memanggil tool_calls. Jika model langsung jawab tanpa tools,
@@ -6527,8 +6628,43 @@ def process_response(messages: list, data: dict) -> tuple:
     round_num = 0
     was_interrupted = False
 
-    while True:  # ← UNLIMITED ROUNDS
+    # Batas biaya: putaran per giliran & eksekusi tool+args identik.
+    max_rounds = int(getattr(config, "MAX_ROUNDS_PER_TURN", 50) or 0)
+    max_identical = int(getattr(config, "MAX_IDENTICAL_TOOL_CALLS", 2) or 0)
+    call_counts: dict = {}
+    no_progress_rounds = 0
+
+    def _finalize(reason: str):
+        """Paksa model memberi jawaban akhir TANPA tool (mencegah loop)."""
+        messages.append({
+            "role": "user",
+            "content": (
+                f"[SYSTEM] {reason} "
+                "Berikan jawaban akhir yang ringkas sekarang: apa yang sudah "
+                "berhasil, apa yang gagal, dan langkah berikutnya. Jangan memanggil tool."
+            ),
+        })
+        show_thinking()
+        try:
+            final = chat(
+                messages, temperature=0.7, max_tokens=16384, include_tools=False
+            )
+            message = final["choices"][0]["message"]
+            messages.append(message)
+            return message.get("content", ""), messages, was_interrupted
+        except Exception as e:
+            return f"{reason} (gagal meminta jawaban akhir: {e})", messages, was_interrupted
+
+    while True:
         round_num += 1
+
+        # ── Batas putaran per giliran ────────────────────────────
+        if max_rounds and round_num > max_rounds:
+            print(
+                f"\n  {Style.WARN}■{Style.RESET} {Style.GREY}Batas {max_rounds} putaran "
+                f"tool tercapai — meminta jawaban akhir.{Style.RESET}"
+            )
+            return _finalize(f"Batas {max_rounds} putaran tool per giliran tercapai.")
 
         # ── Poll queue untuk deteksi 'q' real-time ──────────────
         _check_interrupt_nonblock()
@@ -6621,6 +6757,8 @@ def process_response(messages: list, data: dict) -> tuple:
             return message.get("content", ""), messages, was_interrupted
 
         # ── Eksekusi semua tool dalam round ini ──────────────────
+        executed_any = False
+        blocked_any = False
         for tc in tool_calls:
             tool_name = tc["function"]["name"]
             try:
@@ -6641,13 +6779,29 @@ def process_response(messages: list, data: dict) -> tuple:
                 })
                 continue
 
-            try:
-                result = execute_tool(tool_name, tool_args)
-            except Exception as e:
+            # Deteksi tool+args identik yang diulang-ulang.
+            call_key = (
+                tool_name,
+                json.dumps(tool_args, sort_keys=True, ensure_ascii=False),
+            )
+            call_counts[call_key] = call_counts.get(call_key, 0) + 1
+            if max_identical and call_counts[call_key] > max_identical:
+                blocked_any = True
                 result = (
-                    f"Error: Eksekusi tool '{tool_name}' gagal dengan exception: {type(e).__name__}: {e}. "
-                    "Periksa nama parameter yang benar sesuai definisi tool, lalu coba lagi."
+                    f"Error: Tool '{tool_name}' sudah dipanggil "
+                    f"{max_identical}x dengan argumen IDENTIK pada giliran ini. "
+                    "Panggilan ini diblokir agar tidak terjadi loop. "
+                    "Gunakan pendekatan/argumen berbeda, atau selesaikan jawaban."
                 )
+            else:
+                try:
+                    result = execute_tool(tool_name, tool_args)
+                    executed_any = True
+                except Exception as e:
+                    result = (
+                        f"Error: Eksekusi tool '{tool_name}' gagal dengan exception: {type(e).__name__}: {e}. "
+                        "Periksa nama parameter yang benar sesuai definisi tool, lalu coba lagi."
+                    )
 
             show_tool_call(tool_name, tool_args, result)
 
@@ -6666,6 +6820,20 @@ def process_response(messages: list, data: dict) -> tuple:
                 "tool_call_id": tc["id"],
                 "content": result
             })
+
+        # ── Deteksi tidak ada kemajuan: semua tool diblokir ─────
+        if blocked_any and not executed_any:
+            no_progress_rounds += 1
+            if no_progress_rounds >= 2:
+                print(
+                    f"\n  {Style.WARN}■{Style.RESET} {Style.GREY}Agent mengulang tool yang "
+                    f"sama tanpa kemajuan — meminta jawaban akhir.{Style.RESET}"
+                )
+                return _finalize(
+                    "Agent tidak membuat kemajuan: tool yang sama dipanggil berulang."
+                )
+        else:
+            no_progress_rounds = 0
 
         # ── Cek interrupt SETELAH eksekusi tool, SEBELUM panggil API lagi ──
         if _is_interrupted():
@@ -7234,6 +7402,8 @@ def chat_session(session_name: str = None):
                         save_session(session_name, messages)
                     else:
                         show_compacting_done(success=False)
+                        if info:
+                            print(f"\n  {Style.WARN}■{Style.RESET} {Style.GREY}{info}{Style.RESET}")
                 except Exception as _ce:
                     show_compacting_done(success=False)
                 finally:
@@ -7466,6 +7636,11 @@ def chat_session(session_name: str = None):
                             show_compact_notice(info, _estimate_tokens(messages))
                         else:
                             show_compacting_done(success=False)
+                            if info:
+                                print(
+                                    f"\n  {Style.WARN}■{Style.RESET} "
+                                    f"{Style.GREY}{info}{Style.RESET}"
+                                )
                     except Exception as _ce:
                         # Compaction gagal → jangan ganggu alur; riwayat tetap utuh.
                         show_compacting_done(success=False)

@@ -67,6 +67,22 @@ SESSIONS_DIR = os.path.join(SCRIPT_DIR, "sessions")
 MEMORY_DIR = os.path.join(SCRIPT_DIR, "data", "memory")
 
 # ============================================================
+# AGENT LOOP SAFETY — cegah loop tak berujung & biaya membengkak
+# ============================================================
+# Jumlah maksimum putaran tool dalam SATU giliran user. Saat batas tercapai,
+# model dipaksa memberi jawaban akhir tanpa tool. 0 = tanpa batas (tidak
+# disarankan untuk provider yang menagih per request).
+MAX_ROUNDS_PER_TURN = 50
+
+# Tool+args yang PERSIS sama hanya dieksekusi sebanyak ini per giliran.
+# Panggilan berikutnya diblokir dengan pesan error agar model ganti strategi.
+MAX_IDENTICAL_TOOL_CALLS = 2
+
+# Batas keras putaran diskusi /team (0 = pakai nilai ini). Koordinator tetap
+# boleh menutup lebih awal; ini hanya jaring pengaman biaya.
+MAX_TEAM_ROUNDS = 8
+
+# ============================================================
 # TIMEOUT & RETRY CONFIGURATION
 # ============================================================
 

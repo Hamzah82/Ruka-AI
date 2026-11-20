@@ -79,6 +79,9 @@ def get_dynamic_config():
     result['SCRIPT_DIR'] = config.SCRIPT_DIR
     result['SESSIONS_DIR'] = config.SESSIONS_DIR
     result['MEMORY_DIR'] = getattr(config, 'MEMORY_DIR', os.path.join(config.SCRIPT_DIR, "data", "memory"))
+    result['MAX_ROUNDS_PER_TURN'] = getattr(config, 'MAX_ROUNDS_PER_TURN', 50)
+    result['MAX_IDENTICAL_TOOL_CALLS'] = getattr(config, 'MAX_IDENTICAL_TOOL_CALLS', 2)
+    result['MAX_TEAM_ROUNDS'] = getattr(config, 'MAX_TEAM_ROUNDS', 8)
     result['DEFAULT_CMD_TIMEOUT'] = config.DEFAULT_CMD_TIMEOUT
     result['MAX_RETRIES'] = config.MAX_RETRIES
     result['RETRY_BASE_DELAY'] = config.RETRY_BASE_DELAY
