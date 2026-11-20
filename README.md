@@ -645,6 +645,8 @@ Konfigurasi dapat diatur di `config.py` (hardcode) atau `config.json` (dinamis, 
 
 `config.json` memiliki prioritas tertinggi untuk `api_endpoint`, `model`, dan `api_key`. File ini juga menyimpan **alias model** di key `model_aliases` (hasil dari `/model set`). Saat runtime, `dynamic_config.py` menggabungkan `config.json` (prioritas) dengan fallback ke `config.py`.
 
+Preferensi keamanan juga bisa diatur dari `config.json`: `approval_mode` (`ask`/`auto`/`plan`), `auto_update` (boolean), dan `checkpoint_enabled` (boolean). Perubahan `/mode` otomatis ditulis ke `approval_mode` bila `config.json` sudah ada.
+
 ---
 
 ## 📦 Dependensi

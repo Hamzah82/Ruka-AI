@@ -17,6 +17,7 @@ class ApprovalGateTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="ruka_appr_")
         self.base = self._tmp.name
         self._orig = (main.config.BASE_DIR, main.config.APPROVAL_MODE, main._request_approval)
+        self._real_request_approval = main._request_approval
         main.config.BASE_DIR = self.base
         self._answers = []
         main._request_approval = lambda *a, **k: (self._answers.pop(0), "")
@@ -91,6 +92,16 @@ class ApprovalGateTest(unittest.TestCase):
         main._request_approval = _boom
         result = main.execute_tool("exec_command", {"command": "echo halo"})
         self.assertIn("halo", result)
+
+    def test_non_tty_approval_denied(self):
+        # pytest/CI tidak punya TTY: aksi berisiko harus ditolak, bukan menggantung.
+        import io
+        from unittest import mock
+
+        with mock.patch.object(main.sys, "stdin", io.StringIO("")):
+            approved, note = self._real_request_approval("rm -rf build", "berbahaya")
+        self.assertFalse(approved)
+        self.assertIn("TTY", note)
 
 
 if __name__ == "__main__":
