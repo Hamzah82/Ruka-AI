@@ -82,6 +82,8 @@ def get_dynamic_config():
     result['MAX_ROUNDS_PER_TURN'] = getattr(config, 'MAX_ROUNDS_PER_TURN', 50)
     result['MAX_IDENTICAL_TOOL_CALLS'] = getattr(config, 'MAX_IDENTICAL_TOOL_CALLS', 2)
     result['MAX_TEAM_ROUNDS'] = getattr(config, 'MAX_TEAM_ROUNDS', 8)
+    result['CHECKPOINT_ENABLED'] = getattr(config, 'CHECKPOINT_ENABLED', True)
+    result['CHECKPOINT_KEEP'] = getattr(config, 'CHECKPOINT_KEEP', 30)
     result['DEFAULT_CMD_TIMEOUT'] = config.DEFAULT_CMD_TIMEOUT
     result['MAX_RETRIES'] = config.MAX_RETRIES
     result['RETRY_BASE_DELAY'] = config.RETRY_BASE_DELAY

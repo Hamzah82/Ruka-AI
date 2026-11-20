@@ -191,6 +191,8 @@ config/
 
 # Session data (chat history)
 sessions/
+# Checkpoint undo (lokal, per-workspace)
+.ruka/
 # Memory / catatan lintas-sesi (data lokal user, tidak untuk dipublikasikan)
 data/
 # Backup / old files

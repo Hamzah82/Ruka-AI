@@ -70,10 +70,12 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 import json
 from dynamic_config import get_dynamic_config
 from ruka.extra_tools import apply_patch as apply_patch_text
-from ruka.extra_tools import fuzzy_replace, glob_files, grep_files
+from ruka.extra_tools import fuzzy_replace, glob_files, grep_files, patch_paths
 from ruka.policy import MODES as APPROVAL_MODES
 from ruka.policy import evaluate_tool as evaluate_tool_policy
 from ruka.rules import build_rules_section
+from ruka.checkpoints import save_before_change as checkpoint_save
+from ruka.checkpoints import undo_last as checkpoint_undo
 
 # Load konfigurasi gabungan dari config.json + fallback ke config.py
 dynamic_cfg = get_dynamic_config()
@@ -119,6 +121,8 @@ config.APPROVAL_MODE = dynamic_cfg['APPROVAL_MODE']
 config.MAX_ROUNDS_PER_TURN = dynamic_cfg['MAX_ROUNDS_PER_TURN']
 config.MAX_IDENTICAL_TOOL_CALLS = dynamic_cfg['MAX_IDENTICAL_TOOL_CALLS']
 config.MAX_TEAM_ROUNDS = dynamic_cfg['MAX_TEAM_ROUNDS']
+config.CHECKPOINT_ENABLED = dynamic_cfg['CHECKPOINT_ENABLED']
+config.CHECKPOINT_KEEP = dynamic_cfg['CHECKPOINT_KEEP']
 
 # Variabel global MODEL dan HEADERS harus bisa diakses langsung
 MODEL = config.MODEL
@@ -2721,6 +2725,7 @@ def show_help():
     _help_row("/model alias", "Daftar alias model yang tersimpan")
     _help_row("/model rm <alias>", "Hapus alias model")
     _help_row("/compact", "Compact konteks manual (jika AI mulai halu)")
+    _help_row("/undo", "Batalkan perubahan file dari tool terakhir")
     _help_row("/mode ask|auto|plan", "Mode izin: konfirmasi / bebas / read-only")
     _help_row("/notif on|off", "Nyalakan/matikan notifikasi suara saat giliran selesai")
     _help_row("/notif set", "Picker interaktif memilih suara notifikasi")
@@ -6033,6 +6038,43 @@ def tool_team_discuss(topic: str, team: list, max_rounds: int = 0) -> str:
         _AGENT_DEPTH -= 1
 
 
+def _checkpoint_tool_call(name: str, arguments: dict) -> None:
+    """Simpan snapshot sebelum tool mengubah file (best-effort, tidak blocking)."""
+    if not getattr(config, "CHECKPOINT_ENABLED", True):
+        return
+
+    paths: list = []
+    recurse: list = []
+    if name in ("write_file", "edit_file", "delete_file"):
+        paths = [arguments.get("filename")]
+    elif name == "copy_file":
+        paths = [arguments.get("destination")]
+    elif name == "move_file":
+        paths = [arguments.get("source"), arguments.get("destination")]
+        recurse = [arguments.get("source")]
+    elif name == "create_folder":
+        paths = [arguments.get("foldername")]
+    elif name == "delete_folder":
+        paths = [arguments.get("foldername")]
+        recurse = list(paths)
+    elif name == "apply_patch":
+        paths = patch_paths(arguments.get("patch", ""))
+
+    paths = [p for p in paths if p]
+    if not paths:
+        return
+    try:
+        checkpoint_save(
+            config.BASE_DIR,
+            paths,
+            label=name,
+            recurse=[p for p in recurse if p],
+            keep=int(getattr(config, "CHECKPOINT_KEEP", 30) or 30),
+        )
+    except Exception:
+        pass  # checkpoint tidak boleh menggagalkan operasi utama
+
+
 def execute_tool(name: str, arguments: dict) -> str:
     # ── Gerbang kebijakan (mode ask/auto/plan) ──────────────────
     decision = evaluate_tool_policy(
@@ -6048,6 +6090,9 @@ def execute_tool(name: str, arguments: dict) -> str:
         )
         if not approved:
             return f"Error: Aksi '{name}' tidak dijalankan ({note})."
+
+    # ── Checkpoint sebelum perubahan (agar bisa /undo) ──────────
+    _checkpoint_tool_call(name, arguments)
 
     if name == "read_file":
         result = tool_read_file(
@@ -7544,6 +7589,13 @@ def chat_session(session_name: str = None):
                 finally:
                     unlock_input()
                     _drain_input_queue()
+                continue
+
+            # ── /undo — batalkan perubahan file dari tool terakhir ───────
+            if user_input.lower().strip() in ("/undo", "/batalkan"):
+                msg = checkpoint_undo(config.BASE_DIR)
+                color = Style.OK if msg.startswith("Undo") else Style.GREY
+                print(f"\n  {color}●{Style.RESET} {Style.GREY_LIGHT}{msg}{Style.RESET}")
                 continue
 
             # ── /mode — mode izin eksekusi (ask|auto|plan) ──────────────

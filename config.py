@@ -83,6 +83,17 @@ MAX_IDENTICAL_TOOL_CALLS = 2
 MAX_TEAM_ROUNDS = 8
 
 # ============================================================
+# CHECKPOINT / UNDO
+# ============================================================
+# Sebelum tool mengubah file, isi lama disalin ke <workspace>/.ruka/checkpoints.
+# User bisa membatalkan perubahan tool terakhir dengan /undo.
+CHECKPOINT_ENABLED = os.getenv("RUKA_CHECKPOINT", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+# Jumlah grup checkpoint yang disimpan. Yang lebih lama dihapus otomatis.
+CHECKPOINT_KEEP = 30
+
+# ============================================================
 # TIMEOUT & RETRY CONFIGURATION
 # ============================================================
 

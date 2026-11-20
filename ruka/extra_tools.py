@@ -261,6 +261,17 @@ def _apply_hunks(old_text: str, hunks) -> str:
     return "\n".join(out) + trailing
 
 
+def patch_paths(patch_text: str) -> list[str]:
+    """Path yang disentuh patch (untuk checkpoint). Toleran terhadap patch invalid."""
+    paths: list[str] = []
+    for line in (patch_text or "").splitlines():
+        if line.startswith("--- ") or line.startswith("+++ "):
+            header = _clean_header(line[4:])
+            if header and header != "/dev/null" and header not in paths:
+                paths.append(header)
+    return paths
+
+
 def apply_patch(patch_text: str, base_dir: str) -> str:
     """Terapkan unified diff ke file di workspace. Returns ringkasan."""
     if not (patch_text or "").strip():
