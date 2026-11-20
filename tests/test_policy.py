@@ -88,6 +88,19 @@ class EvaluateToolTest(unittest.TestCase):
         self.assertFalse(evaluate_tool("exec_command", {"command": "ls"}, self.ws, "ask").needs_approval)
         self.assertFalse(evaluate_tool("exec_command", {"command": "npm test"}, self.ws, "ask").needs_approval)
 
+    def test_ask_prompts_for_destructive_patch(self):
+        delete_patch = "--- a/x.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-halo\n"
+        modify_patch = "--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n-halo\n-hai\n"
+        self.assertTrue(
+            evaluate_tool("apply_patch", {"patch": delete_patch}, self.ws, "ask").needs_approval
+        )
+        self.assertFalse(
+            evaluate_tool("apply_patch", {"patch": modify_patch}, self.ws, "ask").needs_approval
+        )
+        self.assertFalse(
+            evaluate_tool("apply_patch", {"patch": modify_patch}, self.ws, "plan").allowed
+        )
+
     def test_auto_allows_all(self):
         for tool in ("write_file", "delete_file", "exec_command"):
             args = {"command": "rm -rf x"} if tool == "exec_command" else {}

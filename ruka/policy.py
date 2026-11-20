@@ -282,6 +282,13 @@ def evaluate_tool(
     if tool in MUTATING_TOOLS:
         if mode == "plan":
             return Decision(False, False, f"Mode plan: tool '{tool}' mengubah state.", "moderate")
+        if tool == "apply_patch" and mode == "ask":
+            patch = str(arguments.get("patch", ""))
+            deleting = "+++ /dev/null" in patch
+            multi = patch.count("--- ") > 1
+            if deleting or multi:
+                reason = "patch menghapus file" if deleting else "patch menyentuh banyak file"
+                return Decision(True, True, reason, "danger")
         if mode == "ask" and tool in ASK_TOOLS:
             return Decision(True, True, f"tool '{tool}' bersifat destruktif", "danger")
         return Decision(True, False, "", "moderate")

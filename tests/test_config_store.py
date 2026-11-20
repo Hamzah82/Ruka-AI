@@ -37,6 +37,14 @@ class ConfigWriteTest(unittest.TestCase):
         mode = stat.S_IMODE(os.stat(self.path).st_mode)
         self.assertEqual(mode, 0o600, oct(mode))
 
+    def test_backup_mode_is_owner_only(self):
+        main._write_config_data({"api_key": "secret-lama"})
+        main._write_config_data({"api_key": "secret-baru"})
+        backup = os.path.join(self._tmp.name, "backups", "config.json.bak")
+        self.assertTrue(os.path.exists(backup))
+        mode = stat.S_IMODE(os.stat(backup).st_mode)
+        self.assertEqual(mode, 0o600, oct(mode))
+
     def test_overwrite_keeps_valid_json(self):
         main._write_config_data({"model": "a"})
         main._write_config_data({"model": "b"})

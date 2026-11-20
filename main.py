@@ -2693,10 +2693,12 @@ def _write_config_data(config_data: dict) -> None:
     config_path = os.path.join(SCRIPT_DIR, "config.json")
     config_data["updated_at"] = datetime.now().isoformat()
     _atomic_write_json(config_path, config_data)
-    try:
-        os.chmod(config_path, 0o600)
-    except OSError:
-        pass  # Windows / FS tanpa permission POSIX — bukan error fatal
+    # Backup juga berisi API key — jangan biarkan world/group-readable.
+    for path in (config_path, os.path.join(SCRIPT_DIR, "backups", "config.json.bak")):
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass  # Windows / FS tanpa permission POSIX — bukan error fatal
 
 
 def _resolve_alias(value: str, config_data: dict) -> str:
@@ -4695,6 +4697,13 @@ def tool_delete_folder(foldername: str, recursive: bool = False) -> str:
         return f"Error: Folder '{foldername}' tidak ditemukan."
     if not os.path.isdir(path):
         return f"Error: '{foldername}' bukan folder. Gunakan delete_file untuk menghapus file."
+    # Jangan izinkan agent menghapus workspace root itu sendiri — /undo pun
+    # tidak bisa memulihkan seluruh workspace dengan aman.
+    try:
+        if os.path.realpath(path) == os.path.realpath(config.BASE_DIR):
+            return "Error: Menghapus workspace root tidak diizinkan."
+    except OSError:
+        pass
     try:
         if recursive:
             file_count = 0

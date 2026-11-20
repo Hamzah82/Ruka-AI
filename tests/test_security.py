@@ -166,6 +166,11 @@ class SafePathTest(unittest.TestCase):
         self.assertTrue(result.startswith("Error"), result)
         self.assertTrue(os.path.exists(source))
 
+    def test_delete_workspace_root_refused(self):
+        result = main.tool_delete_folder(".", recursive=True)
+        self.assertTrue(result.startswith("Error"), result)
+        self.assertTrue(os.path.isdir(self.base))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
