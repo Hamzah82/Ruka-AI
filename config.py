@@ -164,6 +164,20 @@ NOTIF_SOUND_DIRS = [
 ]
 
 # ============================================================
+# SECURITY — PATH & WRITE POLICY
+# ============================================================
+# Agent boleh MEMBACA dari workspace (BASE_DIR) dan folder instalasi
+# (SCRIPT_DIR: SKILL/, dokumentasi). Tetapi operasi TULIS default hanya
+# diizinkan di workspace. Ini mencegah prompt injection menimpa main.py,
+# SKILL/*.md, atau config.json dan menanam backdoor yang persisten.
+#
+# Set env RUKA_ALLOW_INTERNAL_WRITE=1 hanya bila kamu benar-benar ingin
+# agent bisa mengedit file internal Ruka sendiri.
+ALLOW_INTERNAL_WRITE = os.getenv("RUKA_ALLOW_INTERNAL_WRITE", "").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+
+# ============================================================
 # SECURITY — BLOCKED COMMANDS
 # ============================================================
 # Perintah yang TIDAK BOLEH dijalankan oleh agent.

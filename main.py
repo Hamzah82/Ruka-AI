@@ -109,6 +109,7 @@ config.ESTIMATE_CHARS_PER_TOKEN = dynamic_cfg['ESTIMATE_CHARS_PER_TOKEN']
 config.NOTIF_ENABLED = dynamic_cfg['NOTIF_ENABLED']
 config.NOTIF_SOUND = dynamic_cfg['NOTIF_SOUND']
 config.NOTIF_SOUND_DIRS = dynamic_cfg['NOTIF_SOUND_DIRS']
+config.ALLOW_INTERNAL_WRITE = dynamic_cfg['ALLOW_INTERNAL_WRITE']
 
 # Variabel global MODEL dan HEADERS harus bisa diakses langsung
 MODEL = config.MODEL
@@ -2522,11 +2523,20 @@ def _read_config_data() -> dict:
 
 
 def _write_config_data(config_data: dict) -> None:
-    """Tulis dict ke config.json (dengan updated_at otomatis)."""
+    """
+    Tulis dict ke config.json secara atomik (dengan updated_at otomatis).
+
+    config.json menyimpan API key dalam plaintext, jadi file dibuat hanya bisa
+    dibaca pemilik (0600). Penulisan atomik mencegah config rusak/terpotong
+    bila proses berhenti di tengah jalan.
+    """
     config_path = os.path.join(SCRIPT_DIR, "config.json")
     config_data["updated_at"] = datetime.now().isoformat()
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config_data, f, indent=2, ensure_ascii=False)
+    _atomic_write_json(config_path, config_data)
+    try:
+        os.chmod(config_path, 0o600)
+    except OSError:
+        pass  # Windows / FS tanpa permission POSIX — bukan error fatal
 
 
 def _resolve_alias(value: str, config_data: dict) -> str:
@@ -3277,17 +3287,22 @@ def show_user_prompt(session_name: str = None):
 # HELPER: Keamanan Path
 # ============================================================
 
-def _safe_path(name: str) -> str | None:
+def _safe_path(name: str, write: bool = False) -> str | None:
     """
-    Mengembalikan path absolut yang aman, atau None jika path traversal terdeteksi.
+    Mengembalikan path absolut yang aman, atau None jika akses ditolak.
 
-    Mendukung dua mode:
-    - Path absolut (contoh: /home/user/RukaAI/SKILL/skills.md) → pakai langsung
-    - Path relatif (contoh: catatan.txt) → gabungkan dengan BASE_DIR; jika file
-      tidak ada di BASE_DIR, fallback ke SCRIPT_DIR (untuk akses SKILL/ dll.)
+    Model izin:
+    - BACA  : boleh di BASE_DIR (workspace) dan SCRIPT_DIR (folder instalasi,
+              mis. SKILL/skills.md).
+    - TULIS : HANYA di BASE_DIR. Menulis ke SCRIPT_DIR (main.py, config.json,
+              SKILL/) ditolak kecuali `ALLOW_INTERNAL_WRITE` diaktifkan.
 
-    Path traversal dicegah dengan memastikan hasil akhir masih dalam BASE_DIR
-    atau SCRIPT_DIR (folder main.py, untuk akses SKILL/ dan file internal).
+    Path relatif untuk operasi tulis SELALU diselesaikan ke BASE_DIR, meskipun
+    ada file bernama sama di SCRIPT_DIR. Tanpa ini, `write_file("main.py")`
+    akan menimpa source code Ruka, bukan file di workspace.
+
+    Path traversal & symlink escape dicegah dengan realpath + commonpath
+    (bukan startswith yang lolos pada sibling-prefix).
     """
     # Null byte tak pernah valid di path & bisa menipu pemeriksaan — tolak dini.
     if "\x00" in name:
@@ -3295,13 +3310,16 @@ def _safe_path(name: str) -> str | None:
 
     if os.path.isabs(name):
         raw = os.path.abspath(name)
+    elif write:
+        # Operasi tulis: relatif selalu terhadap workspace.
+        raw = os.path.abspath(os.path.join(config.BASE_DIR, name))
     else:
-        # Untuk path relatif, coba BASE_DIR dulu, lalu SCRIPT_DIR sebagai fallback.
+        # Operasi baca: coba BASE_DIR dulu, lalu SCRIPT_DIR sebagai fallback.
         # Prioritas: jika file/folder SUDAH ada di BASE_DIR → pakai BASE_DIR.
         # Jika TIDAK ada di BASE_DIR tapi ada di SCRIPT_DIR → pakai SCRIPT_DIR.
-        # Jika tidak ada di keduanya → pakai BASE_DIR (untuk operasi write baru),
-        #   KECUALI parent folder hanya ada di SCRIPT_DIR (misal: "SKILL/..." —
-        #   folder SKILL hanya ada di folder instalasi, bukan workspace user).
+        # Jika tidak ada di keduanya → pakai BASE_DIR (untuk operasi read yang
+        #   akan gagal dengan pesan "tidak ditemukan"), KECUALI parent folder
+        #   hanya ada di SCRIPT_DIR (misal: "SKILL/...").
         candidate_base = os.path.abspath(os.path.join(config.BASE_DIR, name))
         candidate_script = os.path.abspath(os.path.join(config.SCRIPT_DIR, name))
 
@@ -3310,11 +3328,8 @@ def _safe_path(name: str) -> str | None:
         elif os.path.exists(candidate_script):
             raw = candidate_script
         else:
-            # Tidak ada di keduanya — cek parent folder.
             parent_base = os.path.dirname(candidate_base)
             parent_script = os.path.dirname(candidate_script)
-            # Jika parent di SCRIPT_DIR ada tapi parent di BASE_DIR tidak,
-            # arahkan ke SCRIPT_DIR (misal: "SKILL/file_baru.md").
             if not os.path.exists(parent_base) and os.path.exists(parent_script):
                 raw = candidate_script
             else:
@@ -3353,7 +3368,12 @@ def _safe_path(name: str) -> str | None:
         except (ValueError, TypeError):
             return False  # beda drive (Windows) / campur abs-rel / null byte
 
-    if _within(config.BASE_DIR) or _within(config.SCRIPT_DIR):
+    allow_internal = bool(getattr(config, "ALLOW_INTERNAL_WRITE", False))
+    roots = [config.BASE_DIR]
+    if not write or allow_internal:
+        roots.append(config.SCRIPT_DIR)
+
+    if any(_within(base) for base in roots):
         return target
     return None
 
@@ -4122,7 +4142,7 @@ def _looks_binary(path: str, sniff: int = None) -> bool:
 def tool_read_file(filename: str, offset: int = 1, limit: int = None, line_numbers: bool = False) -> str:
     path = _safe_path(filename)
     if path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     if not os.path.exists(path):
         return f"Error: File '{filename}' tidak ditemukan."
     if not os.path.isfile(path):
@@ -4187,9 +4207,9 @@ def tool_read_file(filename: str, offset: int = 1, limit: int = None, line_numbe
 
 
 def tool_write_file(filename: str, content: str) -> str:
-    path = _safe_path(filename)
+    path = _safe_path(filename, write=True)
     if path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     try:
         parent_dir = os.path.dirname(path)
         if parent_dir and not os.path.exists(parent_dir):
@@ -4210,9 +4230,9 @@ def tool_edit_file(filename: str, operation: str, new_text: str, old_text: str =
     - append: menambah new_text di akhir file
     - prepend: menambah new_text di awal file
     """
-    path = _safe_path(filename)
+    path = _safe_path(filename, write=True)
     if path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     if not os.path.exists(path):
         return f"Error: File '{filename}' tidak ditemukan."
     if not os.path.isfile(path):
@@ -4278,9 +4298,9 @@ def tool_list_files() -> str:
 
 
 def tool_delete_file(filename: str) -> str:
-    path = _safe_path(filename)
+    path = _safe_path(filename, write=True)
     if path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     if not os.path.exists(path):
         return f"Error: File '{filename}' tidak ditemukan."
     if not os.path.isfile(path):
@@ -4294,9 +4314,9 @@ def tool_delete_file(filename: str) -> str:
 
 def tool_copy_file(source: str, destination: str) -> str:
     src_path = _safe_path(source)
-    dst_path = _safe_path(destination)
+    dst_path = _safe_path(destination, write=True)
     if src_path is None or dst_path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     if not os.path.exists(src_path):
         return f"Error: File sumber '{source}' tidak ditemukan."
     if not os.path.isfile(src_path):
@@ -4313,10 +4333,11 @@ def tool_copy_file(source: str, destination: str) -> str:
 
 
 def tool_move_file(source: str, destination: str) -> str:
-    src_path = _safe_path(source)
-    dst_path = _safe_path(destination)
+    # Sumber ikut divalidasi sebagai operasi tulis: move menghapus file asal.
+    src_path = _safe_path(source, write=True)
+    dst_path = _safe_path(destination, write=True)
     if src_path is None or dst_path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     if not os.path.exists(src_path):
         return f"Error: File/folder sumber '{source}' tidak ditemukan."
     try:
@@ -4332,7 +4353,7 @@ def tool_move_file(source: str, destination: str) -> str:
 def tool_get_file_info(name: str) -> str:
     path = _safe_path(name)
     if path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     if not os.path.exists(path):
         return f"Error: '{name}' tidak ditemukan."
     try:
@@ -4373,9 +4394,9 @@ def tool_get_file_info(name: str) -> str:
 
 
 def tool_create_folder(foldername: str) -> str:
-    path = _safe_path(foldername)
+    path = _safe_path(foldername, write=True)
     if path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     if os.path.exists(path):
         if os.path.isdir(path):
             return f"Error: Folder '{foldername}' sudah ada."
@@ -4389,9 +4410,9 @@ def tool_create_folder(foldername: str) -> str:
 
 
 def tool_delete_folder(foldername: str, recursive: bool = False) -> str:
-    path = _safe_path(foldername)
+    path = _safe_path(foldername, write=True)
     if path is None:
-        return "Error: Akses ditolak. Path harus berada di direktori kerja."
+        return "Error: Akses ditolak. Path berada di luar area yang diizinkan."
     if not os.path.exists(path):
         return f"Error: Folder '{foldername}' tidak ditemukan."
     if not os.path.isdir(path):
