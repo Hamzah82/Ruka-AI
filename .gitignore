@@ -202,8 +202,9 @@ SKILL/config/email/
 SKILL/config/moltbook/
 users.json
 
-# Tests (local only, not for publishing)
-tests/
+# Tests dipakai CI (lihat .github/workflows/ci.yml) — jangan di-ignore.
+tests/__pycache__/
+.pytest_cache/
 
 # AI Development
 CLAUDE.md
